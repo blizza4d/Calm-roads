@@ -329,6 +329,7 @@ export default function VehicleController() {
       throttle: Math.abs(currentThrottle.current),
       isOffRoad: !onRoad,
       isHoverMode,
+      vehicleModel,
     })
 
     // 11. Multi-Camera System with Smooth Lerping

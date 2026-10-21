@@ -20,10 +20,12 @@ package com.antigrav.audio
         public var rpm:Number = 1000;
         public var throttle:Number = 0;
         public var isHovering:Boolean = true;
+        public var isM3GTR:Boolean = true; // Authentic BMW M3 GTR P60B40 V8 Screamer
 
         // Synthesis phase accumulators
         private var _phase1:Number = 0;
         private var _phase2:Number = 0;
+        private var _phaseGearWhine:Number = 0;
         private var _noiseFilterState:Number = 0;
 
         // Doppler & 3D Spatial parameters
@@ -83,12 +85,17 @@ package com.antigrav.audio
             var baseFreq:Number = (55.0 + (rpm / 8000.0) * 280.0 + (speedKmh / 300.0) * 110.0) * doppler;
             var subFreq:Number = (baseFreq * 0.5);
 
+            // BMW M3 GTR Straight-cut transmission whine scream
+            var whineFreq:Number = (1100.0 + (rpm / 8000.0) * 1400.0 + (speedKmh / 260.0) * 1300.0) * doppler;
+
             var phaseIncr1:Number = (TWO_PI * baseFreq) / SAMPLE_RATE;
             var phaseIncr2:Number = (TWO_PI * subFreq) / SAMPLE_RATE;
+            var phaseIncrWhine:Number = (TWO_PI * whineFreq) / SAMPLE_RATE;
 
             // Wind rush volume scales quadratic with speed (v^2)
             var windVol:Number = Math.min(0.4, Math.pow(speedKmh / 280.0, 2.0) * 0.4);
             var engineVol:Number = 0.12 + (throttle * 0.15) + (rpm / 8000.0) * 0.08;
+            var whineVol:Number = isM3GTR ? (0.16 + throttle * 0.45 + (speedKmh / 220.0) * 0.25) : 0.0;
 
             // Stereo Panning (-1.0 to +1.0)
             var pan:Number = Math.max(-1.0, Math.min(1.0, (vehiclePos.x - listenerPos.x) / 30.0));
@@ -107,7 +114,10 @@ package com.antigrav.audio
                 _noiseFilterState += 0.08 * (whiteNoise - _noiseFilterState);
                 var windSample:Number = _noiseFilterState * windVol;
 
-                var mixedMono:Number = turbineSample + windSample;
+                // 3. Screaming straight-cut gear whine
+                var gearWhine:Number = Math.sin(_phaseGearWhine) * whineVol;
+
+                var mixedMono:Number = turbineSample + gearWhine + windSample;
 
                 // Write interleaved stereo 32-bit floats
                 e.data.writeFloat(mixedMono * leftGain);
@@ -115,8 +125,10 @@ package com.antigrav.audio
 
                 _phase1 += phaseIncr1;
                 _phase2 += phaseIncr2;
+                _phaseGearWhine += phaseIncrWhine;
                 if (_phase1 > TWO_PI) _phase1 -= TWO_PI;
                 if (_phase2 > TWO_PI) _phase2 -= TWO_PI;
+                if (_phaseGearWhine > TWO_PI) _phaseGearWhine -= TWO_PI;
             }
         }
     }

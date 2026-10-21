@@ -29,10 +29,19 @@ class AudioEcosystem {
   private musicVolume = 0.65
 
   // Engine SFX Nodes
+  private sfxMaster: GainNode | null = null
   private engineGain: GainNode | null = null
   private engineOsc1: OscillatorNode | null = null
   private engineOsc2: OscillatorNode | null = null
   private engineFilter: BiquadFilterNode | null = null
+
+  // Authentic Screaming BMW M3 GTR Audio (P60B40 V8 & Straight-Cut Gear Whine)
+  private m3Buffer: AudioBuffer | null = null
+  private m3Source: AudioBufferSourceNode | null = null
+  private m3Gain: GainNode | null = null
+  private m3Filter: BiquadFilterNode | null = null
+  private m3Loading = false
+  private m3Loaded = false
 
   // Surface Friction SFX
   private frictionGain: GainNode | null = null
@@ -96,9 +105,12 @@ class AudioEcosystem {
     this.musicGain.connect(this.ctx.destination)
 
     // Master SFX Channel
-    const sfxMaster = this.ctx.createGain()
-    sfxMaster.gain.value = this.sfxMasterVolume
-    sfxMaster.connect(this.ctx.destination)
+    this.sfxMaster = this.ctx.createGain()
+    this.sfxMaster.gain.value = this.sfxMasterVolume
+    this.sfxMaster.connect(this.ctx.destination)
+
+    // Load authentic screaming M3 GTR audio sample (P60B40 V8 + straight-cut gear whine)
+    this.loadM3Sample()
 
     // 1. Engine Hum Channel
     this.engineGain = this.ctx.createGain()
@@ -118,7 +130,7 @@ class AudioEcosystem {
     this.engineOsc1.connect(this.engineFilter)
     this.engineOsc2.connect(this.engineFilter)
     this.engineFilter.connect(this.engineGain)
-    this.engineGain.connect(sfxMaster)
+    this.engineGain.connect(this.sfxMaster)
 
     this.engineOsc1.start()
     this.engineOsc2.start()
@@ -145,7 +157,7 @@ class AudioEcosystem {
 
       noiseSource.connect(this.frictionFilter)
       this.frictionFilter.connect(this.frictionGain)
-      this.frictionGain.connect(sfxMaster)
+      this.frictionGain.connect(this.sfxMaster)
       noiseSource.start()
     } catch {}
 
@@ -157,13 +169,13 @@ class AudioEcosystem {
     this.hoverOsc.frequency.value = 180
 
     this.hoverOsc.connect(this.hoverGain)
-    this.hoverGain.connect(sfxMaster)
+    this.hoverGain.connect(this.sfxMaster)
     this.hoverOsc.start()
 
     // 4. Weather Ambience
     this.weatherGain = this.ctx.createGain()
     this.weatherGain.gain.value = 0.0
-    this.weatherGain.connect(sfxMaster)
+    this.weatherGain.connect(this.sfxMaster)
 
     this.isUnlocked = true
   }
@@ -172,6 +184,60 @@ class AudioEcosystem {
     if (!this.ctx) this.init()
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {})
+    }
+    if (!this.m3Loaded && !this.m3Loading) {
+      this.loadM3Sample()
+    } else if (this.m3Loaded && !this.m3Source) {
+      this.setupM3Source()
+    }
+  }
+
+  private async loadM3Sample() {
+    if (this.m3Buffer || this.m3Loading || !this.ctx) return
+    this.m3Loading = true
+    try {
+      const response = await fetch('/audio/m3_gtr_screaming.mp3')
+      if (!response.ok) {
+        console.warn('Could not fetch M3 GTR audio sample:', response.statusText)
+        return
+      }
+      const arrayBuffer = await response.arrayBuffer()
+      this.m3Buffer = await this.ctx.decodeAudioData(arrayBuffer)
+      this.m3Loaded = true
+      this.setupM3Source()
+    } catch (err) {
+      console.warn('Procedural audio fallback active. M3 sample load error:', err)
+    } finally {
+      this.m3Loading = false
+    }
+  }
+
+  private setupM3Source() {
+    if (!this.ctx || !this.m3Buffer || !this.sfxMaster || this.m3Source) return
+
+    this.m3Gain = this.ctx.createGain()
+    this.m3Gain.gain.value = 0.0001
+
+    // Peaking filter to enhance screaming straight-cut transmission whine
+    this.m3Filter = this.ctx.createBiquadFilter()
+    this.m3Filter.type = 'peaking'
+    this.m3Filter.frequency.value = 1600
+    this.m3Filter.Q.value = 1.2
+    this.m3Filter.gain.value = 4.5
+
+    this.m3Source = this.ctx.createBufferSource()
+    this.m3Source.buffer = this.m3Buffer
+    this.m3Source.loop = true
+    this.m3Source.playbackRate.value = 0.85
+
+    this.m3Source.connect(this.m3Filter)
+    this.m3Filter.connect(this.m3Gain)
+    this.m3Gain.connect(this.sfxMaster)
+
+    try {
+      this.m3Source.start(0)
+    } catch (e) {
+      console.warn('M3 audio source start info:', e)
     }
   }
 
@@ -182,18 +248,53 @@ class AudioEcosystem {
     throttle: number
     isOffRoad: boolean
     isHoverMode: boolean
+    vehicleModel?: string
   }) {
     if (!this.ctx || !this.isUnlocked) return
     const now = this.ctx.currentTime
 
-    const { speedKmh, rpm, throttle, isOffRoad, isHoverMode } = params
+    const { speedKmh, rpm, throttle, isOffRoad, isHoverMode, vehicleModel = 'bmw_m3' } = params
+    const isM3 = vehicleModel === 'bmw_m3'
 
-    // 1. Engine Hum Pitch & Filter
+    // 1. Authentic Screaming BMW M3 GTR Engine & Straight-Cut Gear Whine
+    if (this.m3Source && this.m3Gain) {
+      if (isHoverMode || !isM3) {
+        // Mute M3 engine scream when hover mode or alternative vehicle is active
+        this.m3Gain.gain.setTargetAtTime(0.0001, now, 0.1)
+      } else {
+        const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 800) / 7200))
+        const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 220))
+
+        // Dynamic pitch scaling: 0.72x deep idle -> 1.82x maximum redline scream
+        const targetPitch = 0.72 + rpmNorm * 0.88 + speedNorm * 0.22
+        this.m3Source.playbackRate.setTargetAtTime(targetPitch, now, 0.04)
+
+        // Resonant transmission whine frequency shift
+        if (this.m3Filter) {
+          const whineFreq = 1200 + speedNorm * 1300 + rpmNorm * 700
+          this.m3Filter.frequency.setTargetAtTime(whineFreq, now, 0.05)
+        }
+
+        // Visceral, deafening scream under throttle and high speeds
+        const targetGain = 0.20 + throttle * 0.65 + speedNorm * 0.25
+        this.m3Gain.gain.setTargetAtTime(targetGain, now, 0.04)
+      }
+    }
+
+    // 2. Engine Hum Pitch & Sub-bass Reinforcement
     if (this.engineOsc1 && this.engineOsc2 && this.engineFilter && this.engineGain) {
       if (isHoverMode) {
         // Mute combustion engine when in hovercraft antigravity mode
-        this.engineGain.gain.setTargetAtTime(0.001, now, 0.1)
+        this.engineGain.gain.setTargetAtTime(0.0001, now, 0.1)
+      } else if (isM3 && this.m3Loaded) {
+        // Deep physical sub-bass rumble beneath the screaming engine sample
+        const baseFreq = 38 + (rpm / 8000) * 80
+        this.engineOsc1.frequency.setTargetAtTime(baseFreq, now, 0.05)
+        this.engineOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.05)
+        this.engineFilter.frequency.setTargetAtTime(250 + throttle * 250, now, 0.05)
+        this.engineGain.gain.setTargetAtTime(0.03 + throttle * 0.04, now, 0.05)
       } else {
+        // Full procedural synthesis engine for camper/hatchback or when sample is loading
         const baseFreq = 40 + (rpm / 8000) * 160
         this.engineOsc1.frequency.setTargetAtTime(baseFreq, now, 0.05)
         this.engineOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.05)
@@ -207,7 +308,7 @@ class AudioEcosystem {
       }
     }
 
-    // 2. Surface Tire Friction (higher on offroad/grass)
+    // 3. Surface Tire Friction (higher on offroad/grass)
     if (this.frictionGain && this.frictionFilter) {
       if (isHoverMode || speedKmh < 3) {
         this.frictionGain.gain.setTargetAtTime(0.0001, now, 0.1)
@@ -221,7 +322,7 @@ class AudioEcosystem {
       }
     }
 
-    // 3. Hovercraft Repulsor Hum
+    // 4. Hovercraft Repulsor Hum
     if (this.hoverGain && this.hoverOsc) {
       if (isHoverMode) {
         const hoverTarget = 0.12 + Math.min(0.12, (speedKmh / 180) * 0.1)
@@ -272,6 +373,9 @@ class AudioEcosystem {
 
   public setSfxVolume(val: number) {
     this.sfxMasterVolume = Math.max(0, Math.min(1, val))
+    if (this.sfxMaster && this.ctx) {
+      this.sfxMaster.gain.setTargetAtTime(this.sfxMasterVolume, this.ctx.currentTime, 0.05)
+    }
   }
 
   public startMusic(trackIdx = 0) {

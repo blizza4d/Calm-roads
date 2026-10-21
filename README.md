@@ -46,8 +46,9 @@
 - **Cinematic Post-Processing**: `ToneMapping`, `Bloom` luminance threshold, and `Vignette`.
 - **Authentic Headlight Projectors**: Dedicated forward target Object3Ds casting volumetric beams 40m+ down the highway.
 
-### 5. 📻 Lo-Fi Radio & Procedural Audio Ecosystem
-- **Auto-Unlock Audio**: Engine hum, tire friction, and hover repulsor resonance play immediately on first interaction.
+### 5. 📻 Authentic Screaming BMW M3 GTR Audio, Lo-Fi Radio & Audio Ecosystem
+- **Authentic Screaming BMW M3 GTR (P60B40 V8)**: Integrated raw screaming audio sample featuring the iconic straight-cut transmission gear whine. Pitch dynamically scales from idle (0.72x) to maximum redline scream (1.82x) with vehicle speed and engine RPM, alongside throttle-responsive volume modulation and peaking resonance filters.
+- **Auto-Unlock Audio**: Engine scream, tire friction, and hover repulsor resonance initialize seamlessly on first user interaction.
 - **Dynamic Sound Effects**: Engine pitch modulated by RPM, gravel surface friction on off-road terrain, and a classic dual-tone horn.
 - **Cozy Lo-Fi Playlist**: 5 original ambient tracks with tape flutter and vinyl warmth.
 
