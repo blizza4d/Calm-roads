@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { useGameStore } from '../../../store/useGameStore'
+import { useGameStore, VehicleModelType } from '../../../store/useGameStore'
 import { ActiveCarModel } from './CarModels'
 import {
   getRoadCenter,
@@ -13,6 +13,90 @@ import {
   getTerrainSlopeForVehicle,
 } from '../../../utils/roadMath'
 import { audioSystem } from '../../../utils/audioSystem'
+
+export interface VehicleConfig {
+  name: string
+  massKg: number
+  wheelRadius: number
+  maxSpeedMs: number
+  maxSpeedKmh: number
+  peakAccel: number
+  brakeDecel: number
+  dragCoeff: number // Aerodynamic drag factor
+  downforceCoeff: number // Aerodynamic downforce
+  turnRate: number
+  tireGrip: number
+  roadDamping: number
+  offroadDamping: number
+  gearRatios: number[] // Speed km/h per gear
+}
+
+export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
+  bmw_m3: {
+    name: "BMW M3 GTR '05",
+    massKg: 1350,
+    wheelRadius: 0.36,
+    maxSpeedMs: 76.4, // ~275 km/h
+    maxSpeedKmh: 275,
+    peakAccel: 6.8, // Progressive GT power curve
+    brakeDecel: 28,
+    dragCoeff: 0.32,
+    downforceCoeff: 0.45,
+    turnRate: 1.38,
+    tireGrip: 1.15,
+    roadDamping: 0.994,
+    offroadDamping: 0.985,
+    gearRatios: [48, 92, 145, 195, 238, 275],
+  },
+  hovercraft: {
+    name: 'Antigravity Hovercraft',
+    massKg: 980,
+    wheelRadius: 0.32,
+    maxSpeedMs: 86.1, // ~310 km/h
+    maxSpeedKmh: 310,
+    peakAccel: 7.6,
+    brakeDecel: 22,
+    dragCoeff: 0.22,
+    downforceCoeff: 0.65,
+    turnRate: 1.62,
+    tireGrip: 0.85, // Low-friction inertia drift
+    roadDamping: 0.997,
+    offroadDamping: 0.996,
+    gearRatios: [60, 130, 205, 265, 310],
+  },
+  camper: {
+    name: 'Cozy Camper Van',
+    massKg: 1950,
+    wheelRadius: 0.38,
+    maxSpeedMs: 40.3, // ~145 km/h
+    maxSpeedKmh: 145,
+    peakAccel: 3.2, // Heavy vintage inertia
+    brakeDecel: 19,
+    dragCoeff: 0.44,
+    downforceCoeff: 0.1,
+    turnRate: 1.08,
+    tireGrip: 0.95,
+    roadDamping: 0.991,
+    offroadDamping: 0.982,
+    gearRatios: [32, 65, 105, 145],
+  },
+  hatchback: {
+    name: 'Rally Spec Hatchback',
+    massKg: 1120,
+    wheelRadius: 0.34,
+    maxSpeedMs: 62.5, // ~225 km/h
+    maxSpeedKmh: 225,
+    peakAccel: 5.6,
+    brakeDecel: 26,
+    dragCoeff: 0.36,
+    downforceCoeff: 0.35,
+    turnRate: 1.42,
+    tireGrip: 1.1,
+    roadDamping: 0.992,
+    offroadDamping: 0.984,
+    gearRatios: [40, 80, 125, 172, 225],
+  },
+}
 
 export default function VehicleController() {
   const carGroupRef = useRef<THREE.Group>(null)
@@ -39,7 +123,7 @@ export default function VehicleController() {
     setCurrentResolvedBiome,
   } = useGameStore()
 
-  // State Variables - initialized directly on the road surface at Z=0
+  // State Variables - initialized on the road at Z=0
   const initialSpawnY = getRoadElevation(0) + 0.44
   const initialSpawnX = getRoadCenter(0)
   const pos = useRef(new THREE.Vector3(initialSpawnX, initialSpawnY, 0))
@@ -55,46 +139,16 @@ export default function VehicleController() {
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
   const prevThrottleVal = useRef(0)
 
-  // Performance parameters per vehicle model (Smooth, heavy, relaxing GT handling)
-  const specs = {
-    bmw_m3: {
-      maxSpeed: 58, // m/s (~208 km/h)
-      accel: 4.8, // Realistic weighty, progressive GT acceleration
-      brakeDecel: 26,
-      turnRate: 1.35,
-      roadDamping: 0.994,
-      offroadDamping: 0.986,
-    },
-    hovercraft: {
-      maxSpeed: 65, // m/s (~234 km/h)
-      accel: 5.6,
-      brakeDecel: 20,
-      turnRate: 1.6,
-      roadDamping: 0.997,
-      offroadDamping: 0.996, // Glides smoothly over any terrain
-    },
-    camper: {
-      maxSpeed: 34, // m/s (~122 km/h)
-      accel: 2.8, // Heavy vintage microbus inertia
-      brakeDecel: 18,
-      turnRate: 1.05,
-      roadDamping: 0.991,
-      offroadDamping: 0.982,
-    },
-    hatchback: {
-      maxSpeed: 46, // m/s (~165 km/h)
-      accel: 3.8,
-      brakeDecel: 24,
-      turnRate: 1.35,
-      roadDamping: 0.992,
-      offroadDamping: 0.984,
-    },
-  }[vehicleModel]
+  // Fixed timestep physics accumulator (120 Hz fixed substepping)
+  const physicsAccumulator = useRef(0)
+  const FIXED_DT = 1 / 120
+
+  const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
   useFrame((state, delta) => {
     if (!carGroupRef.current || photoMode) return
 
-    const dt = Math.min(delta, 0.05)
+    const frameDelta = Math.min(delta, 0.08)
     const keys = getKeys()
     const store = useGameStore.getState()
 
@@ -102,23 +156,15 @@ export default function VehicleController() {
     const activeBiomeConfig = getActiveBiomeAt(pos.current.z, biome)
     setCurrentResolvedBiome(activeBiomeConfig.id)
 
-    // 2. Surface condition
-    const onRoad = isRoadSurface(pos.current.x, pos.current.z)
-    const effectiveDamping = isHoverMode
-      ? 0.996
-      : onRoad
-      ? specs.roadDamping
-      : specs.offroadDamping
-
-    // 3. User Controls (combining keyboard and on-screen virtual pedals)
+    // 2. User Controls & Input Processing
     let targetThrottle = 0
     let targetBrake = 0
     let steerInput = 0
 
     if (store.autoDrive) {
       // Relaxing cruising along the highway centerline
-      const targetCruise = 24 // m/s (~86 km/h)
-      if (forwardVel.current < targetCruise) targetThrottle = 0.58
+      const targetCruise = 26 // m/s (~94 km/h)
+      if (forwardVel.current < targetCruise) targetThrottle = 0.55
       else targetThrottle = 0.06
 
       const roadX = getRoadCenter(pos.current.z)
@@ -126,35 +172,142 @@ export default function VehicleController() {
       const errorX = pos.current.x - roadX
       const curveAhead = lookAheadRoadX - roadX
 
-      // Corrected PID auto-steering:
-      // If errorX > 0 (car is right of center), turn left (+).
-      // If curveAhead > 0 (road curves right), turn right (-).
       const autoSteer = errorX * 0.14 - curveAhead * 0.08
       steerInput = Math.max(-0.65, Math.min(0.65, autoSteer))
     } else {
       if (keys.forward || store.virtualThrottle) targetThrottle = 1
       if (keys.backward || store.virtualBrake) {
         if (forwardVel.current > 1.2) targetBrake = 1
-        else targetThrottle = -0.5
+        else targetThrottle = -0.45
       }
       if (keys.brake) targetBrake = 1
       if (keys.left || store.virtualSteerLeft) steerInput += 1
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     }
 
-    currentThrottle.current = THREE.MathUtils.lerp(currentThrottle.current, targetThrottle, dt * 3.6)
+    currentThrottle.current = THREE.MathUtils.lerp(
+      currentThrottle.current,
+      targetThrottle,
+      frameDelta * 3.8
+    )
     const curThrottleAbs = Math.abs(currentThrottle.current)
     setThrottle(curThrottleAbs)
     setBrake(targetBrake)
     setSteering(steerInput)
 
-    // 4. Forward Acceleration, Braking & Slope Gravity
+    // ------------------------------------------------------------------------
+    // 3. Fixed-Timestep Physics Simulation Substepping (120 Hz)
+    // ------------------------------------------------------------------------
+    physicsAccumulator.current += frameDelta
+    const maxSubSteps = 4
+    let steps = 0
+
+    const onRoad = isRoadSurface(pos.current.x, pos.current.z)
+    const effectiveDamping = isHoverMode
+      ? 0.997
+      : onRoad
+      ? config.roadDamping
+      : config.offroadDamping
+
+    while (physicsAccumulator.current >= FIXED_DT && steps < maxSubSteps) {
+      const dt = FIXED_DT
+      physicsAccumulator.current -= dt
+      steps++
+
+      const forwardX = -Math.sin(yawAngle.current)
+      const forwardZ = -Math.cos(yawAngle.current)
+      const rightX = Math.cos(yawAngle.current)
+      const rightZ = -Math.sin(yawAngle.current)
+
+      // Calculate terrain slope
+      const { pitch: terrainPitch } = getTerrainSlopeForVehicle(
+        pos.current.x,
+        pos.current.z,
+        forwardX,
+        forwardZ,
+        rightX,
+        rightZ,
+        activeBiomeConfig.id
+      )
+
+      // Slope gravity: uphill resistance, downhill natural momentum
+      const slopeGravity = -4.5 * Math.sin(terrainPitch)
+
+      // Aerodynamic Drag: F_drag proportional to v^2
+      const speedNorm = Math.abs(forwardVel.current) / config.maxSpeedMs
+      const aeroDrag = 0.5 * config.dragCoeff * 1.225 * Math.pow(forwardVel.current, 2) * 0.0018
+
+      // Progressive power curve: strong low-end torque tapering off smoothly as speed reaches max
+      const powerFactor = Math.max(0.12, Math.pow(Math.max(0, 1 - speedNorm), 0.65))
+      const accel = config.peakAccel * powerFactor * (isHoverMode || onRoad ? 1.0 : 0.82)
+
+      if (currentThrottle.current > 0) {
+        forwardVel.current += (currentThrottle.current * accel + slopeGravity - aeroDrag) * dt
+        if (forwardVel.current > config.maxSpeedMs) forwardVel.current = config.maxSpeedMs
+      } else if (currentThrottle.current < 0) {
+        forwardVel.current += (currentThrottle.current * (config.peakAccel * 0.45) + slopeGravity) * dt
+        if (forwardVel.current < -12) forwardVel.current = -12
+      } else {
+        forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag) * dt
+      }
+
+      // Progressive Braking
+      if (targetBrake > 0) {
+        const decel = config.brakeDecel * (isHoverMode ? 0.65 : 1.0)
+        if (forwardVel.current > 0) {
+          forwardVel.current = Math.max(0, forwardVel.current - targetBrake * decel * dt)
+        } else if (forwardVel.current < 0) {
+          forwardVel.current = Math.min(0, forwardVel.current + targetBrake * decel * dt)
+        }
+      }
+
+      // Natural Rolling Resistance & Coasting Drag
+      if (targetThrottle === 0 && targetBrake === 0) {
+        forwardVel.current *= Math.pow(effectiveDamping, dt * 60)
+        if (Math.abs(forwardVel.current) < 0.03) forwardVel.current = 0
+      }
+
+      // Speed-dependent Steering: high speeds progressively dampen steering angle
+      const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
+      const speedSteerFactor = Math.max(0.28, 1 - (currentSpeedKmh / 280) * 0.62)
+
+      if (Math.abs(forwardVel.current) > 0.06) {
+        const turnDir = forwardVel.current >= 0 ? 1 : -1
+        yawAngle.current += steerInput * config.turnRate * speedSteerFactor * turnDir * dt
+      }
+
+      // Lateral Grip & Antigravity Inertia Drift
+      if (isHoverMode) {
+        const targetLateral = -steerInput * (currentSpeedKmh / 140) * 8.2
+        lateralVel.current = THREE.MathUtils.lerp(lateralVel.current, targetLateral, dt * 3.6)
+      } else {
+        // High-speed cornering lateral slip
+        const maxCornerGrip = config.tireGrip * 9.81 * (1 + speedNorm * 0.35) // Downforce increases grip with v^2
+        const centripetalAccel = Math.pow(forwardVel.current, 2) * Math.abs(steerInput * 0.04)
+        if (centripetalAccel > maxCornerGrip) {
+          // Break into controlled drift
+          lateralVel.current += -Math.sign(steerInput) * (centripetalAccel - maxCornerGrip) * 0.15 * dt
+        }
+        lateralVel.current *= Math.pow(0.86, dt * 60)
+      }
+
+      // Advance 3D World Position
+      pos.current.x += (forwardX * forwardVel.current + rightX * lateralVel.current) * dt
+      pos.current.z += (forwardZ * forwardVel.current + rightZ * lateralVel.current) * dt
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. Ground Alignment, Suspension & Dynamic Chassis Roll
+    // ------------------------------------------------------------------------
+    const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
+    steeringVisual.current = THREE.MathUtils.lerp(steeringVisual.current, steerInput * 0.38, frameDelta * 10)
+    wheelSpin.current += (forwardVel.current / config.wheelRadius) * frameDelta
+
     const forwardX = -Math.sin(yawAngle.current)
     const forwardZ = -Math.cos(yawAngle.current)
     const rightX = Math.cos(yawAngle.current)
     const rightZ = -Math.sin(yawAngle.current)
 
-    // Calculate heading-aware terrain slope
     const { pitch: terrainPitch, roll: terrainRoll, height: groundY } = getTerrainSlopeForVehicle(
       pos.current.x,
       pos.current.z,
@@ -165,94 +318,37 @@ export default function VehicleController() {
       activeBiomeConfig.id
     )
 
-    // Slope gravity: uphill slows vehicle down, downhill naturally adds roll momentum
-    const slopeGravity = -4.8 * Math.sin(terrainPitch)
-    const accel = specs.accel * (isHoverMode || onRoad ? 1.0 : 0.84)
-
-    if (currentThrottle.current > 0) {
-      forwardVel.current += (currentThrottle.current * accel + slopeGravity) * dt
-      const maxSpd = isHoverMode || onRoad ? specs.maxSpeed : specs.maxSpeed * 0.8
-      if (forwardVel.current > maxSpd) forwardVel.current = maxSpd
-    } else if (currentThrottle.current < 0) {
-      forwardVel.current += (currentThrottle.current * (accel * 0.5) + slopeGravity) * dt
-      if (forwardVel.current < -10) forwardVel.current = -10
-    } else {
-      forwardVel.current += slopeGravity * dt
-    }
-
-    if (targetBrake > 0) {
-      const decel = specs.brakeDecel * (isHoverMode ? 0.65 : 1.0)
-      if (forwardVel.current > 0) {
-        forwardVel.current = Math.max(0, forwardVel.current - targetBrake * decel * dt)
-      } else if (forwardVel.current < 0) {
-        forwardVel.current = Math.min(0, forwardVel.current + targetBrake * decel * dt)
-      }
-    }
-
-    // Natural Drag & Friction
-    if (targetThrottle === 0 && targetBrake === 0) {
-      forwardVel.current *= Math.pow(effectiveDamping, dt * 60)
-      if (Math.abs(forwardVel.current) < 0.04) forwardVel.current = 0
-    }
-
-    // 5. Steering & Antigravity Drift
-    const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
-    const speedSteerFactor = Math.max(0.32, 1 - (currentSpeedKmh / 260) * 0.58)
-
-    if (Math.abs(forwardVel.current) > 0.08) {
-      const turnDir = forwardVel.current >= 0 ? 1 : -1
-      yawAngle.current += steerInput * specs.turnRate * speedSteerFactor * turnDir * dt
-    }
-
-    // Lateral drift for Hover Mode vs Car Tire Grip
-    if (isHoverMode) {
-      // Repulsor inertia drift
-      const targetLateral = -steerInput * (currentSpeedKmh / 130) * 7.5
-      lateralVel.current = THREE.MathUtils.lerp(lateralVel.current, targetLateral, dt * 3.8)
-    } else {
-      lateralVel.current *= Math.pow(0.84, dt * 60)
-    }
-
-    // Steering visual rack & Wheel spin
-    steeringVisual.current = THREE.MathUtils.lerp(steeringVisual.current, steerInput * 0.38, dt * 10)
-    wheelSpin.current += (forwardVel.current / 0.36) * dt
-
-    // 6. 3D World Movement (Forward + Drift)
-    pos.current.x += (forwardX * forwardVel.current + rightX * lateralVel.current) * dt
-    pos.current.z += (forwardZ * forwardVel.current + rightZ * lateralVel.current) * dt
-
-    // 7. Dynamic Elevation & Independent 4-Wheel Raycast Suspension
     const targetRideHeight = isHoverMode ? 1.25 : 0.44
     const hoverFloatPulse = isHoverMode ? Math.sin(state.clock.getElapsedTime() * 2.2) * 0.03 : 0
     hoverAltitude.current = THREE.MathUtils.lerp(
       hoverAltitude.current,
       targetRideHeight + hoverFloatPulse,
-      dt * (isHoverMode ? 4.5 : 12)
+      frameDelta * (isHoverMode ? 4.5 : 12)
     )
     pos.current.y = THREE.MathUtils.lerp(
       pos.current.y,
       groundY + hoverAltitude.current,
-      dt * (isHoverMode ? 9 : 18)
+      frameDelta * (isHoverMode ? 9 : 20)
     )
 
-    // Accumulated distance (km)
-    addDistance((Math.abs(forwardVel.current) * dt) / 1000)
+    // Accumulated trip distance (km)
+    addDistance((Math.abs(forwardVel.current) * frameDelta) / 1000)
 
     // Update root vehicle transform
     carGroupRef.current.position.set(pos.current.x, pos.current.y, pos.current.z)
     carGroupRef.current.rotation.y = yawAngle.current
 
-    // Independent 4-Wheel Contact Suspension (FL, FR, RL, RR)
+    // Independent 4-Wheel Contact Suspension Tracking (FL, FR, RL, RR)
     const halfTrack = 0.88
     const halfBase = 1.35
     const cosYaw = Math.cos(yawAngle.current)
     const sinYaw = Math.sin(yawAngle.current)
 
     const wheelCorners = [
-      [-halfTrack, -halfBase], // FL
-      [halfTrack, -halfBase],  // FR
-      [-halfTrack, halfBase],  // RL
-      [halfTrack, halfBase],   // RR
+      [-halfTrack, -halfBase],
+      [halfTrack, -halfBase],
+      [-halfTrack, halfBase],
+      [halfTrack, halfBase],
     ]
 
     wheelCorners.forEach(([lx, lz], idx) => {
@@ -264,33 +360,31 @@ export default function VehicleController() {
       wheelSuspensions.current[idx] = THREE.MathUtils.lerp(
         wheelSuspensions.current[idx],
         clampedComp,
-        dt * 18
+        frameDelta * 18
       )
     })
 
-    // 8. Dynamic Pitch & Body Roll (Inertia + Suspension + Thruster Banking)
+    // Dynamic Pitch & Body Roll (Inertia + Suspension + Centrifugal Roll)
     const accelInertia = (currentThrottle.current - targetBrake) * 0.035
     const frontSusp = (wheelSuspensions.current[0] + wheelSuspensions.current[1]) * 0.5
     const rearSusp = (wheelSuspensions.current[2] + wheelSuspensions.current[3]) * 0.5
     const leftSusp = (wheelSuspensions.current[0] + wheelSuspensions.current[2]) * 0.5
     const rightSusp = (wheelSuspensions.current[1] + wheelSuspensions.current[3]) * 0.5
 
-    // Front compression tilts the nose UP, rear compression tilts the nose DOWN
     const suspPitch = (frontSusp - rearSusp) * 0.35
     const suspRoll = (rightSusp - leftSusp) * 0.35
 
     bodyPitch.current = THREE.MathUtils.lerp(
       bodyPitch.current,
       terrainPitch + accelInertia + suspPitch,
-      dt * 8.5
+      frameDelta * 8.5
     )
 
-    // Sci-fi hovercraft banks INTO the turn; car rolls outward against centrifugal force
-    const steerInertia = (isHoverMode ? steerInput * 0.2 : -steerInput * 0.08) * (currentSpeedKmh / 150)
+    const steerInertia = (isHoverMode ? steerInput * 0.22 : -steerInput * 0.09) * (currentSpeedKmh / 160)
     bodyRoll.current = THREE.MathUtils.lerp(
       bodyRoll.current,
       terrainRoll + steerInertia + suspRoll,
-      dt * 8.5
+      frameDelta * 8.5
     )
 
     if (chassisMeshRef.current) {
@@ -298,25 +392,28 @@ export default function VehicleController() {
       chassisMeshRef.current.rotation.z = bodyRoll.current
     }
 
-    // 9. Telemetry Updates
-    setSpeed(currentSpeedKmh)
+    // ------------------------------------------------------------------------
+    // 5. Gearbox, RPM & Telemetry Simulation
+    // ------------------------------------------------------------------------
+    setSpeed(Math.round(currentSpeedKmh))
 
     let calculatedGear = '1'
-    let calculatedRpm = 850
-    if (forwardVel.current < -0.1) {
+    let calculatedRpm = 800
+
+    if (forwardVel.current < -0.2) {
       calculatedGear = 'R'
-      calculatedRpm = 1000 + Math.abs(currentSpeedKmh) * 140
-    } else if (currentSpeedKmh < 0.5) {
+      calculatedRpm = 1200 + Math.min(4500, Math.abs(currentSpeedKmh) * 160)
+    } else if (currentSpeedKmh < 1.0) {
       calculatedGear = 'N'
-      calculatedRpm = 850 + (targetThrottle > 0 ? 2400 : 0)
+      calculatedRpm = 800 + curThrottleAbs * 1400
     } else {
-      const gearRatios = [35, 70, 115, 160, 210, 280]
+      const gearRatios = config.gearRatios
       for (let g = 0; g < gearRatios.length; g++) {
         if (currentSpeedKmh <= gearRatios[g] || g === gearRatios.length - 1) {
           calculatedGear = (g + 1).toString()
           const prevSpeed = g === 0 ? 0 : gearRatios[g - 1]
           const progress = (currentSpeedKmh - prevSpeed) / (gearRatios[g] - prevSpeed)
-          calculatedRpm = 2000 + progress * 5200
+          calculatedRpm = 2200 + progress * 5400
           break
         }
       }
@@ -324,11 +421,16 @@ export default function VehicleController() {
     setGear(calculatedGear)
     setRpm(Math.min(8000, Math.max(800, calculatedRpm)))
 
+    // Overrun exhaust pop detection & lateral slip factor
     const throttleDelta = curThrottleAbs - prevThrottleVal.current
     const isDecel = throttleDelta < -0.22 && calculatedRpm > 3500
     prevThrottleVal.current = curThrottleAbs
 
-    // 10. Update Audio Ecosystem in Real-Time
+    const lateralSlip = Math.abs(lateralVel.current) / Math.max(2.5, Math.abs(forwardVel.current))
+
+    // ------------------------------------------------------------------------
+    // 6. Real-Time Layered Audio Ecosystem
+    // ------------------------------------------------------------------------
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
       rpm: calculatedRpm,
@@ -337,30 +439,50 @@ export default function VehicleController() {
       isHoverMode,
       vehicleModel,
       isDecelerating: isDecel,
+      lateralSlip,
     })
 
-    // 11. Multi-Camera System with Smooth Lerping
+    // ------------------------------------------------------------------------
+    // 7. Dynamic Racing Camera with Speed-Dependent FOV & Vibration
+    // ------------------------------------------------------------------------
     const carPos = pos.current
     const carQuat = carGroupRef.current.quaternion
 
+    // Dynamic FOV: expands smoothly at high speed (from 60° up to 74°) for sensation of speed
+    const persCam = state.camera as THREE.PerspectiveCamera
+    if (persCam.isPerspectiveCamera) {
+      const targetFov = 60 + Math.min(14, (currentSpeedKmh / config.maxSpeedKmh) * 14)
+      if (Math.abs(persCam.fov - targetFov) > 0.05) {
+        persCam.fov = THREE.MathUtils.lerp(persCam.fov, targetFov, frameDelta * 3.5)
+        persCam.updateProjectionMatrix()
+      }
+    }
+
     if (cameraPerspective === 'chase') {
-      const lookAhead = Math.min(14, forwardVel.current * 0.22)
+      const lookAhead = Math.min(16, forwardVel.current * 0.24)
       const idealOffset = new THREE.Vector3(0, 2.5, 6.6).applyQuaternion(carQuat).add(carPos)
       const idealLookAt = new THREE.Vector3(0, 0.9, -lookAhead).applyQuaternion(carQuat).add(carPos)
 
-      state.camera.position.lerp(idealOffset, dt * 7.5)
+      // Subtle high-speed micro-vibration
+      if (currentSpeedKmh > 75) {
+        const vibe = (currentSpeedKmh / config.maxSpeedKmh) * (Math.random() - 0.5) * 0.016
+        idealOffset.x += vibe
+        idealOffset.y += vibe
+      }
+
+      state.camera.position.lerp(idealOffset, frameDelta * 7.5)
       state.camera.lookAt(idealLookAt)
     } else if (cameraPerspective === 'dashboard') {
-      const idealOffset = new THREE.Vector3(0, 0.85, -0.1).applyQuaternion(carQuat).add(carPos)
-      const idealLookAt = new THREE.Vector3(0, 0.85, -30).applyQuaternion(carQuat).add(carPos)
+      const idealOffset = new THREE.Vector3(0, 0.88, -0.15).applyQuaternion(carQuat).add(carPos)
+      const idealLookAt = new THREE.Vector3(0, 0.88, -30).applyQuaternion(carQuat).add(carPos)
 
-      state.camera.position.lerp(idealOffset, dt * 14)
+      state.camera.position.lerp(idealOffset, frameDelta * 14)
       state.camera.lookAt(idealLookAt)
     } else if (cameraPerspective === 'bumper') {
-      const idealOffset = new THREE.Vector3(0, 0.35, -2.2).applyQuaternion(carQuat).add(carPos)
+      const idealOffset = new THREE.Vector3(0, 0.35, -2.25).applyQuaternion(carQuat).add(carPos)
       const idealLookAt = new THREE.Vector3(0, 0.35, -35).applyQuaternion(carQuat).add(carPos)
 
-      state.camera.position.lerp(idealOffset, dt * 16)
+      state.camera.position.lerp(idealOffset, frameDelta * 16)
       state.camera.lookAt(idealLookAt)
     } else if (cameraPerspective === 'drone') {
       const time = state.clock.getElapsedTime() * 0.22
@@ -368,7 +490,7 @@ export default function VehicleController() {
       const idealOffset = new THREE.Vector3(lateralShift, 6.5, 13.5).applyQuaternion(carQuat).add(carPos)
       const idealLookAt = new THREE.Vector3(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
 
-      state.camera.position.lerp(idealOffset, dt * 3.5)
+      state.camera.position.lerp(idealOffset, frameDelta * 3.5)
       state.camera.lookAt(idealLookAt)
     }
   })

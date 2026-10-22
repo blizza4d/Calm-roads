@@ -64,6 +64,14 @@ class AudioEcosystem {
   private frictionGain: GainNode | null = null
   private frictionFilter: BiquadFilterNode | null = null
 
+  // 5.1 Lateral Slip Tire Squeal SFX
+  private tireSquealGain: GainNode | null = null
+  private tireSquealFilter: BiquadFilterNode | null = null
+
+  // 5.2 Aerodynamic High-Speed Wind Rush SFX
+  private windRushGain: GainNode | null = null
+  private windRushFilter: BiquadFilterNode | null = null
+
   // 6. Hover Repulsor SFX
   private hoverGain: GainNode | null = null
   private hoverOsc: OscillatorNode | null = null
@@ -191,7 +199,7 @@ class AudioEcosystem {
     this.turboGain.connect(this.sfxMaster)
     this.turboOsc.start()
 
-    // 4. Surface Friction Noise
+    // 4. Surface Friction Noise + Tire Squeal + Aerodynamic Wind Rush
     try {
       const bufferSize = this.ctx.sampleRate * 2
       const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
@@ -199,6 +207,8 @@ class AudioEcosystem {
       for (let i = 0; i < bufferSize; i++) {
         data[i] = Math.random() * 2 - 1
       }
+
+      // A. Road surface friction
       const noiseSource = this.ctx.createBufferSource()
       noiseSource.buffer = noiseBuffer
       noiseSource.loop = true
@@ -215,6 +225,41 @@ class AudioEcosystem {
       this.frictionFilter.connect(this.frictionGain)
       this.frictionGain.connect(this.sfxMaster)
       noiseSource.start()
+
+      // B. Lateral slip tire squeal (drifting & high-G cornering)
+      const squealSource = this.ctx.createBufferSource()
+      squealSource.buffer = noiseBuffer
+      squealSource.loop = true
+
+      this.tireSquealFilter = this.ctx.createBiquadFilter()
+      this.tireSquealFilter.type = 'bandpass'
+      this.tireSquealFilter.frequency.value = 1100
+      this.tireSquealFilter.Q.value = 4.2
+
+      this.tireSquealGain = this.ctx.createGain()
+      this.tireSquealGain.gain.value = 0.0001
+
+      squealSource.connect(this.tireSquealFilter)
+      this.tireSquealFilter.connect(this.tireSquealGain)
+      this.tireSquealGain.connect(this.sfxMaster)
+      squealSource.start()
+
+      // C. Aerodynamic high-speed wind rush
+      const windSource = this.ctx.createBufferSource()
+      windSource.buffer = noiseBuffer
+      windSource.loop = true
+
+      this.windRushFilter = this.ctx.createBiquadFilter()
+      this.windRushFilter.type = 'lowpass'
+      this.windRushFilter.frequency.value = 420
+
+      this.windRushGain = this.ctx.createGain()
+      this.windRushGain.gain.value = 0.0001
+
+      windSource.connect(this.windRushFilter)
+      this.windRushFilter.connect(this.windRushGain)
+      this.windRushGain.connect(this.sfxMaster)
+      windSource.start()
     } catch {}
 
     // 5. Hover Repulsor Hum (Sine + Frequency modulation)
@@ -398,6 +443,7 @@ class AudioEcosystem {
     isHoverMode: boolean
     vehicleModel?: string
     isDecelerating?: boolean
+    lateralSlip?: number
   }) {
     if (!this.ctx || !this.isUnlocked) return
     const now = this.ctx.currentTime
@@ -410,6 +456,7 @@ class AudioEcosystem {
       isHoverMode,
       vehicleModel = 'bmw_m3',
       isDecelerating = false,
+      lateralSlip = 0,
     } = params
 
     const isM3 = vehicleModel === 'bmw_m3'
@@ -553,6 +600,35 @@ class AudioEcosystem {
       } else {
         this.hoverGain.gain.setTargetAtTime(0.0001, now, 0.1)
       }
+    }
+
+    // ------------------------------------------------------------------------
+    // 6. Lateral Slip Tire Squeal (Drifting & High-G Cornering)
+    // ------------------------------------------------------------------------
+    if (this.tireSquealGain && this.tireSquealFilter) {
+      if (isHoverMode || speedKmh < 15 || lateralSlip < 0.08) {
+        this.tireSquealGain.gain.setTargetAtTime(0.0001, now, 0.06)
+      } else {
+        const slipIntensity = Math.min(1.0, (lateralSlip - 0.08) * 2.8)
+        const speedFactor = Math.min(1.0, speedKmh / 50)
+        const targetSquealGain = slipIntensity * speedFactor * 0.38
+        this.tireSquealGain.gain.setTargetAtTime(targetSquealGain, now, 0.03)
+
+        const squealFreq = 1000 + (speedKmh / 220) * 450 + slipIntensity * 320
+        this.tireSquealFilter.frequency.setTargetAtTime(squealFreq, now, 0.04)
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 7. Aerodynamic High-Speed Wind Rush Noise
+    // ------------------------------------------------------------------------
+    if (this.windRushGain && this.windRushFilter) {
+      const speedNorm = Math.min(1.2, speedKmh / 280)
+      const targetWindGain = speedNorm * speedNorm * 0.28
+      this.windRushGain.gain.setTargetAtTime(Math.max(0.0001, targetWindGain), now, 0.06)
+
+      const windFreq = 300 + speedNorm * 1150
+      this.windRushFilter.frequency.setTargetAtTime(windFreq, now, 0.06)
     }
   }
 

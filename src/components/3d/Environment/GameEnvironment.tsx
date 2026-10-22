@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Stars } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
@@ -133,6 +133,12 @@ export default function GameEnvironment() {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     return geo
   }, [])
+
+  useEffect(() => {
+    return () => {
+      precipGeo.dispose()
+    }
+  }, [precipGeo])
 
   const precipPointsRef = useRef<THREE.Points>(null)
   useFrame((_, delta) => {

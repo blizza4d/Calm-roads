@@ -11,6 +11,7 @@ import {
   getActiveBiomeAt,
   BiomeConfig,
 } from '../../../utils/roadMath'
+import { getAsphaltTexture, getAsphaltBumpTexture } from '../../../utils/asphaltTexture'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 300
@@ -31,6 +32,8 @@ interface ChunkProps {
 // 5. Realistic Steel W-Beam Guardrails on curved segments
 // 6. Biome-Specific Instanced Scenery (Multi-tier Pines, Maples, Cacti, Boulders, Poles)
 function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
+  const asphaltTex = useMemo(() => getAsphaltTexture(), [])
+  const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   // 1. Terrain Ground Mesh Geometry with slope-aware natural shading
   const terrainGeo = useMemo(() => {
     const geo = new THREE.PlaneGeometry(TERRAIN_W, CHUNK_LEN, GRID_X, GRID_Z)
@@ -258,12 +261,12 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
 
       if (i < edgeSegments) {
         const base = vertCount + i * 4
-        // Left edge quad
+        // Left edge quad (Upward CCW winding)
         indices.push(base, base + 1, base + 4)
         indices.push(base + 1, base + 5, base + 4)
-        // Right edge quad
-        indices.push(base + 2, base + 6, base + 3)
-        indices.push(base + 3, base + 6, base + 7)
+        // Right edge quad (Upward CCW winding - fixed missing right line bug)
+        indices.push(base + 2, base + 3, base + 6)
+        indices.push(base + 3, base + 7, base + 6)
       }
     }
 
@@ -458,12 +461,16 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         />
       </mesh>
 
-      {/* 2. Curved Asphalt Highway Ribbon with Wet Road Shader support */}
+      {/* 2. Curved Asphalt Highway Ribbon with Procedural Aggregate Texture & Camber */}
       <mesh geometry={roadGeo} receiveShadow>
         <meshStandardMaterial
+          map={asphaltTex}
+          bumpMap={asphaltBumpTex}
+          bumpScale={0.015}
           color={biomeConfig.roadColor}
-          roughness={isRaining ? 0.1 : biomeConfig.id === 'tundra' ? 0.35 : 0.65}
-          metalness={isRaining ? 0.45 : 0.15}
+          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.35 : 0.72}
+          metalness={isRaining ? 0.48 : 0.12}
+          envMapIntensity={isRaining ? 1.6 : 0.6}
         />
       </mesh>
 
@@ -476,9 +483,18 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         />
       </mesh>
 
-      {/* 4. Highway Markings (Yellow Dashed Centerline + White Edge Lines) */}
-      <mesh geometry={markingsGeo}>
-        <meshBasicMaterial vertexColors />
+      {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines (Zero Z-Fighting) */}
+      <mesh geometry={markingsGeo} renderOrder={2}>
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.3}
+          polygonOffset
+          polygonOffsetFactor={-3}
+          polygonOffsetUnits={-3}
+          depthTest
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
       </mesh>
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves */}
