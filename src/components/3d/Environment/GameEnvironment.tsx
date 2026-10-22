@@ -29,42 +29,42 @@ export default function GameEnvironment() {
     const sunHeight = Math.sin(angle) // -1 (midnight) to +1 (noon)
     const sunEastWest = Math.cos(angle)
 
-    const sunDistance = 85
+    const sunDistance = 100
     const sunY = sunHeight * sunDistance
     const sunX = sunEastWest * sunDistance
     const sunZ = -25
 
     const isNight = sunHeight < -0.06
-    const isSunsetOrSunrise = Math.abs(sunHeight) < 0.22
+    const isSunsetOrSunrise = Math.abs(sunHeight) < 0.24
 
     // Directional Light position:
-    // During day, follows the sun; during night, shines from the moon on opposite side
+    // Follows the sun during day; during night, shines as moonlight
     const lightX = isNight ? -sunX * 0.75 : sunX
-    const lightY = isNight ? Math.max(22, -sunY * 0.85) : Math.max(6, sunY)
+    const lightY = isNight ? Math.max(26, -sunY * 0.85) : Math.max(8, sunY)
     const lightZ = isNight ? -sunZ : sunZ
 
-    let lightColor = '#fffbeb'
-    let lightIntensity = 2.5
-    let skyTurbidity = 2.5
-    let skyRayleigh = 1.2
+    let lightColor = '#fffdfa'
+    let lightIntensity = 2.6
+    let skyTurbidity = 2.0
+    let skyRayleigh = 1.1
 
     if (isNight) {
       lightColor = '#93c5fd' // Cool blue-tinted moonlight
-      lightIntensity = 0.45
+      lightIntensity = 0.55
       skyTurbidity = 0.1
       skyRayleigh = 0.08
     } else if (isSunsetOrSunrise) {
-      lightColor = '#fb923c' // Warm golden/amber sunset rays
-      lightIntensity = 2.0
-      skyTurbidity = 7.0
-      skyRayleigh = 3.6
+      lightColor = '#f97316' // Rich golden-amber sunset rays
+      lightIntensity = 2.3
+      skyTurbidity = 6.8
+      skyRayleigh = 3.8
     }
 
     if (weather === 'rain') {
-      lightIntensity *= 0.55
+      lightIntensity *= 0.52
       lightColor = '#94a3b8'
     } else if (weather === 'mist') {
-      lightIntensity *= 0.7
+      lightIntensity *= 0.65
     }
 
     return {
@@ -92,9 +92,9 @@ export default function GameEnvironment() {
   }, [weather, celestialData.isNight, timeOfDay, biomeConfig])
 
   const fogDensity = useMemo(() => {
-    if (weather === 'mist') return 0.015
-    if (weather === 'rain') return 0.007
-    if (weather === 'snow') return 0.005
+    if (weather === 'mist') return 0.014
+    if (weather === 'rain') return 0.0065
+    if (weather === 'snow') return 0.0045
     return biomeConfig.fogDensity
   }, [weather, biomeConfig])
 
@@ -110,7 +110,7 @@ export default function GameEnvironment() {
         cy + celestialData.lightPos[1],
         cz + celestialData.lightPos[2]
       )
-      lightTargetRef.current.position.set(cx, cy, cz - 16)
+      lightTargetRef.current.position.set(cx, cy, cz - 18)
       dirLightRef.current.target = lightTargetRef.current
       dirLightRef.current.target.updateMatrixWorld()
     }
@@ -169,7 +169,7 @@ export default function GameEnvironment() {
         sunPosition={celestialData.skySunPos}
         turbidity={celestialData.skyTurbidity}
         rayleigh={celestialData.skyRayleigh}
-        mieCoefficient={0.012}
+        mieCoefficient={0.01}
         mieDirectionalG={0.88}
       />
 
@@ -188,16 +188,16 @@ export default function GameEnvironment() {
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={0.5}
         shadow-camera-far={280}
-        shadow-bias={-0.0004}
+        shadow-bias={-0.0003}
       >
-        <orthographicCamera attach="shadow-camera" args={[-65, 65, 65, -65, 0.5, 280]} />
+        <orthographicCamera attach="shadow-camera" args={[-70, 70, 70, -70, 0.5, 280]} />
       </directionalLight>
 
       {/* Atmospheric Fill Ambient / Hemisphere Lighting */}
       <hemisphereLight
         color={biomeConfig.skyHemiSky}
         groundColor={biomeConfig.skyHemiGround}
-        intensity={celestialData.isNight ? 0.35 : 0.85}
+        intensity={celestialData.isNight ? 0.38 : 0.9}
       />
 
       {/* Rain or Snow Particles */}
@@ -215,9 +215,9 @@ export default function GameEnvironment() {
 
       {/* Cinematic Post-Processing Pass */}
       <EffectComposer multisampling={4}>
-        <Bloom luminanceThreshold={0.82} intensity={0.75} mipmapBlur />
+        <Bloom luminanceThreshold={0.85} intensity={0.65} mipmapBlur />
         <ToneMapping />
-        <Vignette eskil={false} offset={0.14} darkness={0.78} />
+        <Vignette eskil={false} offset={0.12} darkness={0.72} />
       </EffectComposer>
     </>
   )

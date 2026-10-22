@@ -53,40 +53,41 @@ export default function VehicleController() {
   const currentThrottle = useRef(0)
   const hoverAltitude = useRef(0.44)
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
+  const prevThrottleVal = useRef(0)
 
-  // Performance parameters per vehicle model
+  // Performance parameters per vehicle model (Smooth, heavy, relaxing GT handling)
   const specs = {
     bmw_m3: {
-      maxSpeed: 62, // m/s (~223 km/h)
-      accel: 9.8,
-      brakeDecel: 34,
-      turnRate: 1.55,
-      roadDamping: 0.992,
-      offroadDamping: 0.984,
+      maxSpeed: 58, // m/s (~208 km/h)
+      accel: 4.8, // Realistic weighty, progressive GT acceleration
+      brakeDecel: 26,
+      turnRate: 1.35,
+      roadDamping: 0.994,
+      offroadDamping: 0.986,
     },
     hovercraft: {
-      maxSpeed: 70, // m/s (~252 km/h)
-      accel: 11.5,
-      brakeDecel: 24,
-      turnRate: 1.85,
+      maxSpeed: 65, // m/s (~234 km/h)
+      accel: 5.6,
+      brakeDecel: 20,
+      turnRate: 1.6,
       roadDamping: 0.997,
       offroadDamping: 0.996, // Glides smoothly over any terrain
     },
     camper: {
-      maxSpeed: 38, // m/s (~136 km/h)
-      accel: 5.2,
-      brakeDecel: 22,
-      turnRate: 1.15,
-      roadDamping: 0.989,
-      offroadDamping: 0.98,
-    },
-    hatchback: {
-      maxSpeed: 50, // m/s (~180 km/h)
-      accel: 7.6,
-      brakeDecel: 30,
-      turnRate: 1.5,
+      maxSpeed: 34, // m/s (~122 km/h)
+      accel: 2.8, // Heavy vintage microbus inertia
+      brakeDecel: 18,
+      turnRate: 1.05,
       roadDamping: 0.991,
       offroadDamping: 0.982,
+    },
+    hatchback: {
+      maxSpeed: 46, // m/s (~165 km/h)
+      accel: 3.8,
+      brakeDecel: 24,
+      turnRate: 1.35,
+      roadDamping: 0.992,
+      offroadDamping: 0.984,
     },
   }[vehicleModel]
 
@@ -141,8 +142,9 @@ export default function VehicleController() {
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     }
 
-    currentThrottle.current = THREE.MathUtils.lerp(currentThrottle.current, targetThrottle, dt * 5.0)
-    setThrottle(Math.abs(currentThrottle.current))
+    currentThrottle.current = THREE.MathUtils.lerp(currentThrottle.current, targetThrottle, dt * 3.6)
+    const curThrottleAbs = Math.abs(currentThrottle.current)
+    setThrottle(curThrottleAbs)
     setBrake(targetBrake)
     setSteering(steerInput)
 
@@ -195,7 +197,7 @@ export default function VehicleController() {
 
     // 5. Steering & Antigravity Drift
     const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
-    const speedSteerFactor = Math.max(0.3, 1 - (currentSpeedKmh / 280) * 0.6)
+    const speedSteerFactor = Math.max(0.32, 1 - (currentSpeedKmh / 260) * 0.58)
 
     if (Math.abs(forwardVel.current) > 0.08) {
       const turnDir = forwardVel.current >= 0 ? 1 : -1
@@ -322,14 +324,19 @@ export default function VehicleController() {
     setGear(calculatedGear)
     setRpm(Math.min(8000, Math.max(800, calculatedRpm)))
 
+    const throttleDelta = curThrottleAbs - prevThrottleVal.current
+    const isDecel = throttleDelta < -0.22 && calculatedRpm > 3500
+    prevThrottleVal.current = curThrottleAbs
+
     // 10. Update Audio Ecosystem in Real-Time
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
       rpm: calculatedRpm,
-      throttle: Math.abs(currentThrottle.current),
+      throttle: curThrottleAbs,
       isOffRoad: !onRoad,
       isHoverMode,
       vehicleModel,
+      isDecelerating: isDecel,
     })
 
     // 11. Multi-Camera System with Smooth Lerping

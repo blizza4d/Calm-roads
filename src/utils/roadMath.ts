@@ -1,8 +1,9 @@
 import { createNoise2D } from 'simplex-noise'
 
-// High-precision Simplex Noise generators for rolling terrain & micro-roughness
+// High-precision Simplex Noise generators for realistic multi-octave rolling terrain
 const terrainNoise = createNoise2D()
 const detailNoise = createNoise2D()
+const microNoise = createNoise2D()
 
 export const ROAD_WIDTH = 11.5
 
@@ -29,66 +30,66 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
   forest: {
     id: 'forest',
     name: 'Lush Forest',
-    grassColor: '#36603a',
-    rockColor: '#64748b',
-    roadColor: '#1e242c',
-    shoulderColor: '#6b7280',
-    treeFoliageColor: '#1c4a24',
-    treeTrunkColor: '#3b2516',
+    grassColor: '#2d4e30',
+    rockColor: '#525d6b',
+    roadColor: '#1c1f24',
+    shoulderColor: '#5c5449',
+    treeFoliageColor: '#194520',
+    treeTrunkColor: '#3d2817',
     skyHemiSky: '#dbeafe',
-    skyHemiGround: '#2d4a1e',
-    fogColor: '#bfdbfe',
-    fogDensity: 0.0022,
-    hillHeightMultiplier: 1.0,
-    roughness: 0.85,
+    skyHemiGround: '#243e1c',
+    fogColor: '#bed3eb',
+    fogDensity: 0.002,
+    hillHeightMultiplier: 0.95,
+    roughness: 0.88,
   },
   autumn: {
     id: 'autumn',
     name: 'Autumn Mountains',
-    grassColor: '#645432',
-    rockColor: '#78350f',
-    roadColor: '#191d24',
-    shoulderColor: '#92400e',
+    grassColor: '#5c4826',
+    rockColor: '#6b3414',
+    roadColor: '#181b20',
+    shoulderColor: '#78461b',
     treeFoliageColor: '#b91c1c', // Rich crimson & amber maples
-    treeTrunkColor: '#451a03',
-    skyHemiSky: '#fed7aa',
-    skyHemiGround: '#78350f',
-    fogColor: '#f97316',
-    fogDensity: 0.003,
-    hillHeightMultiplier: 1.25,
-    roughness: 0.88,
+    treeTrunkColor: '#3b1805',
+    skyHemiSky: '#ffedd5',
+    skyHemiGround: '#632c0f',
+    fogColor: '#ea580c',
+    fogDensity: 0.0028,
+    hillHeightMultiplier: 1.15,
+    roughness: 0.9,
   },
   tundra: {
     id: 'tundra',
     name: 'Snowy Tundra',
-    grassColor: '#f8fafc', // Crisp winter snow cover
-    rockColor: '#94a3b8',
-    roadColor: '#242c38',
-    shoulderColor: '#e2e8f0',
+    grassColor: '#f1f5f9', // Pure winter snow cover
+    rockColor: '#64748b',
+    roadColor: '#222834',
+    shoulderColor: '#cbd5e1',
     treeFoliageColor: '#cbd5e1', // Frosted snow pines
     treeTrunkColor: '#334155',
     skyHemiSky: '#e0f2fe',
     skyHemiGround: '#94a3b8',
-    fogColor: '#e2e8f0',
-    fogDensity: 0.004,
-    hillHeightMultiplier: 1.1,
-    roughness: 0.95,
+    fogColor: '#cbd5e1',
+    fogDensity: 0.0035,
+    hillHeightMultiplier: 1.05,
+    roughness: 0.94,
   },
   desert: {
     id: 'desert',
     name: 'Desert Dunes',
-    grassColor: '#d97706', // Warm golden terracotta sand dunes
-    rockColor: '#92400e',
-    roadColor: '#292524',
-    shoulderColor: '#b45309',
+    grassColor: '#c27823', // Warm golden terracotta sand dunes
+    rockColor: '#854d0e',
+    roadColor: '#262322',
+    shoulderColor: '#a15c15',
     treeFoliageColor: '#15803d', // Desert cacti / shrubs
     treeTrunkColor: '#78350f',
     skyHemiSky: '#fef3c7',
     skyHemiGround: '#92400e',
     fogColor: '#fde68a',
-    fogDensity: 0.0018,
-    hillHeightMultiplier: 0.95, // Smooth sweeping parabolic dunes
-    roughness: 0.98,
+    fogDensity: 0.0016,
+    hillHeightMultiplier: 0.92, // Smooth sweeping parabolic dunes
+    roughness: 0.96,
   },
 }
 
@@ -138,6 +139,7 @@ export function getRoadBanking(z: number): number {
   const c1 = getRoadCenter(z + delta)
   const c2 = getRoadCenter(z)
   const c3 = getRoadCenter(z - delta)
+
   // Second derivative (curvature)
   const curvature = (c3 - 2 * c2 + c1) / (delta * delta)
   return Math.max(-0.08, Math.min(0.08, curvature * 2.8))
@@ -148,16 +150,16 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const roadX = getRoadCenter(z)
   const roadY = getRoadElevation(z)
   const distFromRoad = Math.abs(x - roadX)
-  const shoulderWidth = ROAD_WIDTH / 2 + 1.8
+  const shoulderWidth = ROAD_WIDTH / 2 + 2.2
 
-  // Asphalt road surface and immediate shoulder bed
+  // Asphalt road surface and immediate shoulder bed - perfectly flat with road bed
   if (distFromRoad <= shoulderWidth) {
     return roadY
   }
 
-  // Smooth Hermite smoothstep transition from road shoulder to natural terrain
+  // Smooth Hermite smoothstep transition from road shoulder to natural terrain (22m smooth blend)
   const distPastShoulder = distFromRoad - shoulderWidth
-  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 18.0))
+  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 22.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at shoulder edge
 
   const config = BIOMES[biomeId] || BIOMES.forest
@@ -166,22 +168,23 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   // Multi-octave natural rolling hills designed for cozy, drivable exploration
   let rollingHills = 0
   if (biomeId === 'desert') {
-    // Sweeping parabolic sand dunes
+    // Sweeping parabolic sand dunes with natural ripples
     rollingHills =
-      Math.sin(x * 0.012 + z * 0.007) * 9.5 +
-      terrainNoise(x * 0.007, z * 0.007) * 7.0
+      Math.sin(x * 0.012 + z * 0.007) * 8.5 +
+      terrainNoise(x * 0.006, z * 0.006) * 6.5 +
+      detailNoise(x * 0.018, z * 0.018) * 2.4
   } else {
-    // Rolling knolls and scenic ridges
-    rollingHills =
-      terrainNoise(x * 0.009, z * 0.009) * 11.0 +
-      terrainNoise(x * 0.02, z * 0.02) * 4.0
+    // Multi-octave rolling knolls and scenic ridges
+    const octave1 = terrainNoise(x * 0.006, z * 0.006) * 10.0
+    const octave2 = detailNoise(x * 0.015, z * 0.015) * 4.2
+    const octave3 = microNoise(x * 0.035, z * 0.035) * 1.8
+    rollingHills = octave1 + octave2 + octave3
   }
 
-  const fineRidges = detailNoise(x * 0.035, z * 0.035) * 2.2
-  // Gentle distance scaling that remains climbable without cliff walls
-  const distanceFactor = Math.min(2.2, 0.45 + (distPastShoulder / 55.0) * 0.85)
+  // Distance scaling that remains climbable without cliff walls or sudden dropoffs
+  const distanceFactor = Math.min(2.0, 0.4 + (distPastShoulder / 65.0) * 0.8)
 
-  return roadY + (rollingHills + fineRidges) * smoothBlend * distanceFactor * mult
+  return roadY + rollingHills * smoothBlend * distanceFactor * mult
 }
 
 // 6. Heading-Aware Terrain Slope for Vehicle (Pitch & Roll in local vehicle coordinates)

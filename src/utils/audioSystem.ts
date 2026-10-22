@@ -1,6 +1,8 @@
 // Complete Audio Ecosystem
-// Features: Auto-looping Lo-Fi Ambient Radio, Real-Time Engine Pitch Hum,
-// Surface Friction (Asphalt vs Off-Road), Hover Repulsor Thruster, and Weather Ambience
+// Features: Authentic Screaming BMW M3 GTR Audio, Throaty V8 Exhaust Roar,
+// Overrun Exhaust Crackles & Pops, Turbo Spool & BOV for Hatchback,
+// Air-cooled Flat-4 Chug for Camper, Antigravity Repulsor Reactor,
+// Surface Friction (Asphalt vs Off-Road), and Lo-Fi Ambient Radio.
 
 export interface TrackInfo {
   id: number
@@ -21,21 +23,16 @@ class AudioEcosystem {
   private ctx: AudioContext | null = null
   private isUnlocked = false
 
-  // Music Nodes
+  // Master Channels
   private musicGain: GainNode | null = null
+  private sfxMaster: GainNode | null = null
   private musicTimer: number | null = null
   private isMusicPlaying = false
   private currentTrack = 0
   private musicVolume = 0.65
+  private sfxMasterVolume = 0.62
 
-  // Engine SFX Nodes
-  private sfxMaster: GainNode | null = null
-  private engineGain: GainNode | null = null
-  private engineOsc1: OscillatorNode | null = null
-  private engineOsc2: OscillatorNode | null = null
-  private engineFilter: BiquadFilterNode | null = null
-
-  // Authentic Screaming BMW M3 GTR Audio (P60B40 V8 & Straight-Cut Gear Whine)
+  // 1. Authentic Screaming BMW M3 GTR (P60B40 Straight-Cut Whine Sample)
   private m3Buffer: AudioBuffer | null = null
   private m3Source: AudioBufferSourceNode | null = null
   private m3Gain: GainNode | null = null
@@ -43,17 +40,36 @@ class AudioEcosystem {
   private m3Loading = false
   private m3Loaded = false
 
-  // Surface Friction SFX
+  // 2. BMW M3 Throaty Exhaust Roar Channel (Low-end V8 rumble & roar)
+  private exhaustRoarGain: GainNode | null = null
+  private exhaustFilter: BiquadFilterNode | null = null
+  private exhaustOsc1: OscillatorNode | null = null
+  private exhaustOsc2: OscillatorNode | null = null
+  private exhaustSubOsc: OscillatorNode | null = null
+  private lastDecelPopTime = 0
+  private prevThrottleVal = 0
+
+  // 3. General Engine Synthesis (Camper Flat-4, Rally Hatchback, Fallback)
+  private engineGain: GainNode | null = null
+  private engineOsc1: OscillatorNode | null = null
+  private engineOsc2: OscillatorNode | null = null
+  private engineFilter: BiquadFilterNode | null = null
+
+  // 4. Turbocharger Spool & Blow-Off Valve (Hatchback)
+  private turboGain: GainNode | null = null
+  private turboOsc: OscillatorNode | null = null
+  private lastBovTime = 0
+
+  // 5. Surface Friction SFX
   private frictionGain: GainNode | null = null
   private frictionFilter: BiquadFilterNode | null = null
 
-  // Hover Repulsor SFX
+  // 6. Hover Repulsor SFX
   private hoverGain: GainNode | null = null
   private hoverOsc: OscillatorNode | null = null
 
-  // Weather Ambience SFX
+  // 7. Weather Ambience SFX
   private weatherGain: GainNode | null = null
-  private sfxMasterVolume = 0.55
 
   // Lo-Fi Chord progressions
   private chordProgressions = [
@@ -112,20 +128,50 @@ class AudioEcosystem {
     // Load authentic screaming M3 GTR audio sample (P60B40 V8 + straight-cut gear whine)
     this.loadM3Sample()
 
-    // 1. Engine Hum Channel
+    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR)
+    this.exhaustRoarGain = this.ctx.createGain()
+    this.exhaustRoarGain.gain.value = 0.0001
+    this.exhaustFilter = this.ctx.createBiquadFilter()
+    this.exhaustFilter.type = 'lowpass'
+    this.exhaustFilter.frequency.value = 350
+    this.exhaustFilter.Q.value = 2.2
+
+    this.exhaustOsc1 = this.ctx.createOscillator()
+    this.exhaustOsc1.type = 'sawtooth'
+    this.exhaustOsc1.frequency.value = 42
+
+    this.exhaustOsc2 = this.ctx.createOscillator()
+    this.exhaustOsc2.type = 'triangle'
+    this.exhaustOsc2.frequency.value = 84
+
+    this.exhaustSubOsc = this.ctx.createOscillator()
+    this.exhaustSubOsc.type = 'sine'
+    this.exhaustSubOsc.frequency.value = 32
+
+    this.exhaustOsc1.connect(this.exhaustFilter)
+    this.exhaustOsc2.connect(this.exhaustFilter)
+    this.exhaustSubOsc.connect(this.exhaustFilter)
+    this.exhaustFilter.connect(this.exhaustRoarGain)
+    this.exhaustRoarGain.connect(this.sfxMaster)
+
+    this.exhaustOsc1.start()
+    this.exhaustOsc2.start()
+    this.exhaustSubOsc.start()
+
+    // 2. Procedural Engine Channel (Camper, Hatchback, Hovercraft)
     this.engineGain = this.ctx.createGain()
-    this.engineGain.gain.value = 0.08
+    this.engineGain.gain.value = 0.06
     this.engineFilter = this.ctx.createBiquadFilter()
     this.engineFilter.type = 'lowpass'
-    this.engineFilter.frequency.value = 400
+    this.engineFilter.frequency.value = 380
 
     this.engineOsc1 = this.ctx.createOscillator()
     this.engineOsc1.type = 'triangle'
-    this.engineOsc1.frequency.value = 55 // Idle ~55 Hz
+    this.engineOsc1.frequency.value = 52
 
     this.engineOsc2 = this.ctx.createOscillator()
     this.engineOsc2.type = 'sawtooth'
-    this.engineOsc2.frequency.value = 110
+    this.engineOsc2.frequency.value = 104
 
     this.engineOsc1.connect(this.engineFilter)
     this.engineOsc2.connect(this.engineFilter)
@@ -135,7 +181,17 @@ class AudioEcosystem {
     this.engineOsc1.start()
     this.engineOsc2.start()
 
-    // 2. Surface Friction Noise
+    // 3. Turbo Whine Channel (Rally Hatchback)
+    this.turboGain = this.ctx.createGain()
+    this.turboGain.gain.value = 0.0001
+    this.turboOsc = this.ctx.createOscillator()
+    this.turboOsc.type = 'sine'
+    this.turboOsc.frequency.value = 950
+    this.turboOsc.connect(this.turboGain)
+    this.turboGain.connect(this.sfxMaster)
+    this.turboOsc.start()
+
+    // 4. Surface Friction Noise
     try {
       const bufferSize = this.ctx.sampleRate * 2
       const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
@@ -161,7 +217,7 @@ class AudioEcosystem {
       noiseSource.start()
     } catch {}
 
-    // 3. Hover Repulsor Hum (Sine + Frequency modulation)
+    // 5. Hover Repulsor Hum (Sine + Frequency modulation)
     this.hoverGain = this.ctx.createGain()
     this.hoverGain.gain.value = 0.0
     this.hoverOsc = this.ctx.createOscillator()
@@ -172,7 +228,7 @@ class AudioEcosystem {
     this.hoverGain.connect(this.sfxMaster)
     this.hoverOsc.start()
 
-    // 4. Weather Ambience
+    // 6. Weather Ambience
     this.weatherGain = this.ctx.createGain()
     this.weatherGain.gain.value = 0.0
     this.weatherGain.connect(this.sfxMaster)
@@ -241,6 +297,98 @@ class AudioEcosystem {
     }
   }
 
+  // Explosive Overrun Exhaust Crackles & Backfire Pops
+  public triggerExhaustPop(intensity = 1.0) {
+    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    if (now - this.lastDecelPopTime < 0.1) return
+    this.lastDecelPopTime = now
+
+    // Number of crackles in burst (1 to 3)
+    const pops = 1 + Math.floor(Math.random() * 2.2)
+    for (let p = 0; p < pops; p++) {
+      const delay = p * (0.035 + Math.random() * 0.045)
+      const popTime = now + delay
+
+      // Transient sharp crackle noise
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.055)
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
+      const data = noiseBuffer.getChannelData(0)
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.22))
+      }
+      const noiseSource = this.ctx.createBufferSource()
+      noiseSource.buffer = noiseBuffer
+
+      const filter = this.ctx.createBiquadFilter()
+      filter.type = 'bandpass'
+      filter.frequency.setValueAtTime(320 + Math.random() * 420, popTime)
+      filter.Q.setValueAtTime(3.2, popTime)
+
+      const popGain = this.ctx.createGain()
+      popGain.gain.setValueAtTime(0.0001, popTime)
+      popGain.gain.linearRampToValueAtTime(0.48 * intensity, popTime + 0.004)
+      popGain.gain.exponentialRampToValueAtTime(0.0001, popTime + 0.05)
+
+      // Heavy sub-bass thud (unburnt fuel igniting in exhaust manifold)
+      const subOsc = this.ctx.createOscillator()
+      subOsc.type = 'sine'
+      subOsc.frequency.setValueAtTime(95 + Math.random() * 25, popTime)
+      subOsc.frequency.exponentialRampToValueAtTime(32, popTime + 0.055)
+
+      const subGain = this.ctx.createGain()
+      subGain.gain.setValueAtTime(0.38 * intensity, popTime)
+      subGain.gain.exponentialRampToValueAtTime(0.0001, popTime + 0.055)
+
+      noiseSource.connect(filter)
+      filter.connect(popGain)
+      popGain.connect(this.sfxMaster)
+
+      subOsc.connect(subGain)
+      subGain.connect(this.sfxMaster)
+
+      noiseSource.start(popTime)
+      noiseSource.stop(popTime + 0.06)
+      subOsc.start(popTime)
+      subOsc.stop(popTime + 0.06)
+    }
+  }
+
+  // Turbo Blow-Off Valve (BOV) Whoosh
+  public triggerBovWhoosh() {
+    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    if (now - this.lastBovTime < 0.6) return
+    this.lastBovTime = now
+
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.26)
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
+    const data = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1)
+    }
+    const noiseSource = this.ctx.createBufferSource()
+    noiseSource.buffer = noiseBuffer
+
+    const filter = this.ctx.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.frequency.setValueAtTime(2400, now)
+    filter.frequency.exponentialRampToValueAtTime(850, now + 0.24)
+    filter.Q.setValueAtTime(3.8, now)
+
+    const bovGain = this.ctx.createGain()
+    bovGain.gain.setValueAtTime(0.0001, now)
+    bovGain.gain.linearRampToValueAtTime(0.24, now + 0.03)
+    bovGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25)
+
+    noiseSource.connect(filter)
+    filter.connect(bovGain)
+    bovGain.connect(this.sfxMaster)
+
+    noiseSource.start(now)
+    noiseSource.stop(now + 0.26)
+  }
+
   // Real-Time Telemetry Driving Sound Updates
   public updateVehicleAudio(params: {
     speedKmh: number
@@ -249,66 +397,139 @@ class AudioEcosystem {
     isOffRoad: boolean
     isHoverMode: boolean
     vehicleModel?: string
+    isDecelerating?: boolean
   }) {
     if (!this.ctx || !this.isUnlocked) return
     const now = this.ctx.currentTime
 
-    const { speedKmh, rpm, throttle, isOffRoad, isHoverMode, vehicleModel = 'bmw_m3' } = params
+    const {
+      speedKmh,
+      rpm,
+      throttle,
+      isOffRoad,
+      isHoverMode,
+      vehicleModel = 'bmw_m3',
+      isDecelerating = false,
+    } = params
+
     const isM3 = vehicleModel === 'bmw_m3'
+    const isCamper = vehicleModel === 'camper'
+    const isHatch = vehicleModel === 'hatchback'
 
-    // 1. Authentic Screaming BMW M3 GTR Engine & Straight-Cut Gear Whine
-    if (this.m3Source && this.m3Gain) {
-      if (isHoverMode || !isM3) {
-        // Mute M3 engine scream when hover mode or alternative vehicle is active
-        this.m3Gain.gain.setTargetAtTime(0.0001, now, 0.1)
-      } else {
+    // Detect throttle lift-off to trigger exhaust crackles or BOV whoosh
+    const throttleDrop = this.prevThrottleVal - throttle
+    if (throttleDrop > 0.35) {
+      if (isM3 && rpm > 3400) {
+        this.triggerExhaustPop(Math.min(1.0, rpm / 6500))
+      } else if (isHatch && rpm > 3200) {
+        this.triggerBovWhoosh()
+      }
+    }
+    if (isDecelerating && isM3 && Math.random() < 0.28) {
+      this.triggerExhaustPop(0.85)
+    }
+    this.prevThrottleVal = throttle
+
+    // ------------------------------------------------------------------------
+    // 1. BMW M3 GTR: Screaming Straight-Cut Transmission + Roaring V8 Exhaust
+    // ------------------------------------------------------------------------
+    if (isHoverMode) {
+      // Mute combustion audio when hover mode is active
+      this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.engineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+    } else if (isM3) {
+      // A. Screaming Straight-Cut Gear Whine (Sample)
+      if (this.m3Source && this.m3Gain) {
         const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 800) / 7200))
-        const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 220))
+        const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 210))
 
-        // Dynamic pitch scaling: 0.72x deep idle -> 1.82x maximum redline scream
+        // Dynamic pitch scaling: 0.72x deep idle -> 1.82x redline scream
         const targetPitch = 0.72 + rpmNorm * 0.88 + speedNorm * 0.22
         this.m3Source.playbackRate.setTargetAtTime(targetPitch, now, 0.04)
 
-        // Resonant transmission whine frequency shift
         if (this.m3Filter) {
           const whineFreq = 1200 + speedNorm * 1300 + rpmNorm * 700
           this.m3Filter.frequency.setTargetAtTime(whineFreq, now, 0.05)
         }
 
-        // Visceral, deafening scream under throttle and high speeds
-        const targetGain = 0.20 + throttle * 0.65 + speedNorm * 0.25
+        // Screaming volume under throttle and high speeds
+        const targetGain = 0.18 + throttle * 0.62 + speedNorm * 0.25
         this.m3Gain.gain.setTargetAtTime(targetGain, now, 0.04)
       }
+
+      // B. Throaty V8 Exhaust Roar Channel (Heavy low-end resonance)
+      if (this.exhaustRoarGain && this.exhaustOsc1 && this.exhaustOsc2 && this.exhaustSubOsc && this.exhaustFilter) {
+        const baseFreq = 40 + (rpm / 8000) * 165
+        this.exhaustOsc1.frequency.setTargetAtTime(baseFreq, now, 0.04)
+        this.exhaustOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.04)
+        this.exhaustSubOsc.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.04)
+
+        const filterCutoff = 220 + throttle * 780 + (speedKmh / 200) * 320
+        this.exhaustFilter.frequency.setTargetAtTime(filterCutoff, now, 0.04)
+
+        const targetRoar = 0.16 + throttle * 0.55 + (speedKmh / 200) * 0.22
+        this.exhaustRoarGain.gain.setTargetAtTime(targetRoar, now, 0.04)
+      }
+
+      // Mute other engine synthesis
+      this.engineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
     }
+    // ------------------------------------------------------------------------
+    // 2. Cozy Camper Van: Air-Cooled Flat-4 Boxer Engine Chug
+    // ------------------------------------------------------------------------
+    else if (isCamper) {
+      this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
-    // 2. Engine Hum Pitch & Sub-bass Reinforcement
-    if (this.engineOsc1 && this.engineOsc2 && this.engineFilter && this.engineGain) {
-      if (isHoverMode) {
-        // Mute combustion engine when in hovercraft antigravity mode
-        this.engineGain.gain.setTargetAtTime(0.0001, now, 0.1)
-      } else if (isM3 && this.m3Loaded) {
-        // Deep physical sub-bass rumble beneath the screaming engine sample
-        const baseFreq = 38 + (rpm / 8000) * 80
-        this.engineOsc1.frequency.setTargetAtTime(baseFreq, now, 0.05)
-        this.engineOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.05)
-        this.engineFilter.frequency.setTargetAtTime(250 + throttle * 250, now, 0.05)
-        this.engineGain.gain.setTargetAtTime(0.03 + throttle * 0.04, now, 0.05)
-      } else {
-        // Full procedural synthesis engine for camper/hatchback or when sample is loading
-        const baseFreq = 40 + (rpm / 8000) * 160
-        this.engineOsc1.frequency.setTargetAtTime(baseFreq, now, 0.05)
-        this.engineOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.05)
+      if (this.engineGain && this.engineOsc1 && this.engineOsc2 && this.engineFilter) {
+        // Slow rhythmic putt-putt thrum (28 Hz - 75 Hz)
+        const camperFreq = 28 + (rpm / 4500) * 45
+        this.engineOsc1.type = 'triangle'
+        this.engineOsc1.frequency.setTargetAtTime(camperFreq, now, 0.06)
+        this.engineOsc2.type = 'sine'
+        this.engineOsc2.frequency.setTargetAtTime(camperFreq * 2, now, 0.06)
 
-        // Open filter under throttle
-        const filterCutoff = 350 + throttle * 750 + (speedKmh / 200) * 600
-        this.engineFilter.frequency.setTargetAtTime(filterCutoff, now, 0.05)
-
-        const targetGain = 0.06 + throttle * 0.08 + (speedKmh / 200) * 0.04
+        this.engineFilter.frequency.setTargetAtTime(280 + throttle * 420, now, 0.06)
+        const targetGain = 0.12 + throttle * 0.24 + (speedKmh / 130) * 0.08
         this.engineGain.gain.setTargetAtTime(targetGain, now, 0.05)
       }
     }
+    // ------------------------------------------------------------------------
+    // 3. Vintage Rally Hatchback: Raspy 4-Cylinder with Turbo Spool Whine
+    // ------------------------------------------------------------------------
+    else if (isHatch) {
+      this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
-    // 3. Surface Tire Friction (higher on offroad/grass)
+      if (this.engineGain && this.engineOsc1 && this.engineOsc2 && this.engineFilter) {
+        // Raspy rally 4-cylinder engine (62 Hz - 230 Hz)
+        const hatchFreq = 62 + (rpm / 7500) * 168
+        this.engineOsc1.type = 'sawtooth'
+        this.engineOsc1.frequency.setTargetAtTime(hatchFreq, now, 0.04)
+        this.engineOsc2.type = 'triangle'
+        this.engineOsc2.frequency.setTargetAtTime(hatchFreq * 2, now, 0.04)
+
+        this.engineFilter.frequency.setTargetAtTime(450 + throttle * 850, now, 0.04)
+        const targetGain = 0.14 + throttle * 0.32 + (speedKmh / 180) * 0.12
+        this.engineGain.gain.setTargetAtTime(targetGain, now, 0.04)
+      }
+
+      // Turbocharger Spool Whine (whistles up to 2600 Hz under boost)
+      if (this.turboGain && this.turboOsc) {
+        const spoolFreq = 800 + throttle * 1600 + (rpm / 7500) * 600
+        this.turboOsc.frequency.setTargetAtTime(spoolFreq, now, 0.05)
+        const targetTurboVol = throttle * 0.18 + (speedKmh / 180) * 0.08
+        this.turboGain.gain.setTargetAtTime(targetTurboVol, now, 0.05)
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. Surface Tire Friction (higher on offroad/grass)
+    // ------------------------------------------------------------------------
     if (this.frictionGain && this.frictionFilter) {
       if (isHoverMode || speedKmh < 3) {
         this.frictionGain.gain.setTargetAtTime(0.0001, now, 0.1)
@@ -316,18 +537,18 @@ class AudioEcosystem {
         const speedNorm = Math.min(1, speedKmh / 160)
         const targetFriction = isOffRoad ? speedNorm * 0.14 : speedNorm * 0.05
         this.frictionGain.gain.setTargetAtTime(targetFriction, now, 0.05)
-
-        // Lower, crunchier sound off-road
         this.frictionFilter.frequency.setTargetAtTime(isOffRoad ? 500 : 1200, now, 0.1)
       }
     }
 
-    // 4. Hovercraft Repulsor Hum
+    // ------------------------------------------------------------------------
+    // 5. Hovercraft Repulsor Reactor Hum
+    // ------------------------------------------------------------------------
     if (this.hoverGain && this.hoverOsc) {
       if (isHoverMode) {
-        const hoverTarget = 0.12 + Math.min(0.12, (speedKmh / 180) * 0.1)
+        const hoverTarget = 0.14 + Math.min(0.14, (speedKmh / 180) * 0.12)
         this.hoverGain.gain.setTargetAtTime(hoverTarget, now, 0.1)
-        const hoverFreq = 160 + (speedKmh / 200) * 90 + throttle * 40
+        const hoverFreq = 160 + (speedKmh / 200) * 95 + throttle * 45
         this.hoverOsc.frequency.setTargetAtTime(hoverFreq, now, 0.05)
       } else {
         this.hoverGain.gain.setTargetAtTime(0.0001, now, 0.1)
@@ -421,7 +642,7 @@ class AudioEcosystem {
     osc2.frequency.setValueAtTime(554.37, now) // C#5
 
     gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.linearRampToValueAtTime(0.18, now + 0.04)
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.04)
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38)
 
     osc1.connect(gain)
@@ -452,4 +673,3 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', autoUnlock, { once: true })
   window.addEventListener('touchstart', autoUnlock, { once: true })
 }
-
