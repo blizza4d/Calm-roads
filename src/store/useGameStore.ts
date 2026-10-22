@@ -50,6 +50,8 @@ interface GameState {
   setRpm: (r: number) => void
   gear: string
   setGear: (g: string) => void
+  transmissionMode: 'auto' | 'manual'
+  setTransmissionMode: (m: 'auto' | 'manual') => void
   distance: number // km
   addDistance: (d: number) => void
   throttle: number
@@ -96,6 +98,8 @@ interface GameState {
   setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
   speedUnit: 'kmh' | 'mph'
   toggleSpeedUnit: () => void
+  graphicsQuality: 'low' | 'medium' | 'high'
+  setGraphicsQuality: (q: 'low' | 'medium' | 'high') => void
   isFullscreen: boolean
   toggleFullscreen: () => void
 }
@@ -160,6 +164,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setRpm: (rpm) => set({ rpm }),
   gear: '1',
   setGear: (gear) => set({ gear }),
+  transmissionMode: 'auto',
+  setTransmissionMode: (transmissionMode) => set({ transmissionMode }),
   distance: 0,
   addDistance: (delta) => set((s) => ({ distance: s.distance + delta })),
   throttle: 0,
@@ -206,6 +212,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setActivePanel: (activePanel) => set((s) => ({ activePanel: s.activePanel === activePanel ? 'none' : activePanel })),
   speedUnit: 'kmh',
   toggleSpeedUnit: () => set((s) => ({ speedUnit: s.speedUnit === 'kmh' ? 'mph' : 'kmh' })),
+  graphicsQuality: 'high',
+  setGraphicsQuality: (graphicsQuality) => set({ graphicsQuality }),
   isFullscreen: false,
   toggleFullscreen: () => {
     if (!document.fullscreenElement) {

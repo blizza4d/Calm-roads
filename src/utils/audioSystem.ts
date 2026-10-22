@@ -434,6 +434,51 @@ class AudioEcosystem {
     noiseSource.stop(now + 0.26)
   }
 
+  // Mechanical Gear Shift Transient
+  public triggerGearShift(vehicleModel = 'bmw_m3', isDownshift = false) {
+    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+
+    if (vehicleModel === 'bmw_m3') {
+      // Crisp racing sequential dog-clunk + instant unburnt fuel exhaust pop on downshift
+      const clunkOsc = this.ctx.createOscillator()
+      clunkOsc.type = 'triangle'
+      clunkOsc.frequency.setValueAtTime(140, now)
+      clunkOsc.frequency.exponentialRampToValueAtTime(45, now + 0.04)
+
+      const clunkGain = this.ctx.createGain()
+      clunkGain.gain.setValueAtTime(0.24, now)
+      clunkGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045)
+
+      clunkOsc.connect(clunkGain)
+      clunkGain.connect(this.sfxMaster)
+      clunkOsc.start(now)
+      clunkOsc.stop(now + 0.05)
+
+      if (isDownshift) {
+        this.triggerExhaustPop(0.75)
+      }
+    } else if (vehicleModel === 'hatchback') {
+      // Turbo blow-off valve (BOV) atmospheric dump
+      this.triggerBovWhoosh()
+    } else if (vehicleModel === 'camper') {
+      // Soft mechanical vintage linkage click
+      const clickOsc = this.ctx.createOscillator()
+      clickOsc.type = 'sine'
+      clickOsc.frequency.setValueAtTime(320, now)
+      clickOsc.frequency.exponentialRampToValueAtTime(80, now + 0.035)
+
+      const clickGain = this.ctx.createGain()
+      clickGain.gain.setValueAtTime(0.12, now)
+      clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04)
+
+      clickOsc.connect(clickGain)
+      clickGain.connect(this.sfxMaster)
+      clickOsc.start(now)
+      clickOsc.stop(now + 0.045)
+    }
+  }
+
   // Real-Time Telemetry Driving Sound Updates
   public updateVehicleAudio(params: {
     speedKmh: number

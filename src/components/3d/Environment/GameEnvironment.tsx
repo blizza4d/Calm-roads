@@ -7,7 +7,7 @@ import { useGameStore } from '../../../store/useGameStore'
 import { BIOMES } from '../../../utils/roadMath'
 
 export default function GameEnvironment() {
-  const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome } = useGameStore()
+  const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
   const { camera } = useThree()
 
   // Directional Light & Shadow target
@@ -191,7 +191,7 @@ export default function GameEnvironment() {
         position={celestialData.lightPos}
         intensity={celestialData.lightIntensity}
         color={celestialData.lightColor}
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={graphicsQuality === 'low' ? [1024, 1024] : [2048, 2048]}
         shadow-camera-near={0.5}
         shadow-camera-far={280}
         shadow-bias={-0.0003}
@@ -220,8 +220,8 @@ export default function GameEnvironment() {
       )}
 
       {/* Cinematic Post-Processing Pass */}
-      <EffectComposer multisampling={4}>
-        <Bloom luminanceThreshold={0.85} intensity={0.65} mipmapBlur />
+      <EffectComposer multisampling={graphicsQuality === 'low' ? 0 : graphicsQuality === 'medium' ? 2 : 4}>
+        <Bloom luminanceThreshold={0.85} intensity={graphicsQuality === 'low' ? 0.4 : 0.65} mipmapBlur />
         <ToneMapping />
         <Vignette eskil={false} offset={0.12} darkness={0.72} />
       </EffectComposer>

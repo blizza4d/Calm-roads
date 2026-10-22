@@ -112,9 +112,15 @@ export function getRoadCenter(z: number): number {
   return Math.sin(z * 0.0035) * 18 + Math.sin(z * 0.008) * 8
 }
 
-// 3. Road Elevation (Gentle undulating highway crests and valleys)
+// 3. Road Elevation (Drivable scenic mountain pass climbs, highway crests and expansive valleys)
 export function getRoadElevation(z: number): number {
-  return Math.sin(z * 0.005) * 4.5 + Math.cos(z * 0.011) * 2.2
+  // Long-wave scenic mountain pass climbs (wavelength ~1100m, height up to 18m)
+  const passWave = Math.sin(z * 0.0018) * 18.0
+  // Medium-wave rolling valley undulating highway crests (wavelength ~380m, height 6.5m)
+  const valleyWave = Math.cos(z * 0.0052) * 6.5
+  // Gentle high-speed road undulation (wavelength ~140m, height 1.8m)
+  const microWave = Math.sin(z * 0.014) * 1.8
+  return passWave + valleyWave + microWave
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (for constant width & banking)
@@ -150,41 +156,55 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const roadX = getRoadCenter(z)
   const roadY = getRoadElevation(z)
   const distFromRoad = Math.abs(x - roadX)
-  const shoulderWidth = ROAD_WIDTH / 2 + 2.2
+  const shoulderWidth = ROAD_WIDTH / 2 + 2.4
 
-  // Asphalt road surface and immediate shoulder bed - perfectly flat with road bed
+  // Immediate roadbed and shoulder: perfectly level with road surface
   if (distFromRoad <= shoulderWidth) {
     return roadY
   }
 
-  // Smooth Hermite smoothstep transition from road shoulder to natural terrain (22m smooth blend)
+  // Smooth Hermite smoothstep transition from road shoulder to natural terrain (24m smooth blend)
   const distPastShoulder = distFromRoad - shoulderWidth
-  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 22.0))
+  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 24.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at shoulder edge
 
   const config = BIOMES[biomeId] || BIOMES.forest
   const mult = config.hillHeightMultiplier
 
-  // Multi-octave natural rolling hills designed for cozy, drivable exploration
-  let rollingHills = 0
+  // Multi-octave natural terrain synthesis with distinctive biome geomorphology
+  let naturalElevation = 0
+
   if (biomeId === 'desert') {
-    // Sweeping parabolic sand dunes with natural ripples
-    rollingHills =
-      Math.sin(x * 0.012 + z * 0.007) * 8.5 +
-      terrainNoise(x * 0.006, z * 0.006) * 6.5 +
-      detailNoise(x * 0.018, z * 0.018) * 2.4
+    // Vast sculpted canyon walls, flat-topped mesa bluffs and undulating parabolic dunes
+    const duneWave = Math.sin(x * 0.012 + z * 0.006) * 12.0
+    const mesaMacro = Math.sin(x * 0.0035 + z * 0.0025) * 28.0
+    const mesaPlateau = Math.max(-10, Math.min(22, mesaMacro * 1.6))
+    const duneRipple = detailNoise(x * 0.018, z * 0.018) * 3.5
+    naturalElevation = duneWave + mesaPlateau + duneRipple
+  } else if (biomeId === 'tundra') {
+    // Majestic snow-capped alpine mountain ridges, glacial valleys and sheer icy crags
+    const mountainSpines = Math.abs(terrainNoise(x * 0.003, z * 0.003)) * 48.0
+    const crags = Math.abs(detailNoise(x * 0.009, z * 0.009)) * 18.0
+    const frostRoll = microNoise(x * 0.025, z * 0.025) * 3.5
+    naturalElevation = mountainSpines + crags + frostRoll - 14.0
+  } else if (biomeId === 'autumn') {
+    // Autumn alpine passes: rugged mountain ridges and rolling golden valleys
+    const alpineMacro = terrainNoise(x * 0.004, z * 0.004) * 38.0
+    const ridgeDetail = Math.abs(detailNoise(x * 0.011, z * 0.011)) * 14.0
+    const valleyKnolls = microNoise(x * 0.028, z * 0.028) * 2.8
+    naturalElevation = alpineMacro + ridgeDetail + valleyKnolls
   } else {
-    // Multi-octave rolling knolls and scenic ridges
-    const octave1 = terrainNoise(x * 0.006, z * 0.006) * 10.0
-    const octave2 = detailNoise(x * 0.015, z * 0.015) * 4.2
-    const octave3 = microNoise(x * 0.035, z * 0.035) * 1.8
-    rollingHills = octave1 + octave2 + octave3
+    // Lush rolling green countryside and forested mountain valleys
+    const rollingCountryside = terrainNoise(x * 0.0045, z * 0.0045) * 26.0
+    const forestKnolls = detailNoise(x * 0.012, z * 0.012) * 8.5
+    const gentleHills = microNoise(x * 0.032, z * 0.032) * 2.4
+    naturalElevation = rollingCountryside + forestKnolls + gentleHills
   }
 
-  // Distance scaling that remains climbable without cliff walls or sudden dropoffs
-  const distanceFactor = Math.min(2.0, 0.4 + (distPastShoulder / 65.0) * 0.8)
+  // Distance scaling: as we get farther from the road (50m to 150m), mountains rise dramatically into distant silhouettes
+  const mountainRamp = Math.min(2.8, 0.35 + (distPastShoulder / 55.0) * 1.1)
 
-  return roadY + rollingHills * smoothBlend * distanceFactor * mult
+  return roadY + naturalElevation * smoothBlend * mountainRamp * mult
 }
 
 // 6. Heading-Aware Terrain Slope for Vehicle (Pitch & Roll in local vehicle coordinates)

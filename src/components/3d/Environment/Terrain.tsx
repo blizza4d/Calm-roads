@@ -18,6 +18,83 @@ const TERRAIN_W = 300
 const GRID_X = 64
 const GRID_Z = 48
 
+// Lightweight helper to merge multiple BufferGeometries into a single geometry
+function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const merged = new THREE.BufferGeometry()
+  const posList: number[] = []
+  const normList: number[] = []
+  const indexList: number[] = []
+  let vertexOffset = 0
+
+  for (const g of geometries) {
+    const pos = g.attributes.position
+    const norm = g.attributes.normal
+    const index = g.index
+
+    for (let i = 0; i < pos.count; i++) {
+      posList.push(pos.getX(i), pos.getY(i), pos.getZ(i))
+      if (norm) normList.push(norm.getX(i), norm.getY(i), norm.getZ(i))
+      else normList.push(0, 1, 0)
+    }
+
+    if (index) {
+      for (let i = 0; i < index.count; i++) {
+        indexList.push(index.getX(i) + vertexOffset)
+      }
+    } else {
+      for (let i = 0; i < pos.count; i++) {
+        indexList.push(i + vertexOffset)
+      }
+    }
+    vertexOffset += pos.count
+  }
+
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(posList, 3))
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normList, 3))
+  merged.setIndex(indexList)
+  return merged
+}
+
+// ------------------------------------------------------------------------
+// Realistic Procedural Vegetation Geometries (Shared across all chunks)
+// ------------------------------------------------------------------------
+// 1. Alpine / Mountain Conifer: 3-tiered conical skirt canopy
+const pineCanopyGeo = (() => {
+  const t1 = new THREE.ConeGeometry(2.3, 2.2, 8).translate(0, 2.0, 0)
+  const t2 = new THREE.ConeGeometry(1.75, 2.0, 8).translate(0, 3.2, 0)
+  const t3 = new THREE.ConeGeometry(1.15, 1.8, 8).translate(0, 4.4, 0)
+  return mergeBufferGeometries([t1, t2, t3])
+})()
+const pineTrunkGeo = new THREE.CylinderGeometry(0.18, 0.42, 4.2, 8).translate(0, 2.1, 0)
+
+// 2. Deciduous Broadleaf / Mountain Maple: Asymmetrical 3-lobed organic crown
+const broadleafCanopyGeo = (() => {
+  const c1 = new THREE.DodecahedronGeometry(1.75, 1).translate(0, 3.8, 0)
+  const c2 = new THREE.DodecahedronGeometry(1.3, 1).translate(-0.75, 3.4, 0.35)
+  const c3 = new THREE.DodecahedronGeometry(1.35, 1).translate(0.8, 3.5, -0.35)
+  return mergeBufferGeometries([c1, c2, c3])
+})()
+const broadleafTrunkGeo = new THREE.CylinderGeometry(0.22, 0.45, 3.8, 8).translate(0, 1.9, 0)
+
+// 3. Desert Saguaro Cactus: Multi-armed branching columnar cactus
+const saguaroGeo = (() => {
+  const main = new THREE.CylinderGeometry(0.34, 0.38, 4.8, 10).translate(0, 2.4, 0)
+  const armL1 = new THREE.CylinderGeometry(0.2, 0.2, 0.8, 8).rotateZ(Math.PI / 2).translate(-0.55, 2.2, 0)
+  const armL2 = new THREE.CylinderGeometry(0.2, 0.2, 1.5, 8).translate(-0.95, 2.9, 0)
+  const armR1 = new THREE.CylinderGeometry(0.18, 0.18, 0.8, 8).rotateZ(-Math.PI / 2).translate(0.55, 2.8, 0)
+  const armR2 = new THREE.CylinderGeometry(0.18, 0.18, 1.3, 8).translate(0.95, 3.4, 0)
+  return mergeBufferGeometries([main, armL1, armL2, armR1, armR2])
+})()
+
+// 4. Roadside Shrub / Bush
+const shrubGeo = new THREE.DodecahedronGeometry(1.15, 1).scale(1.2, 0.65, 1.1).translate(0, 0.6, 0)
+
+// 5. Weathered Boulders & Rock Formations
+const rockGeo = new THREE.DodecahedronGeometry(1.35, 1)
+
+// 6. Utility Poles
+const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 6.4, 8).translate(0, 3.2, 0)
+
 interface ChunkProps {
   chunkZ: number
   biomeConfig: BiomeConfig
@@ -338,98 +415,230 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
     return geo
   }, [chunkZ])
 
-  // 6. Deterministic Roadside Scenery (Trees, Cacti, Rocks, Poles)
+  // 6. Natural Clustered Roadside Scenery (Multi-Tier Pines, Organic Broadleafs, Saguaros, Shrubs, Rocks, Poles)
   const sceneryData = useMemo(() => {
-    const trees: { pos: [number, number, number]; scale: number }[] = []
-    const rocks: { pos: [number, number, number]; scale: number; rot: number }[] = []
+    const pines: { pos: [number, number, number]; scale: number; rotY: number }[] = []
+    const broadleafs: { pos: [number, number, number]; scale: number; rotY: number }[] = []
+    const saguaros: { pos: [number, number, number]; scale: number; rotY: number }[] = []
+    const shrubs: { pos: [number, number, number]; scale: number; rotY: number }[] = []
+    const rocks: { pos: [number, number, number]; scale: number; rot: [number, number, number] }[] = []
     const poles: { pos: [number, number, number] }[] = []
 
-    const step = 14
-    for (let localZ = -CHUNK_LEN / 2 + 10; localZ <= CHUNK_LEN / 2 - 10; localZ += step) {
-      const worldZ = chunkZ + localZ
+    const isDesert = biomeConfig.id === 'desert'
+    const isTundra = biomeConfig.id === 'tundra'
+    const isAutumn = biomeConfig.id === 'autumn'
+
+    // Generate 6 organic vegetation cluster centers along the 200m chunk
+    const numClusters = 6
+    const clusterStep = CHUNK_LEN / numClusters
+
+    for (let c = 0; c < numClusters; c++) {
+      const clusterZ = -CHUNK_LEN / 2 + c * clusterStep + clusterStep * 0.5
+      const worldZ = chunkZ + clusterZ
       const roadCx = getRoadCenter(worldZ)
 
-      // Deterministic hashes based on integer worldZ
-      const h1 = Math.abs(Math.sin(worldZ * 12.9898 + 78.233))
-      const h2 = Math.abs(Math.sin(worldZ * 43.123 + 19.827))
-      const h3 = Math.abs(Math.sin(worldZ * 91.827 + 34.129))
+      const hash1 = Math.abs(Math.sin(worldZ * 17.13 + 31.415))
+      const hash2 = Math.abs(Math.sin(worldZ * 59.29 + 17.821))
+      const hash3 = Math.abs(Math.sin(worldZ * 83.71 + 92.119))
 
-      // Left Flora / Cacti
-      const leftDist = ROAD_WIDTH / 2 + 6.2 + h1 * 48
-      const leftX = roadCx - leftDist
-      const leftY = getTerrainHeight(leftX, worldZ, biomeConfig.id)
-      trees.push({ pos: [leftX, leftY, localZ], scale: 0.85 + h2 * 0.75 })
-
-      // Right Flora / Cacti
-      const rightDist = ROAD_WIDTH / 2 + 6.2 + h2 * 48
-      const rightX = roadCx + rightDist
-      const rightY = getTerrainHeight(rightX, worldZ, biomeConfig.id)
-      trees.push({ pos: [rightX, rightY, localZ], scale: 0.85 + h1 * 0.75 })
-
-      // Scattered Boulders / Rocks
-      if (h3 > 0.42) {
-        const rockSide = h1 > 0.5 ? 1 : -1
-        const rockDist = ROAD_WIDTH / 2 + 5.5 + h2 * 32
-        const rockX = roadCx + rockSide * rockDist
-        const rockY = getTerrainHeight(rockX, worldZ, biomeConfig.id)
-        rocks.push({
-          pos: [rockX, rockY, localZ],
-          scale: 0.8 + h3 * 1.4,
-          rot: h1 * Math.PI * 2,
-        })
-      }
-
-      // Utility Poles along right shoulder every ~32m
-      if (Math.abs(Math.floor(worldZ / 32) * 32 - worldZ) < 7) {
-        const poleX = roadCx + (ROAD_WIDTH / 2 + 3.2)
+      // Utility Poles along the right road shoulder every ~36m
+      if (c % 2 === 0) {
+        const poleX = roadCx + (ROAD_WIDTH / 2 + 2.8)
         const poleY = getRoadElevation(worldZ)
-        poles.push({ pos: [poleX, poleY, localZ] })
+        poles.push({ pos: [poleX, poleY, clusterZ] })
       }
+
+      // Both sides of highway
+      const sides = [-1, 1]
+      sides.forEach((side) => {
+        // Cluster center distance from road (between 9m and 45m out)
+        const clusterDist = ROAD_WIDTH / 2 + 7.5 + (side === -1 ? hash1 : hash2) * 36
+        const clusterCenterX = roadCx + side * clusterDist
+
+        if (isDesert) {
+          // Desert Flora: Saguaros, spiky shrubs and sandstone rocks
+          const numSaguaros = 1 + Math.floor(hash3 * 2.5)
+          for (let i = 0; i < numSaguaros; i++) {
+            const offsetX = (Math.sin(i * 2.4 + hash1) - 0.5) * 14
+            const offsetZ = (Math.cos(i * 3.1 + hash2) - 0.5) * 16
+            const treeX = clusterCenterX + offsetX
+            const treeZ = clusterZ + offsetZ
+            const treeWorldZ = chunkZ + treeZ
+
+            // Ensure tree does not intersect highway buffer
+            if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 3.8) {
+              const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
+              saguaros.push({
+                pos: [treeX, treeY, treeZ],
+                scale: 0.85 + hash1 * 0.65,
+                rotY: (hash2 * 10 + i) % (Math.PI * 2),
+              })
+            }
+          }
+
+          // Desert scrub / low-lying shrubs
+          if (hash3 > 0.3) {
+            const shrubX = clusterCenterX + (hash2 - 0.5) * 10
+            const shrubZ = clusterZ + (hash1 - 0.5) * 12
+            const shrubWorldZ = chunkZ + shrubZ
+            if (Math.abs(shrubX - getRoadCenter(shrubWorldZ)) > ROAD_WIDTH / 2 + 3.5) {
+              const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
+              shrubs.push({
+                pos: [shrubX, shrubY, shrubZ],
+                scale: 0.7 + hash3 * 0.7,
+                rotY: hash1 * Math.PI,
+              })
+            }
+          }
+        } else {
+          // Forest / Autumn / Tundra: Multi-tier Pines and Organic Broadleaf Maples
+          const treesInCluster = 2 + Math.floor(hash2 * 3.2)
+          for (let i = 0; i < treesInCluster; i++) {
+            const angle = (i / treesInCluster) * Math.PI * 2 + hash1
+            const radius = 3.5 + (i * 3.8 + hash3 * 6.5)
+            const treeX = clusterCenterX + Math.cos(angle) * radius
+            const treeZ = clusterZ + Math.sin(angle) * radius
+            const treeWorldZ = chunkZ + treeZ
+
+            // Safe buffer from asphalt
+            if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 4.2) {
+              const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
+              const scale = 0.82 + ((hash1 + i * 0.3) % 0.6)
+
+              // Species distribution based on biome
+              const isPine = isTundra ? true : isAutumn ? (i % 3 === 0) : (i % 2 === 0)
+
+              if (isPine) {
+                pines.push({
+                  pos: [treeX, treeY, treeZ],
+                  scale,
+                  rotY: angle,
+                })
+              } else {
+                broadleafs.push({
+                  pos: [treeX, treeY, treeZ],
+                  scale,
+                  rotY: angle + 0.5,
+                })
+              }
+            }
+          }
+
+          // Roadside mountain shrubs / bushes
+          if (hash1 > 0.35) {
+            const shrubDist = ROAD_WIDTH / 2 + 4.8 + hash2 * 12
+            const shrubX = roadCx + side * shrubDist
+            const shrubZ = clusterZ + (hash3 - 0.5) * 16
+            const shrubWorldZ = chunkZ + shrubZ
+            const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
+            shrubs.push({
+              pos: [shrubX, shrubY, shrubZ],
+              scale: 0.65 + hash3 * 0.6,
+              rotY: hash2 * Math.PI,
+            })
+          }
+        }
+
+        // Weathered Rock Formations / Boulders
+        if (hash3 > 0.45) {
+          const rockDist = ROAD_WIDTH / 2 + 6.0 + hash1 * 26
+          const rockX = roadCx + side * rockDist
+          const rockZ = clusterZ + (hash2 - 0.5) * 18
+          const rockWorldZ = chunkZ + rockZ
+          const rockY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
+          rocks.push({
+            pos: [rockX, rockY, rockZ],
+            scale: 0.8 + hash3 * 1.5,
+            rot: [hash1 * 0.4, hash2 * Math.PI * 2, hash3 * 0.3],
+          })
+        }
+      })
     }
 
-    return { trees, rocks, poles }
+    return { pines, broadleafs, saguaros, shrubs, rocks, poles }
   }, [chunkZ, biomeConfig.id])
 
-  // Instanced Meshes for Props
-  const treeTrunkRef = useRef<THREE.InstancedMesh>(null)
-  const treeFoliageRef = useRef<THREE.InstancedMesh>(null)
+  // Instanced Meshes for Vegetation & Scenery Props
+  const pineTrunkRef = useRef<THREE.InstancedMesh>(null)
+  const pineCanopyRef = useRef<THREE.InstancedMesh>(null)
+  const broadleafTrunkRef = useRef<THREE.InstancedMesh>(null)
+  const broadleafCanopyRef = useRef<THREE.InstancedMesh>(null)
+  const saguaroRef = useRef<THREE.InstancedMesh>(null)
+  const shrubRef = useRef<THREE.InstancedMesh>(null)
   const rockRef = useRef<THREE.InstancedMesh>(null)
   const poleRef = useRef<THREE.InstancedMesh>(null)
 
   useEffect(() => {
     const dummy = new THREE.Object3D()
 
-    if (treeTrunkRef.current && treeFoliageRef.current) {
-      sceneryData.trees.forEach((t, i) => {
-        dummy.position.set(t.pos[0], t.pos[1] + 1.4 * t.scale, t.pos[2])
-        dummy.scale.set(t.scale, t.scale, t.scale)
-        dummy.rotation.set(0, (t.scale * 10) % Math.PI, 0)
+    // 1. Pines
+    if (pineTrunkRef.current && pineCanopyRef.current) {
+      sceneryData.pines.forEach((p, i) => {
+        dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
+        dummy.scale.set(p.scale, p.scale, p.scale)
+        dummy.rotation.set(0, p.rotY, 0)
         dummy.updateMatrix()
-        treeTrunkRef.current?.setMatrixAt(i, dummy.matrix)
-
-        dummy.position.set(t.pos[0], t.pos[1] + 3.8 * t.scale, t.pos[2])
-        dummy.scale.set(t.scale, t.scale, t.scale)
-        dummy.updateMatrix()
-        treeFoliageRef.current?.setMatrixAt(i, dummy.matrix)
+        pineTrunkRef.current?.setMatrixAt(i, dummy.matrix)
+        pineCanopyRef.current?.setMatrixAt(i, dummy.matrix)
       })
-      treeTrunkRef.current.instanceMatrix.needsUpdate = true
-      treeFoliageRef.current.instanceMatrix.needsUpdate = true
+      pineTrunkRef.current.instanceMatrix.needsUpdate = true
+      pineCanopyRef.current.instanceMatrix.needsUpdate = true
     }
 
+    // 2. Broadleafs
+    if (broadleafTrunkRef.current && broadleafCanopyRef.current) {
+      sceneryData.broadleafs.forEach((b, i) => {
+        dummy.position.set(b.pos[0], b.pos[1], b.pos[2])
+        dummy.scale.set(b.scale, b.scale, b.scale)
+        dummy.rotation.set(0, b.rotY, 0)
+        dummy.updateMatrix()
+        broadleafTrunkRef.current?.setMatrixAt(i, dummy.matrix)
+        broadleafCanopyRef.current?.setMatrixAt(i, dummy.matrix)
+      })
+      broadleafTrunkRef.current.instanceMatrix.needsUpdate = true
+      broadleafCanopyRef.current.instanceMatrix.needsUpdate = true
+    }
+
+    // 3. Saguaros
+    if (saguaroRef.current) {
+      sceneryData.saguaros.forEach((s, i) => {
+        dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
+        dummy.scale.set(s.scale, s.scale, s.scale)
+        dummy.rotation.set(0, s.rotY, 0)
+        dummy.updateMatrix()
+        saguaroRef.current?.setMatrixAt(i, dummy.matrix)
+      })
+      saguaroRef.current.instanceMatrix.needsUpdate = true
+    }
+
+    // 4. Shrubs
+    if (shrubRef.current) {
+      sceneryData.shrubs.forEach((s, i) => {
+        dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
+        dummy.scale.set(s.scale, s.scale, s.scale)
+        dummy.rotation.set(0, s.rotY, 0)
+        dummy.updateMatrix()
+        shrubRef.current?.setMatrixAt(i, dummy.matrix)
+      })
+      shrubRef.current.instanceMatrix.needsUpdate = true
+    }
+
+    // 5. Rocks
     if (rockRef.current) {
       sceneryData.rocks.forEach((r, i) => {
-        dummy.position.set(r.pos[0], r.pos[1] + 0.5 * r.scale, r.pos[2])
+        dummy.position.set(r.pos[0], r.pos[1] + 0.4 * r.scale, r.pos[2])
         dummy.scale.set(r.scale, r.scale * 0.72, r.scale)
-        dummy.rotation.set(0, r.rot, r.rot * 0.35)
+        dummy.rotation.set(r.rot[0], r.rot[1], r.rot[2])
         dummy.updateMatrix()
         rockRef.current?.setMatrixAt(i, dummy.matrix)
       })
       rockRef.current.instanceMatrix.needsUpdate = true
     }
 
+    // 6. Utility Poles
     if (poleRef.current) {
       sceneryData.poles.forEach((p, i) => {
-        dummy.position.set(p.pos[0], p.pos[1] + 3.2, p.pos[2])
+        dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
         dummy.scale.set(1, 1, 1)
         dummy.rotation.set(0, 0, 0)
         dummy.updateMatrix()
@@ -504,71 +713,99 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         </mesh>
       )}
 
-      {/* 6. Roadside Scenery: Trees / Flora */}
-      {sceneryData.trees.length > 0 && (
+      {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
+      {sceneryData.pines.length > 0 && (
         <>
           <instancedMesh
-            ref={treeTrunkRef}
-            args={[undefined, undefined, sceneryData.trees.length]}
+            ref={pineTrunkRef}
+            args={[pineTrunkGeo, undefined, sceneryData.pines.length]}
             castShadow
             receiveShadow
           >
-            {biomeConfig.id === 'desert' ? (
-              // Desert saguaro ribbed trunk
-              <cylinderGeometry args={[0.34, 0.38, 3.6, 12]} />
-            ) : (
-              <cylinderGeometry args={[0.24, 0.38, 3.0, 8]} />
-            )}
-            <meshStandardMaterial
-              color={biomeConfig.id === 'desert' ? '#166534' : biomeConfig.treeTrunkColor}
-              roughness={0.88}
-            />
+            <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
           </instancedMesh>
-
           <instancedMesh
-            ref={treeFoliageRef}
-            args={[undefined, undefined, sceneryData.trees.length]}
+            ref={pineCanopyRef}
+            args={[pineCanopyGeo, undefined, sceneryData.pines.length]}
             castShadow
+            receiveShadow
           >
-            {biomeConfig.id === 'desert' ? (
-              // Desert cacti top dome
-              <dodecahedronGeometry args={[0.48, 1]} />
-            ) : biomeConfig.id === 'autumn' ? (
-              // Autumn maple rounded canopy
-              <dodecahedronGeometry args={[1.9, 1]} />
-            ) : (
-              // Pine tree cone
-              <coneGeometry args={[1.75, 5.2, 8]} />
-            )}
             <meshStandardMaterial
-              color={biomeConfig.treeFoliageColor}
-              roughness={0.76}
+              color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
+              roughness={0.82}
             />
           </instancedMesh>
         </>
       )}
 
-      {/* 7. Roadside Scenery: Rocks / Spires */}
-      {sceneryData.rocks.length > 0 && (
+      {/* 7. Organic Broadleaf / Mountain Maples */}
+      {sceneryData.broadleafs.length > 0 && (
+        <>
+          <instancedMesh
+            ref={broadleafTrunkRef}
+            args={[broadleafTrunkGeo, undefined, sceneryData.broadleafs.length]}
+            castShadow
+            receiveShadow
+          >
+            <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
+          </instancedMesh>
+          <instancedMesh
+            ref={broadleafCanopyRef}
+            args={[broadleafCanopyGeo, undefined, sceneryData.broadleafs.length]}
+            castShadow
+            receiveShadow
+          >
+            <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
+          </instancedMesh>
+        </>
+      )}
+
+      {/* 8. Desert Saguaro Cacti */}
+      {sceneryData.saguaros.length > 0 && (
         <instancedMesh
-          ref={rockRef}
-          args={[undefined, undefined, sceneryData.rocks.length]}
+          ref={saguaroRef}
+          args={[saguaroGeo, undefined, sceneryData.saguaros.length]}
           castShadow
           receiveShadow
         >
-          <dodecahedronGeometry args={[1.2, 1]} />
-          <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.88} />
+          <meshStandardMaterial color="#166534" roughness={0.85} />
         </instancedMesh>
       )}
 
-      {/* 8. Roadside Scenery: Utility Poles */}
+      {/* 9. Mountain Shrubs & Roadside Bushes */}
+      {sceneryData.shrubs.length > 0 && (
+        <instancedMesh
+          ref={shrubRef}
+          args={[shrubGeo, undefined, sceneryData.shrubs.length]}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial
+            color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
+            roughness={0.88}
+          />
+        </instancedMesh>
+      )}
+
+      {/* 10. Weathered Boulders & Rock Outcrops */}
+      {sceneryData.rocks.length > 0 && (
+        <instancedMesh
+          ref={rockRef}
+          args={[rockGeo, undefined, sceneryData.rocks.length]}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
+        </instancedMesh>
+      )}
+
+      {/* 11. Roadside Highway Utility Poles */}
       {sceneryData.poles.length > 0 && (
         <instancedMesh
           ref={poleRef}
-          args={[undefined, undefined, sceneryData.poles.length]}
+          args={[poleGeo, undefined, sceneryData.poles.length]}
           castShadow
         >
-          <cylinderGeometry args={[0.13, 0.16, 6.4, 8]} />
           <meshStandardMaterial color="#362316" roughness={0.95} />
         </instancedMesh>
       )}

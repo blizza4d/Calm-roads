@@ -104,6 +104,7 @@ function SpeedometerHUD() {
   const speed = useGameStore((s) => s.speed)
   const rpm = useGameStore((s) => s.rpm)
   const gear = useGameStore((s) => s.gear)
+  const transmissionMode = useGameStore((s) => s.transmissionMode)
   const distance = useGameStore((s) => s.distance)
   const throttle = useGameStore((s) => s.throttle)
   const brake = useGameStore((s) => s.brake)
@@ -160,11 +161,13 @@ function SpeedometerHUD() {
         <div className="flex flex-col items-center justify-between h-20 py-0.5">
           <div className="flex flex-col items-center">
             <span className="text-[8px] uppercase tracking-widest text-white/50 font-bold font-mono">
-              GEAR
+              {gear === 'HOV' ? 'THRUST' : 'GEAR'}
             </span>
             <span
               className={`text-2xl font-black font-mono leading-none ${
-                gear === 'R'
+                gear === 'HOV'
+                  ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]'
+                  : gear === 'R'
                   ? 'text-red-400'
                   : gear === 'N'
                   ? 'text-white/40'
@@ -173,6 +176,15 @@ function SpeedometerHUD() {
             >
               {gear}
             </span>
+            {gear !== 'HOV' && (
+              <span
+                className={`text-[8px] font-mono font-bold tracking-wider mt-1 ${
+                  transmissionMode === 'manual' ? 'text-amber-400 animate-pulse' : 'text-white/40'
+                }`}
+              >
+                {transmissionMode === 'manual' ? 'MANUAL' : 'AUTO'}
+              </span>
+            )}
           </div>
 
           <div className="flex gap-1.5 items-end h-8">
@@ -249,6 +261,8 @@ function EnvironmentModal({ onClose }: { onClose: () => void }) {
     setWeather,
     biome,
     setBiome,
+    graphicsQuality,
+    setGraphicsQuality,
   } = useGameStore()
 
   const biomes: { id: BiomeSelection; name: string; icon: React.ReactNode }[] = [
@@ -376,6 +390,33 @@ function EnvironmentModal({ onClose }: { onClose: () => void }) {
                 </button>
               )
             })}
+          </div>
+        </div>
+
+        {/* 4. Graphics & Performance Preset */}
+        <div className="mt-5 pt-4 border-t border-white/10">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs uppercase tracking-wider font-bold text-white/70">
+              Graphics Quality Preset
+            </span>
+            <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase">
+              {graphicsQuality}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {(['low', 'medium', 'high'] as const).map((q) => (
+              <button
+                key={q}
+                onClick={() => setGraphicsQuality(q)}
+                className={`py-2 rounded-xl text-xs font-mono font-bold uppercase cursor-pointer transition-all ${
+                  graphicsQuality === q
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'bg-white/5 hover:bg-white/10 text-white/70'
+                }`}
+              >
+                {q}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -619,11 +660,14 @@ function PhotoModeView() {
 // ----------------------------------------------------------------
 function ControlsModal({ onClose }: { onClose: () => void }) {
   const keys = [
+    { key: 'LEFT SHIFT', action: 'Request Upshift (Manual Override)' },
+    { key: 'RIGHT SHIFT', action: 'Request Downshift (Engine Braking)' },
     { key: 'W / ↑', action: 'Progressive Throttle / Acceleration' },
     { key: 'S / ↓', action: 'Brake / Reverse' },
     { key: 'A / ←', action: 'Steer Left' },
     { key: 'D / →', action: 'Steer Right' },
     { key: 'SPACE', action: 'Handbrake / High-Speed Drift' },
+    { key: 'B', action: 'Vehicle Horn (Beep)' },
     { key: 'H', action: 'Toggle Antigravity / Hover Mode' },
     { key: 'C', action: 'Cycle Camera (Chase, Cockpit, Drone, Bumper)' },
     { key: 'V', action: 'Switch Vehicle Model' },
@@ -722,6 +766,7 @@ export default function Overlay() {
 
       if (e.key === 'c' || e.key === 'C') cycleCameraPerspective()
       if (e.key === 'h' || e.key === 'H') toggleHoverMode()
+      if (e.key === 'b' || e.key === 'B') audioSystem.playHorn()
       if (e.key === 'v' || e.key === 'V') cycleVehicleModel()
       if (e.key === 't' || e.key === 'T') cycleWeather()
       if (e.key === 'p' || e.key === 'P') togglePhotoMode()

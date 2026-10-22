@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -28,7 +28,12 @@ export interface VehicleConfig {
   tireGrip: number
   roadDamping: number
   offroadDamping: number
-  gearRatios: number[] // Speed km/h per gear
+  gearRatios: number[] // Max speed km/h per forward gear
+  idleRpm: number
+  redlineRpm: number
+  upshiftRpm: number
+  downshiftRpm: number
+  engineBraking: number
 }
 
 export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
@@ -47,6 +52,11 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     roadDamping: 0.994,
     offroadDamping: 0.985,
     gearRatios: [48, 92, 145, 195, 238, 275],
+    idleRpm: 850,
+    redlineRpm: 8500,
+    upshiftRpm: 7200,
+    downshiftRpm: 2400,
+    engineBraking: 0.18,
   },
   hovercraft: {
     name: 'Antigravity Hovercraft',
@@ -62,7 +72,12 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 0.85, // Low-friction inertia drift
     roadDamping: 0.997,
     offroadDamping: 0.996,
-    gearRatios: [60, 130, 205, 265, 310],
+    gearRatios: [310],
+    idleRpm: 1000,
+    redlineRpm: 9000,
+    upshiftRpm: 9999,
+    downshiftRpm: 0,
+    engineBraking: 0.05,
   },
   camper: {
     name: 'Cozy Camper Van',
@@ -78,7 +93,12 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 0.95,
     roadDamping: 0.991,
     offroadDamping: 0.982,
-    gearRatios: [32, 65, 105, 145],
+    gearRatios: [34, 68, 108, 145],
+    idleRpm: 750,
+    redlineRpm: 4800,
+    upshiftRpm: 3900,
+    downshiftRpm: 1700,
+    engineBraking: 0.14,
   },
   hatchback: {
     name: 'Rally Spec Hatchback',
@@ -94,7 +114,12 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.1,
     roadDamping: 0.992,
     offroadDamping: 0.984,
-    gearRatios: [40, 80, 125, 172, 225],
+    gearRatios: [42, 84, 130, 178, 225],
+    idleRpm: 950,
+    redlineRpm: 7600,
+    upshiftRpm: 6800,
+    downshiftRpm: 2600,
+    engineBraking: 0.20,
   },
 }
 
@@ -144,6 +169,55 @@ export default function VehicleController() {
   const FIXED_DT = 1 / 120
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
+
+  // Transmission simulation state (Auto by default with Left Shift upshift / Right Shift downshift manual overrides)
+  const currentGearIndex = useRef(1)
+  const manualOverrideTimer = useRef(0)
+  const shiftCutTimer = useRef(0)
+  const smoothedRpm = useRef(config.idleRpm)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (isHoverMode || vehicleModel === 'hovercraft') return
+
+      const maxGears = config.gearRatios.length
+
+      // Left Shift: Request Upshift
+      if (e.code === 'ShiftLeft') {
+        if (currentGearIndex.current < maxGears) {
+          const nextGearMinSpeed =
+            currentGearIndex.current === 1 ? 6 : config.gearRatios[currentGearIndex.current - 2] * 0.35
+          if (Math.abs(forwardVel.current) * 3.6 >= nextGearMinSpeed) {
+            currentGearIndex.current++
+            manualOverrideTimer.current = 4.5
+            shiftCutTimer.current = 0.12
+            useGameStore.getState().setTransmissionMode('manual')
+            audioSystem.triggerGearShift(vehicleModel, false)
+          }
+        }
+      }
+      // Right Shift: Request Downshift
+      else if (e.code === 'ShiftRight') {
+        if (currentGearIndex.current > 1) {
+          const prevGearMaxSpeed = config.gearRatios[currentGearIndex.current - 2]
+          const curSpeedKmh = Math.abs(forwardVel.current) * 3.6
+          // Safety lockout: prevent mechanical over-rev
+          if (curSpeedKmh <= prevGearMaxSpeed * 1.08) {
+            currentGearIndex.current--
+            manualOverrideTimer.current = 4.5
+            shiftCutTimer.current = 0.10
+            useGameStore.getState().setTransmissionMode('manual')
+            audioSystem.triggerGearShift(vehicleModel, true)
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isHoverMode, vehicleModel, config])
 
   useFrame((state, delta) => {
     if (!carGroupRef.current || photoMode) return
@@ -240,15 +314,21 @@ export default function VehicleController() {
       // Progressive power curve: strong low-end torque tapering off smoothly as speed reaches max
       const powerFactor = Math.max(0.12, Math.pow(Math.max(0, 1 - speedNorm), 0.65))
       const accel = config.peakAccel * powerFactor * (isHoverMode || onRoad ? 1.0 : 0.82)
+      const shiftPowerMul = shiftCutTimer.current > 0 ? 0.18 : 1.0
 
       if (currentThrottle.current > 0) {
-        forwardVel.current += (currentThrottle.current * accel + slopeGravity - aeroDrag) * dt
+        forwardVel.current += (currentThrottle.current * accel * shiftPowerMul + slopeGravity - aeroDrag) * dt
         if (forwardVel.current > config.maxSpeedMs) forwardVel.current = config.maxSpeedMs
       } else if (currentThrottle.current < 0) {
         forwardVel.current += (currentThrottle.current * (config.peakAccel * 0.45) + slopeGravity) * dt
         if (forwardVel.current < -12) forwardVel.current = -12
       } else {
-        forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag) * dt
+        // Natural engine braking in lower gears
+        const curGear = currentGearIndex.current
+        const maxGear = config.gearRatios.length
+        const gearBrakingRatio = Math.max(0, 1 - (curGear - 1) / maxGear)
+        const engineBrake = !isHoverMode && forwardVel.current > 1.5 ? config.engineBraking * gearBrakingRatio * 3.8 : 0
+        forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag - engineBrake) * dt
       }
 
       // Progressive Braking
@@ -393,37 +473,110 @@ export default function VehicleController() {
     }
 
     // ------------------------------------------------------------------------
-    // 5. Gearbox, RPM & Telemetry Simulation
+    // 5. Automatic Transmission with Manual Shift Overrides & RPM Simulation
     // ------------------------------------------------------------------------
     setSpeed(Math.round(currentSpeedKmh))
 
-    let calculatedGear = '1'
-    let calculatedRpm = 800
-
-    if (forwardVel.current < -0.2) {
-      calculatedGear = 'R'
-      calculatedRpm = 1200 + Math.min(4500, Math.abs(currentSpeedKmh) * 160)
-    } else if (currentSpeedKmh < 1.0) {
-      calculatedGear = 'N'
-      calculatedRpm = 800 + curThrottleAbs * 1400
-    } else {
-      const gearRatios = config.gearRatios
-      for (let g = 0; g < gearRatios.length; g++) {
-        if (currentSpeedKmh <= gearRatios[g] || g === gearRatios.length - 1) {
-          calculatedGear = (g + 1).toString()
-          const prevSpeed = g === 0 ? 0 : gearRatios[g - 1]
-          const progress = (currentSpeedKmh - prevSpeed) / (gearRatios[g] - prevSpeed)
-          calculatedRpm = 2200 + progress * 5400
-          break
-        }
+    // Update shift timers
+    if (manualOverrideTimer.current > 0) {
+      manualOverrideTimer.current -= frameDelta
+      if (manualOverrideTimer.current <= 0) {
+        useGameStore.getState().setTransmissionMode('auto')
       }
     }
+    if (shiftCutTimer.current > 0) {
+      shiftCutTimer.current -= frameDelta
+    }
+
+    let calculatedGear = '1'
+    let targetRpm = config.idleRpm
+    const maxGears = config.gearRatios.length
+
+    if (isHoverMode || vehicleModel === 'hovercraft') {
+      calculatedGear = 'HOV'
+      const speedNormHover = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
+      targetRpm = config.idleRpm + speedNormHover * (config.redlineRpm - config.idleRpm)
+    } else if (forwardVel.current < -0.3) {
+      calculatedGear = 'R'
+      targetRpm = config.idleRpm + Math.min(3600, Math.abs(currentSpeedKmh) * 140)
+    } else if (currentSpeedKmh < 1.2 && curThrottleAbs < 0.1) {
+      calculatedGear = 'N'
+      targetRpm = config.idleRpm
+    } else {
+      // Automatic Transmission: selects gear smoothly according to throttle load & RPM
+      if (manualOverrideTimer.current <= 0) {
+        const curGear = currentGearIndex.current
+        const upshiftThresh = THREE.MathUtils.lerp(
+          config.downshiftRpm + 900,
+          config.upshiftRpm,
+          curThrottleAbs
+        )
+
+        const gearTopSpeed = config.gearRatios[curGear - 1]
+        const prevGearTopSpeed = curGear > 1 ? config.gearRatios[curGear - 2] : 0
+        const progressInGear =
+          (currentSpeedKmh - prevGearTopSpeed * 0.45) / Math.max(1, gearTopSpeed - prevGearTopSpeed * 0.45)
+        const estRpm = config.idleRpm + progressInGear * (config.redlineRpm - config.idleRpm)
+
+        // Automatic Upshift
+        if (estRpm > upshiftThresh && curGear < maxGears && currentSpeedKmh > 12) {
+          currentGearIndex.current++
+          shiftCutTimer.current = 0.11
+          audioSystem.triggerGearShift(vehicleModel, false)
+        }
+        // Automatic Downshift
+        else if (estRpm < config.downshiftRpm && curGear > 1) {
+          currentGearIndex.current--
+          shiftCutTimer.current = 0.08
+          audioSystem.triggerGearShift(vehicleModel, true)
+        }
+      } else {
+        // Manual Override Mode: player controls gears via Left Shift / Right Shift
+        const curGear = currentGearIndex.current
+        const prevGearTopSpeed = curGear > 1 ? config.gearRatios[curGear - 2] : 0
+        const gearTopSpeed = config.gearRatios[curGear - 1]
+        const progressInGear =
+          (currentSpeedKmh - prevGearTopSpeed * 0.45) / Math.max(1, gearTopSpeed - prevGearTopSpeed * 0.45)
+        const estRpm = config.idleRpm + progressInGear * (config.redlineRpm - config.idleRpm)
+
+        // Safety lockout: auto-downshift to prevent stall
+        if (estRpm < config.idleRpm - 100 && curGear > 1) {
+          currentGearIndex.current--
+        }
+        // Safety lockout: auto-upshift at absolute redline
+        else if (estRpm > config.redlineRpm + 150 && curGear < maxGears) {
+          currentGearIndex.current++
+        }
+      }
+
+      const activeGear = currentGearIndex.current
+      calculatedGear = activeGear.toString()
+
+      const prevSpeed = activeGear > 1 ? config.gearRatios[activeGear - 2] : 0
+      const gearTop = config.gearRatios[activeGear - 1]
+      const speedNormInGear = Math.max(
+        0,
+        Math.min(1.05, (currentSpeedKmh - prevSpeed * 0.4) / Math.max(1, gearTop - prevSpeed * 0.4))
+      )
+
+      targetRpm = config.idleRpm + speedNormInGear * (config.redlineRpm - config.idleRpm)
+      if (curThrottleAbs > 0.05) {
+        targetRpm += curThrottleAbs * 380
+      }
+      if (shiftCutTimer.current > 0) {
+        targetRpm -= 450 // Shift cut clutch dip
+      }
+    }
+
+    smoothedRpm.current = THREE.MathUtils.lerp(smoothedRpm.current, targetRpm, frameDelta * 12)
+    const finalRpm = Math.max(config.idleRpm, Math.min(config.redlineRpm, Math.round(smoothedRpm.current)))
+
     setGear(calculatedGear)
-    setRpm(Math.min(8000, Math.max(800, calculatedRpm)))
+    setRpm(finalRpm)
 
     // Overrun exhaust pop detection & lateral slip factor
     const throttleDelta = curThrottleAbs - prevThrottleVal.current
-    const isDecel = throttleDelta < -0.22 && calculatedRpm > 3500
+    const isDecel = throttleDelta < -0.22 && finalRpm > 3500
     prevThrottleVal.current = curThrottleAbs
 
     const lateralSlip = Math.abs(lateralVel.current) / Math.max(2.5, Math.abs(forwardVel.current))
@@ -433,7 +586,7 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
-      rpm: calculatedRpm,
+      rpm: finalRpm,
       throttle: curThrottleAbs,
       isOffRoad: !onRoad,
       isHoverMode,

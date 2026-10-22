@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 import { KeyboardControls } from '@react-three/drei'
 import Experience from './components/3d/Experience'
 import Overlay from './components/ui/Overlay'
+import { useGameStore } from './store/useGameStore'
 
 const keyboardMap = [
   { name: 'forward', keys: ['ArrowUp', 'w', 'W'] },
@@ -13,6 +14,8 @@ const keyboardMap = [
 ]
 
 export default function App() {
+  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
+
   return (
     <KeyboardControls map={keyboardMap}>
       {/* Root Fullscreen Container */}
@@ -27,6 +30,7 @@ export default function App() {
         >
           <Canvas
             shadows
+            dpr={graphicsQuality === 'low' ? 1 : graphicsQuality === 'medium' ? 1.5 : [1, 2]}
             camera={{ position: [0, 3, 8], fov: 55, near: 0.1, far: 1000 }}
             gl={{
               antialias: true,
