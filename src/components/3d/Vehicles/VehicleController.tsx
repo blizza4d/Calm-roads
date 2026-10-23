@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { useGameStore, VehicleModelType } from '../../../store/useGameStore'
+import { useGameStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
 import { ActiveCarModel } from './CarModels'
 import {
   getRoadCenter,
@@ -123,9 +123,21 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
   },
 }
 
+const _tempCamOffset = new THREE.Vector3()
+const _tempCamLookAt = new THREE.Vector3()
+const _wheelCorners: [number, number][] = [
+  [-0.88, -1.35],
+  [0.88, -1.35],
+  [-0.88, 1.35],
+  [0.88, 1.35],
+]
+
 export default function VehicleController() {
   const carGroupRef = useRef<THREE.Group>(null)
   const chassisMeshRef = useRef<THREE.Group>(null)
+  const cameraLookAtRef = useRef(new THREE.Vector3(0, 0.9, -10))
+  const isFirstCamFrameRef = useRef(true)
+  const prevCamModeRef = useRef<CameraPerspectiveType>('chase')
   const [, getKeys] = useKeyboardControls()
 
   const {
@@ -418,20 +430,11 @@ export default function VehicleController() {
     carGroupRef.current.position.set(pos.current.x, pos.current.y, pos.current.z)
     carGroupRef.current.rotation.y = yawAngle.current
 
-    // Independent 4-Wheel Contact Suspension Tracking (FL, FR, RL, RR)
-    const halfTrack = 0.88
-    const halfBase = 1.35
+    // Independent 4-Wheel Contact Suspension Tracking (FL, FR, RL, RR) using static offsets
     const cosYaw = Math.cos(yawAngle.current)
     const sinYaw = Math.sin(yawAngle.current)
 
-    const wheelCorners = [
-      [-halfTrack, -halfBase],
-      [halfTrack, -halfBase],
-      [-halfTrack, halfBase],
-      [halfTrack, halfBase],
-    ]
-
-    wheelCorners.forEach(([lx, lz], idx) => {
+    _wheelCorners.forEach(([lx, lz], idx) => {
       const wx = pos.current.x + lx * cosYaw + lz * sinYaw
       const wz = pos.current.z - lx * sinYaw + lz * cosYaw
       const wy = getTerrainHeight(wx, wz, activeBiomeConfig.id)
@@ -596,7 +599,7 @@ export default function VehicleController() {
     })
 
     // ------------------------------------------------------------------------
-    // 7. Dynamic Racing Camera with Speed-Dependent FOV & Vibration
+    // 7. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
     // ------------------------------------------------------------------------
     const carPos = pos.current
     const carQuat = carGroupRef.current.quaternion
@@ -611,41 +614,47 @@ export default function VehicleController() {
       }
     }
 
+    let followSpeed = 7.5
+
     if (cameraPerspective === 'chase') {
-      const lookAhead = Math.min(16, forwardVel.current * 0.24)
-      const idealOffset = new THREE.Vector3(0, 2.5, 6.6).applyQuaternion(carQuat).add(carPos)
-      const idealLookAt = new THREE.Vector3(0, 0.9, -lookAhead).applyQuaternion(carQuat).add(carPos)
+      const lookAhead = Math.min(18, Math.max(0, forwardVel.current * 0.22))
+      _tempCamOffset.set(0, 2.1, 5.8).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.92, -lookAhead - 4.0).applyQuaternion(carQuat).add(carPos)
 
       // Subtle high-speed micro-vibration
-      if (currentSpeedKmh > 75) {
-        const vibe = (currentSpeedKmh / config.maxSpeedKmh) * (Math.random() - 0.5) * 0.016
-        idealOffset.x += vibe
-        idealOffset.y += vibe
+      if (currentSpeedKmh > 80) {
+        const vibe = (currentSpeedKmh / config.maxSpeedKmh) * (Math.random() - 0.5) * 0.014
+        _tempCamOffset.x += vibe
+        _tempCamOffset.y += vibe
       }
-
-      state.camera.position.lerp(idealOffset, frameDelta * 7.5)
-      state.camera.lookAt(idealLookAt)
+      followSpeed = 7.5
     } else if (cameraPerspective === 'dashboard') {
-      const idealOffset = new THREE.Vector3(0, 0.88, -0.15).applyQuaternion(carQuat).add(carPos)
-      const idealLookAt = new THREE.Vector3(0, 0.88, -30).applyQuaternion(carQuat).add(carPos)
-
-      state.camera.position.lerp(idealOffset, frameDelta * 14)
-      state.camera.lookAt(idealLookAt)
+      _tempCamOffset.set(0, 0.76, 0.12).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.72, -30).applyQuaternion(carQuat).add(carPos)
+      followSpeed = 16
     } else if (cameraPerspective === 'bumper') {
-      const idealOffset = new THREE.Vector3(0, 0.35, -2.25).applyQuaternion(carQuat).add(carPos)
-      const idealLookAt = new THREE.Vector3(0, 0.35, -35).applyQuaternion(carQuat).add(carPos)
-
-      state.camera.position.lerp(idealOffset, frameDelta * 16)
-      state.camera.lookAt(idealLookAt)
+      _tempCamOffset.set(0, 0.42, -2.4).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.40, -35).applyQuaternion(carQuat).add(carPos)
+      followSpeed = 18
     } else if (cameraPerspective === 'drone') {
       const time = state.clock.getElapsedTime() * 0.22
-      const lateralShift = Math.sin(time) * 5.0
-      const idealOffset = new THREE.Vector3(lateralShift, 6.5, 13.5).applyQuaternion(carQuat).add(carPos)
-      const idealLookAt = new THREE.Vector3(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
-
-      state.camera.position.lerp(idealOffset, frameDelta * 3.5)
-      state.camera.lookAt(idealLookAt)
+      const lateralShift = Math.sin(time) * 4.5
+      _tempCamOffset.set(lateralShift, 5.8, 11.5).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
+      followSpeed = 3.5
     }
+
+    // Snap camera on initialization or perspective toggle to avoid 1-frame jump
+    if (isFirstCamFrameRef.current || prevCamModeRef.current !== cameraPerspective) {
+      state.camera.position.copy(_tempCamOffset)
+      cameraLookAtRef.current.copy(_tempCamLookAt)
+      isFirstCamFrameRef.current = false
+      prevCamModeRef.current = cameraPerspective
+    } else {
+      state.camera.position.lerp(_tempCamOffset, frameDelta * followSpeed)
+      cameraLookAtRef.current.lerp(_tempCamLookAt, frameDelta * (followSpeed * 1.25))
+    }
+    state.camera.lookAt(cameraLookAtRef.current)
   })
 
   return (

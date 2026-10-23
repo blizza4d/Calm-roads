@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore } from '../../../store/useGameStore'
 import { BIOMES } from '../../../utils/roadMath'
@@ -301,12 +301,20 @@ export default function GameEnvironment() {
   // Directional Light & Shadow target
   const dirLightRef = useRef<THREE.DirectionalLight>(null)
   const lightTargetRef = useRef<THREE.Object3D>(null)
+  const timeOfDayRef = useRef(timeOfDay)
+  const lastDispatchedTime = useRef(timeOfDay)
 
-  // Auto-advance time of day smoothly (1 full 24-hr day every 12 minutes, or controlled by slider)
+  // Auto-advance time of day smoothly for directional lighting, throttling Zustand dispatches to avoid 60fps React rerenders
   useFrame((_, delta) => {
     if (autoTimeCycle) {
-      const newTime = (timeOfDay + delta * (24 / 720)) % 24
-      setTimeOfDay(newTime)
+      timeOfDayRef.current = (timeOfDayRef.current + delta * (24 / 720)) % 24
+      if (Math.abs(timeOfDayRef.current - lastDispatchedTime.current) > 0.08) {
+        lastDispatchedTime.current = timeOfDayRef.current
+        setTimeOfDay(timeOfDayRef.current)
+      }
+    } else {
+      timeOfDayRef.current = timeOfDay
+      lastDispatchedTime.current = timeOfDay
     }
   })
 
@@ -395,11 +403,26 @@ export default function GameEnvironment() {
     return biomeConfig.fogDensity
   }, [weather, biomeConfig])
 
+  // Discrete celestial phase key: only regenerate PMREM environment map when phase shifts
+  const celestialPhase = useMemo(() => {
+    if (celestialData.isNight) return 'night'
+    if (timeOfDay >= 16.5 && timeOfDay <= 19.5) return 'sunset'
+    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) return 'sunrise'
+    return 'day'
+  }, [celestialData.isNight, timeOfDay])
+
+  // Persistent PMREM generator and active environment map texture
+  const pmremRef = useRef<THREE.PMREMGenerator | null>(null)
+  const currentEnvTextureRef = useRef<THREE.Texture | null>(null)
+
   // Procedural PBR Irradiance Environment Map Generation
-  // Provides real-time IBL specular reflections for car clearcoat paint, glass, chrome and wet roads
+  // Only runs when celestial phase transitions (Day, Sunset, Twilight, Night) - eliminates 60fps WebGL recompilation
   useEffect(() => {
-    const pmremGenerator = new THREE.PMREMGenerator(gl)
-    pmremGenerator.compileEquirectangularShader()
+    if (!pmremRef.current) {
+      pmremRef.current = new THREE.PMREMGenerator(gl)
+      pmremRef.current.compileEquirectangularShader()
+    }
+    const pmremGenerator = pmremRef.current
 
     const canvas = document.createElement('canvas')
     canvas.width = 256
@@ -410,20 +433,20 @@ export default function GameEnvironment() {
 
     // Equirectangular sky gradient matching the celestial phase
     const grad = ctx.createLinearGradient(0, 0, 0, 128)
-    if (celestialData.isNight) {
+    if (celestialPhase === 'night') {
       grad.addColorStop(0.0, '#020617') // Deep cosmic zenith
       grad.addColorStop(0.48, '#0f172a') // Horizon
       grad.addColorStop(0.50, '#1e293b') // Moonlight horizon rim
       grad.addColorStop(0.52, '#0f172a') // Ground horizon
       grad.addColorStop(1.0, '#020617') // Ground nadir
-    } else if (timeOfDay >= 16.5 && timeOfDay <= 19.5) {
+    } else if (celestialPhase === 'sunset') {
       // Golden Hour Sunset
       grad.addColorStop(0.0, '#38bdf8') // Blue zenith
       grad.addColorStop(0.42, '#fde68a') // Warm sky
       grad.addColorStop(0.50, '#fb923c') // Golden-amber horizon
       grad.addColorStop(0.52, '#78350f') // Warm ground bounce
       grad.addColorStop(1.0, '#292524') // Ground nadir
-    } else if (timeOfDay >= 5.0 && timeOfDay <= 7.5) {
+    } else if (celestialPhase === 'sunrise') {
       // Crisp Sunrise
       grad.addColorStop(0.0, '#60a5fa')
       grad.addColorStop(0.42, '#fbcfe8')
@@ -443,7 +466,7 @@ export default function GameEnvironment() {
     ctx.fillRect(0, 0, 256, 128)
 
     // Sun disc specular reflection source
-    if (!celestialData.isNight) {
+    if (celestialPhase !== 'night') {
       const sunNormY = (celestialData.skySunPos[1] / 100) * 0.5 + 0.5
       const sunPixelY = Math.max(10, Math.min(118, (1 - sunNormY) * 128))
       const sunGrad = ctx.createRadialGradient(128, sunPixelY, 0, 128, sunPixelY, 28)
@@ -456,14 +479,22 @@ export default function GameEnvironment() {
 
     const texture = new THREE.CanvasTexture(canvas)
     const envMap = pmremGenerator.fromEquirectangular(texture).texture
-    scene.environment = envMap
+    texture.dispose()
 
-    return () => {
-      texture.dispose()
-      envMap.dispose()
-      pmremGenerator.dispose()
+    if (currentEnvTextureRef.current) {
+      currentEnvTextureRef.current.dispose()
     }
-  }, [gl, scene, celestialData.isNight, timeOfDay, celestialData.skySunPos])
+    currentEnvTextureRef.current = envMap
+    scene.environment = envMap
+  }, [gl, scene, celestialPhase])
+
+  // Cleanup PMREM generator on unmount
+  useEffect(() => {
+    return () => {
+      if (currentEnvTextureRef.current) currentEnvTextureRef.current.dispose()
+      if (pmremRef.current) pmremRef.current.dispose()
+    }
+  }, [])
 
   // Player-following directional light with smooth target tracking
   useFrame(() => {
@@ -590,9 +621,8 @@ export default function GameEnvironment() {
 
       {/* Cinematic Post-Processing Pass */}
       <EffectComposer multisampling={graphicsQuality === 'low' ? 0 : graphicsQuality === 'medium' ? 2 : 4}>
-        <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'low' ? 0.35 : 0.55} mipmapBlur />
-        <ToneMapping />
-        <Vignette eskil={false} offset={0.35} darkness={0.28} />
+        <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'low' ? 0.35 : 0.48} mipmapBlur />
+        <Vignette eskil={false} offset={0.42} darkness={0.22} />
       </EffectComposer>
     </>
   )

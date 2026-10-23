@@ -141,6 +141,18 @@ export function BmwM3GtrModel({
   const brakeRotor = (
     <meshStandardMaterial color="#94a3b8" metalness={0.95} roughness={0.28} />
   )
+  const alcantara = (
+    <meshStandardMaterial color="#1e293b" roughness={0.96} metalness={0.05} />
+  )
+  const rollCage = (
+    <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.18} />
+  )
+  const shiftLightRed = (
+    <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={3.2} toneMapped={false} />
+  )
+  const gaugeCluster = (
+    <meshStandardMaterial color="#0284c7" emissive="#38bdf8" emissiveIntensity={2.5} toneMapped={false} />
+  )
   const repulsorGlow = (
     <meshStandardMaterial
       color="#38bdf8"
@@ -440,6 +452,82 @@ export function BmwM3GtrModel({
       <mesh position={[-0.71, 1.18, 0.15]}>
         <boxGeometry args={[0.015, 0.02, 1.68]} />
         {polishedChrome}
+      </mesh>
+
+      {/* Race Cockpit Interior: Dashboard, Steering Wheel, Recaro Seats & Roll Cage */}
+      {/* Matte Alcantara Dashboard Top */}
+      <mesh position={[0, 0.76, -0.62]} rotation={[0.1, 0, 0]}>
+        <boxGeometry args={[1.42, 0.12, 0.44]} />
+        {alcantara}
+      </mesh>
+      {/* Driver Instrument Binnacle */}
+      <mesh position={[-0.34, 0.83, -0.58]}>
+        <boxGeometry args={[0.32, 0.12, 0.16]} />
+        {matteTrim}
+      </mesh>
+      {/* Glowing Digital Race Display & RPM Shift Lights */}
+      <mesh position={[-0.34, 0.84, -0.49]} rotation={[-0.2, 0, 0]}>
+        <boxGeometry args={[0.22, 0.07, 0.01]} />
+        {gaugeCluster}
+      </mesh>
+      <mesh position={[-0.34, 0.89, -0.50]}>
+        <boxGeometry args={[0.18, 0.015, 0.01]} />
+        {shiftLightRed}
+      </mesh>
+      {/* M-Performance Racing Steering Wheel */}
+      <group position={[-0.34, 0.77, -0.38]} rotation={[0.32, 0, steeringAngle * 1.5]}>
+        <mesh>
+          <torusGeometry args={[0.16, 0.022, 12, 24]} />
+          {alcantara}
+        </mesh>
+        <mesh position={[0, 0.16, 0]}>
+          <boxGeometry args={[0.025, 0.015, 0.025]} />
+          {iconicGtrBlue}
+        </mesh>
+        <mesh>
+          <cylinderGeometry args={[0.045, 0.045, 0.03, 16]} />
+          {carbonFiber}
+        </mesh>
+      </group>
+      {/* Recaro GT Bucket Seats */}
+      <group position={[-0.34, 0.58, 0.12]} rotation={[-0.15, 0, 0]}>
+        <mesh position={[0, 0.28, 0]}>
+          <boxGeometry args={[0.44, 0.62, 0.14]} />
+          {carbonFiber}
+        </mesh>
+        <mesh position={[0, 0, 0.18]}>
+          <boxGeometry args={[0.42, 0.12, 0.42]} />
+          {alcantara}
+        </mesh>
+      </group>
+      <group position={[0.34, 0.58, 0.12]} rotation={[-0.15, 0, 0]}>
+        <mesh position={[0, 0.28, 0]}>
+          <boxGeometry args={[0.44, 0.62, 0.14]} />
+          {carbonFiber}
+        </mesh>
+        <mesh position={[0, 0, 0.18]}>
+          <boxGeometry args={[0.42, 0.12, 0.42]} />
+          {alcantara}
+        </mesh>
+      </group>
+      {/* Welded Titanium Tubular Safety Roll Cage */}
+      {/* Main Hoop */}
+      <mesh position={[0, 0.94, 0.52]}>
+        <torusGeometry args={[0.62, 0.022, 8, 16, Math.PI]} />
+        {rollCage}
+      </mesh>
+      {/* Diagonal Cross Struts */}
+      <mesh position={[0, 0.88, 0.52]} rotation={[0, 0, 0.65]}>
+        <cylinderGeometry args={[0.022, 0.022, 1.25, 8]} />
+        {rollCage}
+      </mesh>
+      <mesh position={[-0.54, 0.78, 0.82]} rotation={[0.45, 0, 0]}>
+        <cylinderGeometry args={[0.022, 0.022, 0.82, 8]} />
+        {rollCage}
+      </mesh>
+      <mesh position={[0.54, 0.78, 0.82]} rotation={[0.45, 0, 0]}>
+        <cylinderGeometry args={[0.022, 0.022, 0.82, 8]} />
+        {rollCage}
       </mesh>
 
       {/* Aerodynamic M3 Side Mirrors */}

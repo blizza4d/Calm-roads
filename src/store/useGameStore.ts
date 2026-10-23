@@ -102,6 +102,18 @@ interface GameState {
   setGraphicsQuality: (q: 'low' | 'medium' | 'high') => void
   isFullscreen: boolean
   toggleFullscreen: () => void
+
+  // 9. Diagnostics & Engine Telemetry
+  showDiagnostics: boolean
+  setShowDiagnostics: (s: boolean) => void
+  toggleDiagnostics: () => void
+  diagnostics: {
+    fps: number
+    activeChunks: number
+    frontierBuffer: number
+    drawDistance: number
+  }
+  setDiagnostics: (d: Partial<{ fps: number; activeChunks: number; frontierBuffer: number; drawDistance: number }>) => void
 }
 
 const WEATHERS: WeatherType[] = ['clear', 'rain', 'snow', 'mist']
@@ -224,4 +236,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ isFullscreen: false })
     }
   },
+
+  // Diagnostics & Engine Telemetry
+  showDiagnostics: false,
+  setShowDiagnostics: (showDiagnostics) => set({ showDiagnostics }),
+  toggleDiagnostics: () => set((s) => ({ showDiagnostics: !s.showDiagnostics })),
+  diagnostics: {
+    fps: 60,
+    activeChunks: 19,
+    frontierBuffer: 3000,
+    drawDistance: 3800,
+  },
+  setDiagnostics: (d) => set((s) => ({ diagnostics: { ...s.diagnostics, ...d } })),
 }))

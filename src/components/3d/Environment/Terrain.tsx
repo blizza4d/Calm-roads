@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useMemo, useRef, useEffect, useLayoutEffect, useState, memo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../../../store/useGameStore'
@@ -129,7 +129,7 @@ interface ChunkProps {
 // 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines
 // 5. Realistic Steel W-Beam Guardrails on curved segments
 // 6. Biome-Specific Instanced Scenery (Pines, Maples, Cacti, Boulders, Grass Tufts, Poles)
-function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
+const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
 
@@ -622,7 +622,8 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
   const grassRef = useRef<THREE.InstancedMesh>(null)
   const poleRef = useRef<THREE.InstancedMesh>(null)
 
-  useEffect(() => {
+  // Synchronous Matrix Updates before paint to prevent 1-frame visual popping
+  useLayoutEffect(() => {
     const dummy = new THREE.Object3D()
 
     // 1. Pines
@@ -883,21 +884,23 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
       </instancedMesh>
     </group>
   )
-}
+}, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining)
 
-// Predictive High-Speed Chunk Manager:
-// Pre-generates a 2.4-kilometer forward horizon buffer (14 active chunks).
-// Uses stable slot-based object pooling so React never unmounts/remounts components,
-// eliminating GC freezes and guaranteeing the world stays 2+ km ahead of the vehicle at any speed.
-const NUM_CHUNKS = 14
-const CHUNKS_BEHIND = 2
+// Predictive High-Speed World Horizon Streaming Engine:
+// Pre-generates 19 active chunks (3.8 kilometers continuous highway coverage).
+// Guarantees >2.9km forward horizon buffer ahead of the vehicle even at top speed (275+ km/h).
+// Uses multi-chunk catchup and instant recentering upon vehicle reset or teleport.
+const NUM_CHUNKS = 19
+const CHUNKS_BEHIND = 3
 
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
   const weather = useGameStore((state) => state.weather)
+  const setDiagnostics = useGameStore((state) => state.setDiagnostics)
   const { camera } = useThree()
+  const diagCounter = useRef(0)
 
-  // Initial chunks spanning 400m behind down to -2200m ahead
+  // Initial chunks spanning 600m behind down to -3000m ahead
   const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
     const initial: number[] = []
     for (let i = 0; i < NUM_CHUNKS; i++) {
@@ -909,44 +912,76 @@ export default function Terrain() {
   // Ref to track chunk slots synchronously across frames without React re-render lag
   const slotsRef = useRef<number[]>(chunkSlots)
   slotsRef.current = chunkSlots
-
-  const isRecyclingRef = useRef(false)
+  const lastCamZ = useRef<number>(camera.position.z)
 
   useFrame(() => {
     const camZ = camera.position.z
 
-    // Find the rearmost chunk (highest Z value, since forward is negative Z)
-    let rearmostIdx = 0
-    let rearmostZ = slotsRef.current[0]
-    let frontmostZ = slotsRef.current[0]
-
-    for (let i = 0; i < NUM_CHUNKS; i++) {
-      const z = slotsRef.current[i]
-      if (z > rearmostZ) {
-        rearmostZ = z
-        rearmostIdx = i
+    // 1. Detect Vehicle Reset or Teleport (camZ jump > 350m)
+    if (Math.abs(camZ - lastCamZ.current) > 350) {
+      const centerChunkZ = Math.round(camZ / CHUNK_LEN) * CHUNK_LEN
+      const recentered: number[] = []
+      for (let i = 0; i < NUM_CHUNKS; i++) {
+        recentered.push(centerChunkZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
       }
-      if (z < frontmostZ) {
-        frontmostZ = z
+      slotsRef.current = recentered
+      setChunkSlots(recentered)
+      lastCamZ.current = camZ
+      return
+    }
+    lastCamZ.current = camZ
+
+    // 2. High-Speed Multi-Chunk Horizon Catchup
+    let recycledCount = 0
+    let didUpdate = false
+    const currentSlots = [...slotsRef.current]
+
+    // While rearmost chunk has safely passed behind camera, recycle it to the forward horizon
+    while (recycledCount < 3) {
+      let rearmostIdx = 0
+      let rearmostZ = currentSlots[0]
+      let frontmostZ = currentSlots[0]
+
+      for (let i = 0; i < NUM_CHUNKS; i++) {
+        const z = currentSlots[i]
+        if (z > rearmostZ) {
+          rearmostZ = z
+          rearmostIdx = i
+        }
+        if (z < frontmostZ) {
+          frontmostZ = z
+        }
+      }
+
+      // Retire threshold: safely past chase camera and rear-view sightline
+      const retireThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
+      if (rearmostZ > retireThreshold) {
+        currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
+        recycledCount++
+        didUpdate = true
+      } else {
+        break
       }
     }
 
-    // If the rearmost chunk is further behind the camera than (CHUNKS_BEHIND * CHUNK_LEN + 60m):
-    const retireThreshold = camZ + (CHUNKS_BEHIND + 0.3) * CHUNK_LEN
-    if (rearmostZ > retireThreshold && !isRecyclingRef.current) {
-      isRecyclingRef.current = true
-      const nextFrontZ = frontmostZ - CHUNK_LEN
+    if (didUpdate) {
+      slotsRef.current = currentSlots
+      setChunkSlots(currentSlots)
+    }
 
-      // Recycle the single rearmost slot to the far front horizon
-      const updated = [...slotsRef.current]
-      updated[rearmostIdx] = nextFrontZ
-      slotsRef.current = updated
-      setChunkSlots(updated)
-
-      // Throttle recycling to avoid multiple updates in the same frame
-      setTimeout(() => {
-        isRecyclingRef.current = false
-      }, 16)
+    // 3. Update Development Diagnostics (throttled every 15 frames ~ 250ms)
+    diagCounter.current++
+    if (diagCounter.current % 15 === 0) {
+      let minZ = slotsRef.current[0]
+      for (let i = 1; i < slotsRef.current.length; i++) {
+        if (slotsRef.current[i] < minZ) minZ = slotsRef.current[i]
+      }
+      const buffer = Math.max(0, Math.round(camZ - minZ))
+      setDiagnostics({
+        activeChunks: NUM_CHUNKS,
+        frontierBuffer: buffer,
+        drawDistance: NUM_CHUNKS * CHUNK_LEN,
+      })
     }
   })
 

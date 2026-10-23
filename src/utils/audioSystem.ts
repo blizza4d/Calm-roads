@@ -40,14 +40,18 @@ class AudioEcosystem {
   private m3Loading = false
   private m3Loaded = false
 
-  // 2. BMW M3 Throaty Exhaust Roar Channel (Low-end V8 rumble & roar)
+  // 2. BMW M3 Throaty Exhaust Roar Channel (Low-end V8 rumble & roar with Wave-Shaper Saturation)
   private exhaustRoarGain: GainNode | null = null
   private exhaustFilter: BiquadFilterNode | null = null
   private exhaustResonator: BiquadFilterNode | null = null
+  private exhaustWaveShaper: WaveShaperNode | null = null
   private exhaustOsc1: OscillatorNode | null = null
   private exhaustOsc2: OscillatorNode | null = null
   private exhaustSubOsc: OscillatorNode | null = null
   private exhaustRaspOsc: OscillatorNode | null = null
+  private whineOsc: OscillatorNode | null = null
+  private whineGain: GainNode | null = null
+  private whineFilter: BiquadFilterNode | null = null
   private lastDecelPopTime = 0
   private prevThrottleVal = 0
 
@@ -138,7 +142,7 @@ class AudioEcosystem {
     // Load authentic screaming M3 GTR audio sample (P60B40 V8 + straight-cut gear whine)
     this.loadM3Sample()
 
-    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR P60B40 Racing V8)
+    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR P60B40 Racing V8 with Wave-Shaper Saturation)
     this.exhaustRoarGain = this.ctx.createGain()
     this.exhaustRoarGain.gain.value = 0.0001
     this.exhaustFilter = this.ctx.createBiquadFilter()
@@ -150,8 +154,13 @@ class AudioEcosystem {
     this.exhaustResonator = this.ctx.createBiquadFilter()
     this.exhaustResonator.type = 'peaking'
     this.exhaustResonator.frequency.value = 420
-    this.exhaustResonator.Q.value = 2.0
-    this.exhaustResonator.gain.value = 4.5
+    this.exhaustResonator.Q.value = 2.4
+    this.exhaustResonator.gain.value = 5.5
+
+    // Wave-Shaper saturation node: creates rich analog combustion harmonics and guttural bark
+    this.exhaustWaveShaper = this.ctx.createWaveShaper()
+    this.exhaustWaveShaper.curve = this.makeDistortionCurve(4.2) as any
+    this.exhaustWaveShaper.oversample = 'none'
 
     this.exhaustOsc1 = this.ctx.createOscillator()
     this.exhaustOsc1.type = 'sawtooth'
@@ -169,10 +178,12 @@ class AudioEcosystem {
     this.exhaustRaspOsc.type = 'sawtooth'
     this.exhaustRaspOsc.frequency.value = 168
 
-    this.exhaustOsc1.connect(this.exhaustFilter)
-    this.exhaustOsc2.connect(this.exhaustFilter)
-    this.exhaustSubOsc.connect(this.exhaustFilter)
-    this.exhaustRaspOsc.connect(this.exhaustFilter)
+    // Connect combustion oscillators -> WaveShaper -> Lowpass Filter -> Resonator -> Roar Gain -> SFX Master
+    this.exhaustOsc1.connect(this.exhaustWaveShaper)
+    this.exhaustOsc2.connect(this.exhaustWaveShaper)
+    this.exhaustSubOsc.connect(this.exhaustWaveShaper)
+    this.exhaustRaspOsc.connect(this.exhaustWaveShaper)
+    this.exhaustWaveShaper.connect(this.exhaustFilter)
     this.exhaustFilter.connect(this.exhaustResonator)
     this.exhaustResonator.connect(this.exhaustRoarGain)
     this.exhaustRoarGain.connect(this.sfxMaster)
@@ -181,6 +192,23 @@ class AudioEcosystem {
     this.exhaustOsc2.start()
     this.exhaustSubOsc.start()
     this.exhaustRaspOsc.start()
+
+    // 1.1 Straight-Cut Dog-Box Transmission Whine (M3 GTR Screamer Layer)
+    this.whineGain = this.ctx.createGain()
+    this.whineGain.gain.value = 0.0001
+    this.whineFilter = this.ctx.createBiquadFilter()
+    this.whineFilter.type = 'bandpass'
+    this.whineFilter.frequency.value = 1600
+    this.whineFilter.Q.value = 4.5
+
+    this.whineOsc = this.ctx.createOscillator()
+    this.whineOsc.type = 'sawtooth'
+    this.whineOsc.frequency.value = 1400
+
+    this.whineOsc.connect(this.whineFilter)
+    this.whineFilter.connect(this.whineGain)
+    this.whineGain.connect(this.sfxMaster)
+    this.whineOsc.start()
 
     // 2. Procedural Engine Channel (Camper, Hatchback, Hovercraft)
     this.engineGain = this.ctx.createGain()
@@ -307,6 +335,16 @@ class AudioEcosystem {
     } else if (this.m3Loaded && !this.m3Source) {
       this.setupM3Source()
     }
+  }
+
+  private makeDistortionCurve(k = 4.2): Float32Array {
+    const n_samples = 512
+    const curve = new Float32Array(n_samples)
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1
+      curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x))
+    }
+    return curve
   }
 
   private async loadM3Sample() {
@@ -550,10 +588,11 @@ class AudioEcosystem {
       // Mute combustion audio when hover mode is active
       this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.engineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
     } else if (isM3) {
-      // A. Screaming Straight-Cut Gear Whine (Sample)
+      // A. Screaming Straight-Cut Gear Whine (Sample Layer)
       if (this.m3Source && this.m3Gain) {
         const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 800) / 7200))
         const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 210))
@@ -572,9 +611,9 @@ class AudioEcosystem {
         this.m3Gain.gain.setTargetAtTime(targetGain, now, 0.04)
       }
 
-      // B. Throaty V8 Exhaust Roar Channel (Physics-based 4-pulse firing order)
+      // B. Throaty V8 Exhaust Roar Channel (Wave-shaped 4-pulse firing order with harmonic saturation)
       if (this.exhaustRoarGain && this.exhaustOsc1 && this.exhaustOsc2 && this.exhaustSubOsc && this.exhaustRaspOsc && this.exhaustFilter) {
-        const v8PulseFreq = Math.max(38, (rpm / 60) * 4) // 56Hz idle -> 546Hz redline
+        const v8PulseFreq = Math.max(42, (rpm / 60) * 4) // 56Hz idle -> 566Hz redline
         this.exhaustOsc1.frequency.setTargetAtTime(v8PulseFreq, now, 0.03)
         this.exhaustOsc2.frequency.setTargetAtTime(v8PulseFreq * 2, now, 0.03)
         this.exhaustSubOsc.frequency.setTargetAtTime(v8PulseFreq * 0.5, now, 0.03)
@@ -582,22 +621,31 @@ class AudioEcosystem {
 
         // Resonator frequency tracks engine acoustic harmonics
         if (this.exhaustResonator) {
-          const resFreq = 280 + (rpm / 8500) * 420
+          const resFreq = 320 + (rpm / 8500) * 520
           this.exhaustResonator.frequency.setTargetAtTime(resFreq, now, 0.04)
         }
 
         // Lowpass filter opens wide with throttle load and RPM
-        const filterCutoff = 240 + throttle * 1250 + (rpm / 8500) * 750
+        const filterCutoff = 260 + throttle * 1500 + (rpm / 8500) * 850
         this.exhaustFilter.frequency.setTargetAtTime(filterCutoff, now, 0.04)
 
         // Overrun burble: subtle low-frequency amplitude modulation when coasting in gear
         let burbleMod = 1.0
         if (isDecelerating && throttle < 0.1 && rpm > 2600) {
-          burbleMod = 0.76 + Math.sin(now * 14 * Math.PI * 2) * 0.24
+          burbleMod = 0.74 + Math.sin(now * 14 * Math.PI * 2) * 0.26
         }
 
-        const targetRoar = (0.22 + throttle * 0.62 + (speedKmh / 220) * 0.20) * burbleMod
+        const targetRoar = (0.24 + throttle * 0.58 + (speedKmh / 240) * 0.18) * burbleMod
         this.exhaustRoarGain.gain.setTargetAtTime(targetRoar, now, 0.04)
+      }
+
+      // C. Straight-Cut Dog-Box Transmission Whine (M3 GTR Mechanical Whine)
+      if (this.whineOsc && this.whineGain && this.whineFilter) {
+        const dogBoxFreq = 900 + (speedKmh / 275) * 2100 + (rpm / 8500) * 600
+        this.whineOsc.frequency.setTargetAtTime(dogBoxFreq, now, 0.04)
+        this.whineFilter.frequency.setTargetAtTime(dogBoxFreq, now, 0.04)
+        const targetWhine = Math.min(0.24, (speedKmh / 160) * 0.14 + throttle * 0.10)
+        this.whineGain.gain.setTargetAtTime(targetWhine, now, 0.04)
       }
 
       // Mute other engine synthesis
@@ -610,6 +658,7 @@ class AudioEcosystem {
     else if (isCamper) {
       this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
       if (this.engineGain && this.engineOsc1 && this.engineOsc2 && this.engineFilter) {
@@ -631,6 +680,7 @@ class AudioEcosystem {
     else if (isHatch) {
       this.m3Gain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
       if (this.engineGain && this.engineOsc1 && this.engineOsc2 && this.engineFilter) {
         // Raspy rally 4-cylinder engine (62 Hz - 230 Hz)

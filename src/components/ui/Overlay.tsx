@@ -27,6 +27,7 @@ import {
   VolumeX,
   Radio,
   Gamepad2,
+  Activity,
 } from 'lucide-react'
 import {
   useGameStore,
@@ -676,6 +677,7 @@ function ControlsModal({ onClose }: { onClose: () => void }) {
     { key: 'Z', action: 'Zen Mode (Toggle Minimal HUD)' },
     { key: 'M', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'F', action: 'Toggle Fullscreen Mode' },
+    { key: 'F3', action: 'Toggle Real-Time Dev & Terrain Telemetry HUD' },
   ]
 
   return (
@@ -714,6 +716,113 @@ function ControlsModal({ onClose }: { onClose: () => void }) {
 }
 
 // ----------------------------------------------------------------
+// 6.1 Real-Time Diagnostics & Telemetry HUD [F3]
+// ----------------------------------------------------------------
+function DiagnosticsHUD() {
+  const { speed, speedUnit, gear, rpm, diagnostics, vehicleModel } = useGameStore()
+  const [fps, setFps] = useState(60)
+
+  useEffect(() => {
+    let frameCount = 0
+    let lastTime = performance.now()
+    let animationFrameId: number
+
+    const tick = (now: number) => {
+      frameCount++
+      if (now - lastTime >= 350) {
+        setFps(Math.round((frameCount * 1000) / (now - lastTime)))
+        frameCount = 0
+        lastTime = now
+      }
+      animationFrameId = requestAnimationFrame(tick)
+    }
+
+    animationFrameId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(animationFrameId)
+  }, [])
+
+  const displaySpeed = speedUnit === 'mph' ? Math.round(speed * 0.621371) : Math.round(speed)
+  const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
+  const fpsColor = fps >= 55 ? 'text-emerald-400' : fps >= 30 ? 'text-amber-400' : 'text-red-400'
+
+  return (
+    <div className="fixed top-20 left-6 z-40 pointer-events-none select-none font-mono text-[11px] leading-tight">
+      <div className="bg-black/85 backdrop-blur-md border border-white/20 rounded-2xl p-4 shadow-2xl text-white/90 w-80 space-y-2.5">
+        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-bold tracking-wider text-xs text-white">ENGINE TELEMETRY</span>
+          </div>
+          <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">F3 HUD</span>
+        </div>
+
+        {/* Frame Performance */}
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="bg-white/5 p-2 rounded-xl">
+            <div className="text-white/50 text-[9px]">FRAME RATE</div>
+            <div className={`text-base font-black ${fpsColor}`}>
+              {fps} <span className="text-[10px] font-normal text-white/60">FPS</span>
+            </div>
+            <div className="text-[9px] text-white/40">{(1000 / Math.max(1, fps)).toFixed(1)} ms pacing</div>
+          </div>
+          <div className="bg-white/5 p-2 rounded-xl">
+            <div className="text-white/50 text-[9px]">SPEED & GEAR</div>
+            <div className="text-base font-black text-cyan-300">
+              {displaySpeed} <span className="text-[10px] font-normal text-white/60">{unitLabel}</span>
+            </div>
+            <div className="text-[9px] text-white/40">Gear {gear} • {Math.round(rpm)} RPM</div>
+          </div>
+        </div>
+
+        {/* Terrain Streaming & Buffer Metrics */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-emerald-400 font-bold flex justify-between">
+            <span>PREDICTIVE STREAMING</span>
+            <span>NOMINAL</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Active Road Chunks:</span>
+            <span className="text-white font-bold">{diagnostics.activeChunks} / 19 ({diagnostics.drawDistance}m pool)</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Forward Horizon Buffer:</span>
+            <span className="text-emerald-300 font-bold">+{diagnostics.frontierBuffer}m ahead</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Catchup Engine:</span>
+            <span className="text-white font-bold">Multi-Chunk While Loop</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Teleport / Void Guard:</span>
+            <span className="text-white font-bold">|Δz| &gt; 350m Snap</span>
+          </div>
+        </div>
+
+        {/* Audio Synthesis Architecture */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-cyan-400 font-bold flex justify-between">
+            <span>AUDIO ECOSYSTEM</span>
+            <span className="uppercase">{vehicleModel === 'bmw_m3' ? 'V8 P60B40' : vehicleModel}</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Combustion WaveShaper:</span>
+            <span className="text-emerald-300 font-bold">k=4.2 Polynomial Saturation</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Dog-Box Transmission:</span>
+            <span className="text-emerald-300 font-bold">Straight-Cut Whine (900-3600Hz)</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Acoustic Resonator:</span>
+            <span className="text-emerald-300 font-bold">Twin-Pipe Peaking (320-840Hz)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
 // 7. Master UI Overlay Component
 // ----------------------------------------------------------------
 export default function Overlay() {
@@ -744,6 +853,8 @@ export default function Overlay() {
     cycleWeather,
     cycleVehicleModel,
     vehicleModel,
+    showDiagnostics,
+    toggleDiagnostics,
   } = useGameStore()
 
   // Sync music state with audioSystem
@@ -773,6 +884,10 @@ export default function Overlay() {
       if (e.key === 'z' || e.key === 'Z') toggleZenMode()
       if (e.key === 'm' || e.key === 'M') toggleMusic()
       if (e.key === 'f' || e.key === 'F') toggleFullscreen()
+      if (e.key === 'F3') {
+        e.preventDefault()
+        toggleDiagnostics()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -786,6 +901,7 @@ export default function Overlay() {
     toggleZenMode,
     toggleMusic,
     toggleFullscreen,
+    toggleDiagnostics,
   ])
 
   // Camera display names
@@ -944,6 +1060,20 @@ export default function Overlay() {
             CRUISE {autoDrive ? 'ON' : 'OFF'}
           </button>
 
+          {/* Real-time Telemetry & Diagnostics Toggle */}
+          <button
+            onClick={toggleDiagnostics}
+            className={`backdrop-blur-md px-3 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              showDiagnostics
+                ? 'bg-emerald-600 text-white border border-emerald-400 shadow-md'
+                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+            }`}
+            title="Toggle Real-Time Dev & Terrain Telemetry HUD [F3]"
+          >
+            <Activity size={14} className={showDiagnostics ? 'text-white' : 'text-emerald-400'} />
+            <span>F3 HUD</span>
+          </button>
+
           {/* Touch Controls Toggle */}
           <button
             onClick={() => setShowTouchControls(!showTouchControls)}
@@ -988,6 +1118,9 @@ export default function Overlay() {
 
       {/* ----------------- OPTIONAL TOUCH PEDALS ----------------- */}
       {showTouchControls && <TouchPedals />}
+
+      {/* ----------------- REAL-TIME DEV TELEMETRY HUD ----------------- */}
+      {showDiagnostics && <DiagnosticsHUD />}
 
       {/* ----------------- BOTTOM HUD / SPEEDOMETER ----------------- */}
       <SpeedometerHUD />
