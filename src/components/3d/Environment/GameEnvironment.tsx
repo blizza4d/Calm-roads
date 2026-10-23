@@ -1,10 +1,298 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Sky, Stars } from '@react-three/drei'
+import { Sky } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore } from '../../../store/useGameStore'
 import { BIOMES } from '../../../utils/roadMath'
+
+// ------------------------------------------------------------------------
+// Cosmic Night Sky Shaders: 3,500+ Twinkling Stars & Galactic Milky Way
+// ------------------------------------------------------------------------
+const starVertexShader = `
+  uniform float uTime;
+  uniform float uOpacity;
+  attribute float aSize;
+  attribute vec3 aColor;
+  attribute float aTwinkleSpeed;
+  attribute float aTwinklePhase;
+  varying vec3 vColor;
+  varying float vTwinkle;
+
+  void main() {
+    vColor = aColor;
+    float twinkle = 0.65 + 0.35 * sin(uTime * aTwinkleSpeed + aTwinklePhase);
+    vTwinkle = twinkle;
+
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (1.0 + 0.25 * sin(uTime * aTwinkleSpeed + aTwinklePhase)) * (1400.0 / -mvPosition.z);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`
+
+const starFragmentShader = `
+  uniform float uOpacity;
+  varying vec3 vColor;
+  varying float vTwinkle;
+
+  void main() {
+    vec2 coord = gl_PointCoord - vec2(0.5);
+    float dist = length(coord);
+    if (dist > 0.5) discard;
+
+    // Smooth Gaussian circular star disc with glowing center core
+    float core = smoothstep(0.5, 0.0, dist);
+    float alpha = core * uOpacity * vTwinkle;
+    gl_FragColor = vec4(vColor * vTwinkle, alpha);
+  }
+`
+
+const milkyWayVertexShader = `
+  uniform float uOpacity;
+  attribute float aSize;
+  attribute vec3 aColor;
+  varying vec3 vColor;
+
+  void main() {
+    vColor = aColor;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (1200.0 / -mvPosition.z);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`
+
+const milkyWayFragmentShader = `
+  uniform float uOpacity;
+  varying vec3 vColor;
+
+  void main() {
+    vec2 coord = gl_PointCoord - vec2(0.5);
+    float dist = length(coord);
+    if (dist > 0.5) discard;
+
+    float glow = smoothstep(0.5, 0.05, dist);
+    gl_FragColor = vec4(vColor, glow * uOpacity);
+  }
+`
+
+// Cosmic Sky Component: Centered on player camera, renders Stars, Milky Way and Glowing 3D Moon
+function CosmicCelestialSky({
+  sunHeight,
+  moonPosition,
+  isNight,
+}: {
+  sunHeight: number
+  moonPosition: [number, number, number]
+  isNight: boolean
+}) {
+  const { camera } = useThree()
+  const skyGroupRef = useRef<THREE.Group>(null)
+  const starMaterialRef = useRef<THREE.ShaderMaterial>(null)
+  const milkyWayMaterialRef = useRef<THREE.ShaderMaterial>(null)
+
+  // Star Opacity transitions smoothly based on sun elevation
+  // SunHeight: 1.0 (Noon, opacity 0.0) -> -0.1 (Twilight, 0.4) -> -0.2 (Night, 1.0)
+  const nightFactor = useMemo(() => {
+    if (sunHeight > 0.12) return 0.0
+    if (sunHeight < -0.18) return 1.0
+    return 1.0 - (sunHeight + 0.18) / 0.30
+  }, [sunHeight])
+
+  // 1. Generate Multi-Spectral Starfield (3,600 stars on upper celestial dome)
+  const starGeo = useMemo(() => {
+    const starCount = 3600
+    const positions = new Float32Array(starCount * 3)
+    const colors = new Float32Array(starCount * 3)
+    const sizes = new Float32Array(starCount)
+    const twinkleSpeeds = new Float32Array(starCount)
+    const twinklePhases = new Float32Array(starCount)
+
+    const domeRadius = 1800
+
+    // Stellar spectral classes
+    const colorClasses = [
+      new THREE.Color('#93c5fd'), // Hot blue-white (Class O/B, ~25%)
+      new THREE.Color('#f8fafc'), // Pure white (Class A/F, ~45%)
+      new THREE.Color('#fef08a'), // Warm golden (Class G, ~20%)
+      new THREE.Color('#fb923c'), // Orange-red giant (Class K/M, ~10%)
+    ]
+
+    for (let i = 0; i < starCount; i++) {
+      // Celestial coordinates (upper hemisphere only)
+      const u = Math.random()
+      const v = Math.random()
+      const theta = u * 2.0 * Math.PI
+      const phi = Math.acos(0.04 + 0.96 * v) // Elevated above horizon
+
+      const x = domeRadius * Math.sin(phi) * Math.cos(theta)
+      const y = domeRadius * Math.cos(phi)
+      const z = domeRadius * Math.sin(phi) * Math.sin(theta)
+
+      positions[i * 3] = x
+      positions[i * 3 + 1] = y
+      positions[i * 3 + 2] = z
+
+      // Stellar magnitude distribution: mostly faint stars, occasional brilliant navigation stars
+      const magRand = Math.random()
+      let size = 2.4 + Math.random() * 2.2
+      if (magRand > 0.95) {
+        size = 5.5 + Math.random() * 2.5 // Bright prominent stars
+      } else if (magRand > 0.75) {
+        size = 3.6 + Math.random() * 1.5
+      }
+      sizes[i] = size
+
+      // Spectral color assignment
+      let starColor = colorClasses[1]
+      if (magRand < 0.25) starColor = colorClasses[0]
+      else if (magRand > 0.90) starColor = colorClasses[3]
+      else if (magRand > 0.70) starColor = colorClasses[2]
+
+      colors[i * 3] = starColor.r
+      colors[i * 3 + 1] = starColor.g
+      colors[i * 3 + 2] = starColor.b
+
+      twinkleSpeeds[i] = 1.4 + Math.random() * 3.2
+      twinklePhases[i] = Math.random() * Math.PI * 2
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
+    geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
+    geo.setAttribute('aTwinkleSpeed', new THREE.BufferAttribute(twinkleSpeeds, 1))
+    geo.setAttribute('aTwinklePhase', new THREE.BufferAttribute(twinklePhases, 1))
+    return geo
+  }, [])
+
+  // 2. Generate Milky Way Galactic Band (2,400 wispy interstellar dust & stellar core particles)
+  const milkyWayGeo = useMemo(() => {
+    const count = 2400
+    const positions = new Float32Array(count * 3)
+    const colors = new Float32Array(count * 3)
+    const sizes = new Float32Array(count)
+
+    const r = 1750
+    const inclination = 0.88 // ~50 degrees galactic plane tilt
+
+    const palette = [
+      new THREE.Color('#7c3aed'), // Deep cosmic violet
+      new THREE.Color('#3b82f6'), // Ethereal blue
+      new THREE.Color('#06b6d4'), // Cosmic cyan
+      new THREE.Color('#fbbf24'), // Warm galactic core
+      new THREE.Color('#cbd5e1'), // Faint stellar dust
+    ]
+
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2
+      // Gaussian lateral dispersion from galactic plane
+      const disp = (Math.random() + Math.random() - 1.0) * 160
+      const radialVar = (Math.random() - 0.5) * 80
+
+      const rawX = (r + radialVar) * Math.cos(angle)
+      const rawY = (r + radialVar) * Math.sin(angle) * Math.sin(inclination) + disp
+      const rawZ = (r + radialVar) * Math.sin(angle) * Math.cos(inclination) + disp * 0.5
+
+      // Only upper hemisphere
+      const y = Math.max(80, rawY)
+
+      positions[i * 3] = rawX
+      positions[i * 3 + 1] = y
+      positions[i * 3 + 2] = rawZ
+
+      // Galactic core concentration near angle = 0 and angle = PI
+      const isCore = Math.abs(Math.cos(angle)) > 0.65
+      const col = isCore ? palette[3] : palette[Math.floor(Math.random() * palette.length)]
+
+      colors[i * 3] = col.r
+      colors[i * 3 + 1] = col.g
+      colors[i * 3 + 2] = col.b
+
+      sizes[i] = 12.0 + Math.random() * 24.0 // Soft large nebular puffs
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
+    geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
+    return geo
+  }, [])
+
+  // Animate twinkling and track camera position
+  useFrame((state) => {
+    if (skyGroupRef.current) {
+      skyGroupRef.current.position.set(camera.position.x, 0, camera.position.z)
+    }
+
+    const time = state.clock.getElapsedTime()
+    if (starMaterialRef.current) {
+      starMaterialRef.current.uniforms.uTime.value = time
+      starMaterialRef.current.uniforms.uOpacity.value = nightFactor
+    }
+    if (milkyWayMaterialRef.current) {
+      milkyWayMaterialRef.current.uniforms.uOpacity.value = nightFactor * 0.62
+    }
+  })
+
+  // Cleanup geometries on unmount
+  useEffect(() => {
+    return () => {
+      starGeo.dispose()
+      milkyWayGeo.dispose()
+    }
+  }, [starGeo, milkyWayGeo])
+
+  return (
+    <group ref={skyGroupRef}>
+      {/* 1. Scintillating Starfield */}
+      <points geometry={starGeo}>
+        <shaderMaterial
+          ref={starMaterialRef}
+          vertexShader={starVertexShader}
+          fragmentShader={starFragmentShader}
+          uniforms={{
+            uTime: { value: 0 },
+            uOpacity: { value: nightFactor },
+          }}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      {/* 2. Milky Way Galactic Band */}
+      <points geometry={milkyWayGeo}>
+        <shaderMaterial
+          ref={milkyWayMaterialRef}
+          vertexShader={milkyWayVertexShader}
+          fragmentShader={milkyWayFragmentShader}
+          uniforms={{
+            uOpacity: { value: nightFactor * 0.62 },
+          }}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      {/* 3. Glowing 3D Moon & Lunar Atmospheric Halo */}
+      {isNight && (
+        <group position={moonPosition}>
+          {/* Main Moon Sphere */}
+          <mesh>
+            <sphereGeometry args={[28, 24, 24]} />
+            <meshBasicMaterial color="#f8fafc" />
+          </mesh>
+          {/* Outer Lunar Corona / Halo Ring */}
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[28, 56, 32]} />
+            <meshBasicMaterial color="#93c5fd" transparent opacity={0.24} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      )}
+    </group>
+  )
+}
 
 export default function GameEnvironment() {
   const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
@@ -40,7 +328,7 @@ export default function GameEnvironment() {
     // Directional Light position:
     // Follows the sun during day; during night, shines as moonlight
     const lightX = isNight ? -sunX * 0.75 : sunX
-    const lightY = isNight ? Math.max(26, -sunY * 0.85) : Math.max(8, sunY)
+    const lightY = isNight ? Math.max(28, -sunY * 0.85) : Math.max(8, sunY)
     const lightZ = isNight ? -sunZ : sunZ
 
     let lightColor = '#fffdf8'
@@ -49,12 +337,12 @@ export default function GameEnvironment() {
     let skyRayleigh = 1.1
 
     if (isNight) {
-      lightColor = '#93c5fd' // Cool blue-tinted moonlight
-      lightIntensity = 0.55
-      skyTurbidity = 0.1
-      skyRayleigh = 0.08
+      lightColor = '#93c5fd' // Cool silver-blue moonlight
+      lightIntensity = 0.65
+      skyTurbidity = 0.05
+      skyRayleigh = 0.05
     } else if (isSunsetOrSunrise) {
-      lightColor = '#fed7aa' // Warm golden amber sunlight (natural, not neon orange)
+      lightColor = '#fed7aa' // Warm golden amber sunlight
       lightIntensity = 2.4
       skyTurbidity = 2.8
       skyRayleigh = 1.6
@@ -67,9 +355,18 @@ export default function GameEnvironment() {
       lightIntensity *= 0.65
     }
 
+    // Moon position placed opposite the sun on the celestial dome
+    const moonDist = 1200
+    const moonAngle = angle + Math.PI
+    const moonX = Math.cos(moonAngle) * moonDist
+    const moonY = Math.max(180, Math.sin(moonAngle) * moonDist * 0.8)
+    const moonZ = -Math.sin(moonAngle) * 350
+
     return {
       skySunPos: [sunX, sunY, sunZ] as [number, number, number],
       lightPos: [lightX, lightY, lightZ] as [number, number, number],
+      moonPos: [moonX, moonY, moonZ] as [number, number, number],
+      sunHeight,
       lightColor,
       lightIntensity,
       isNight,
@@ -114,7 +411,7 @@ export default function GameEnvironment() {
     // Equirectangular sky gradient matching the celestial phase
     const grad = ctx.createLinearGradient(0, 0, 0, 128)
     if (celestialData.isNight) {
-      grad.addColorStop(0.0, '#020617') // Zenith
+      grad.addColorStop(0.0, '#020617') // Deep cosmic zenith
       grad.addColorStop(0.48, '#0f172a') // Horizon
       grad.addColorStop(0.50, '#1e293b') // Moonlight horizon rim
       grad.addColorStop(0.52, '#0f172a') // Ground horizon
@@ -240,7 +537,7 @@ export default function GameEnvironment() {
       {/* Atmospheric Fog */}
       <fogExp2 attach="fog" args={[fogColor, fogDensity]} />
 
-      {/* SkyDome with authentic twilight & night Rayleigh transitions */}
+      {/* SkyDome with authentic twilight & Rayleigh transitions */}
       <Sky
         sunPosition={celestialData.skySunPos}
         turbidity={celestialData.skyTurbidity}
@@ -249,10 +546,12 @@ export default function GameEnvironment() {
         mieDirectionalG={0.88}
       />
 
-      {/* Stars at Night */}
-      {celestialData.isNight && (
-        <Stars radius={200} depth={70} count={4200} factor={4.5} saturation={0.6} fade speed={1.2} />
-      )}
+      {/* Cosmic Celestial Night Sky: 3,600 Twinkling Stars, Milky Way & 3D Moon */}
+      <CosmicCelestialSky
+        sunHeight={celestialData.sunHeight}
+        moonPosition={celestialData.moonPos}
+        isNight={celestialData.isNight}
+      />
 
       {/* Directional Sun/Moon Light with Soft Shadows */}
       <directionalLight
@@ -271,9 +570,9 @@ export default function GameEnvironment() {
 
       {/* Atmospheric Fill Ambient / Hemisphere Lighting */}
       <hemisphereLight
-        color={biomeConfig.skyHemiSky}
-        groundColor={biomeConfig.skyHemiGround}
-        intensity={celestialData.isNight ? 0.42 : 0.98}
+        color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
+        groundColor={celestialData.isNight ? '#1e293b' : biomeConfig.skyHemiGround}
+        intensity={celestialData.isNight ? 0.48 : 0.98}
       />
 
       {/* Rain or Snow Particles */}

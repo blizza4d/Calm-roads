@@ -43,9 +43,11 @@ class AudioEcosystem {
   // 2. BMW M3 Throaty Exhaust Roar Channel (Low-end V8 rumble & roar)
   private exhaustRoarGain: GainNode | null = null
   private exhaustFilter: BiquadFilterNode | null = null
+  private exhaustResonator: BiquadFilterNode | null = null
   private exhaustOsc1: OscillatorNode | null = null
   private exhaustOsc2: OscillatorNode | null = null
   private exhaustSubOsc: OscillatorNode | null = null
+  private exhaustRaspOsc: OscillatorNode | null = null
   private lastDecelPopTime = 0
   private prevThrottleVal = 0
 
@@ -136,35 +138,49 @@ class AudioEcosystem {
     // Load authentic screaming M3 GTR audio sample (P60B40 V8 + straight-cut gear whine)
     this.loadM3Sample()
 
-    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR)
+    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR P60B40 Racing V8)
     this.exhaustRoarGain = this.ctx.createGain()
     this.exhaustRoarGain.gain.value = 0.0001
     this.exhaustFilter = this.ctx.createBiquadFilter()
     this.exhaustFilter.type = 'lowpass'
-    this.exhaustFilter.frequency.value = 350
-    this.exhaustFilter.Q.value = 2.2
+    this.exhaustFilter.frequency.value = 260
+    this.exhaustFilter.Q.value = 2.4
+
+    // Exhaust acoustic pipe resonance (twin 3-inch tuned exhaust pipes)
+    this.exhaustResonator = this.ctx.createBiquadFilter()
+    this.exhaustResonator.type = 'peaking'
+    this.exhaustResonator.frequency.value = 420
+    this.exhaustResonator.Q.value = 2.0
+    this.exhaustResonator.gain.value = 4.5
 
     this.exhaustOsc1 = this.ctx.createOscillator()
     this.exhaustOsc1.type = 'sawtooth'
-    this.exhaustOsc1.frequency.value = 42
+    this.exhaustOsc1.frequency.value = 56
 
     this.exhaustOsc2 = this.ctx.createOscillator()
     this.exhaustOsc2.type = 'triangle'
-    this.exhaustOsc2.frequency.value = 84
+    this.exhaustOsc2.frequency.value = 112
 
     this.exhaustSubOsc = this.ctx.createOscillator()
     this.exhaustSubOsc.type = 'sine'
-    this.exhaustSubOsc.frequency.value = 32
+    this.exhaustSubOsc.frequency.value = 28
+
+    this.exhaustRaspOsc = this.ctx.createOscillator()
+    this.exhaustRaspOsc.type = 'sawtooth'
+    this.exhaustRaspOsc.frequency.value = 168
 
     this.exhaustOsc1.connect(this.exhaustFilter)
     this.exhaustOsc2.connect(this.exhaustFilter)
     this.exhaustSubOsc.connect(this.exhaustFilter)
-    this.exhaustFilter.connect(this.exhaustRoarGain)
+    this.exhaustRaspOsc.connect(this.exhaustFilter)
+    this.exhaustFilter.connect(this.exhaustResonator)
+    this.exhaustResonator.connect(this.exhaustRoarGain)
     this.exhaustRoarGain.connect(this.sfxMaster)
 
     this.exhaustOsc1.start()
     this.exhaustOsc2.start()
     this.exhaustSubOsc.start()
+    this.exhaustRaspOsc.start()
 
     // 2. Procedural Engine Channel (Camper, Hatchback, Hovercraft)
     this.engineGain = this.ctx.createGain()
@@ -440,23 +456,31 @@ class AudioEcosystem {
     const now = this.ctx.currentTime
 
     if (vehicleModel === 'bmw_m3') {
-      // Crisp racing sequential dog-clunk + instant unburnt fuel exhaust pop on downshift
+      // 0.08s ignition cut: momentary exhaust volume drop + dog-ring mechanical clunk + exhaust re-ignition crackle
+      if (this.exhaustRoarGain) {
+        this.exhaustRoarGain.gain.setValueAtTime(0.04, now)
+        this.exhaustRoarGain.gain.setTargetAtTime(0.62, now + 0.08, 0.02)
+      }
+
       const clunkOsc = this.ctx.createOscillator()
       clunkOsc.type = 'triangle'
-      clunkOsc.frequency.setValueAtTime(140, now)
-      clunkOsc.frequency.exponentialRampToValueAtTime(45, now + 0.04)
+      clunkOsc.frequency.setValueAtTime(160, now)
+      clunkOsc.frequency.exponentialRampToValueAtTime(45, now + 0.045)
 
       const clunkGain = this.ctx.createGain()
-      clunkGain.gain.setValueAtTime(0.24, now)
-      clunkGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045)
+      clunkGain.gain.setValueAtTime(0.28, now)
+      clunkGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05)
 
       clunkOsc.connect(clunkGain)
       clunkGain.connect(this.sfxMaster)
       clunkOsc.start(now)
-      clunkOsc.stop(now + 0.05)
+      clunkOsc.stop(now + 0.055)
 
       if (isDownshift) {
-        this.triggerExhaustPop(0.75)
+        this.triggerExhaustPop(0.85)
+      } else {
+        // Subtle crisp shift crackle on upshift
+        this.triggerExhaustPop(0.55)
       }
     } else if (vehicleModel === 'hatchback') {
       // Turbo blow-off valve (BOV) atmospheric dump
@@ -508,17 +532,14 @@ class AudioEcosystem {
     const isCamper = vehicleModel === 'camper'
     const isHatch = vehicleModel === 'hatchback'
 
-    // Detect throttle lift-off to trigger exhaust crackles or BOV whoosh
+    // Detect rapid throttle lift-off to trigger authentic overrun crackle or BOV whoosh
     const throttleDrop = this.prevThrottleVal - throttle
-    if (throttleDrop > 0.35) {
-      if (isM3 && rpm > 3400) {
-        this.triggerExhaustPop(Math.min(1.0, rpm / 6500))
+    if (throttleDrop > 0.40) {
+      if (isM3 && rpm > 4200) {
+        this.triggerExhaustPop(Math.min(1.0, 0.5 + (rpm - 4200) / 4000))
       } else if (isHatch && rpm > 3200) {
         this.triggerBovWhoosh()
       }
-    }
-    if (isDecelerating && isM3 && Math.random() < 0.28) {
-      this.triggerExhaustPop(0.85)
     }
     this.prevThrottleVal = throttle
 
@@ -551,17 +572,31 @@ class AudioEcosystem {
         this.m3Gain.gain.setTargetAtTime(targetGain, now, 0.04)
       }
 
-      // B. Throaty V8 Exhaust Roar Channel (Heavy low-end resonance)
-      if (this.exhaustRoarGain && this.exhaustOsc1 && this.exhaustOsc2 && this.exhaustSubOsc && this.exhaustFilter) {
-        const baseFreq = 40 + (rpm / 8000) * 165
-        this.exhaustOsc1.frequency.setTargetAtTime(baseFreq, now, 0.04)
-        this.exhaustOsc2.frequency.setTargetAtTime(baseFreq * 2, now, 0.04)
-        this.exhaustSubOsc.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.04)
+      // B. Throaty V8 Exhaust Roar Channel (Physics-based 4-pulse firing order)
+      if (this.exhaustRoarGain && this.exhaustOsc1 && this.exhaustOsc2 && this.exhaustSubOsc && this.exhaustRaspOsc && this.exhaustFilter) {
+        const v8PulseFreq = Math.max(38, (rpm / 60) * 4) // 56Hz idle -> 546Hz redline
+        this.exhaustOsc1.frequency.setTargetAtTime(v8PulseFreq, now, 0.03)
+        this.exhaustOsc2.frequency.setTargetAtTime(v8PulseFreq * 2, now, 0.03)
+        this.exhaustSubOsc.frequency.setTargetAtTime(v8PulseFreq * 0.5, now, 0.03)
+        this.exhaustRaspOsc.frequency.setTargetAtTime(v8PulseFreq * 3, now, 0.03)
 
-        const filterCutoff = 220 + throttle * 780 + (speedKmh / 200) * 320
+        // Resonator frequency tracks engine acoustic harmonics
+        if (this.exhaustResonator) {
+          const resFreq = 280 + (rpm / 8500) * 420
+          this.exhaustResonator.frequency.setTargetAtTime(resFreq, now, 0.04)
+        }
+
+        // Lowpass filter opens wide with throttle load and RPM
+        const filterCutoff = 240 + throttle * 1250 + (rpm / 8500) * 750
         this.exhaustFilter.frequency.setTargetAtTime(filterCutoff, now, 0.04)
 
-        const targetRoar = 0.16 + throttle * 0.55 + (speedKmh / 200) * 0.22
+        // Overrun burble: subtle low-frequency amplitude modulation when coasting in gear
+        let burbleMod = 1.0
+        if (isDecelerating && throttle < 0.1 && rpm > 2600) {
+          burbleMod = 0.76 + Math.sin(now * 14 * Math.PI * 2) * 0.24
+        }
+
+        const targetRoar = (0.22 + throttle * 0.62 + (speedKmh / 220) * 0.20) * burbleMod
         this.exhaustRoarGain.gain.setTargetAtTime(targetRoar, now, 0.04)
       }
 

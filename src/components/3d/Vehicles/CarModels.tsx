@@ -474,12 +474,34 @@ export function BmwM3GtrModel({
         <boxGeometry args={[1.90, 0.04, 0.38]} />
         {carbonFiber}
       </mesh>
-      {/* Central Radiator Air Dam */}
+      {/* Central Radiator Air Dam & Heat Exchanger Core */}
       <mesh position={[0, 0.28, -2.22]}>
         <boxGeometry args={[0.88, 0.16, 0.05]} />
         {matteTrim}
       </mesh>
-      {/* Iconic Dual Kidney Grilles */}
+      <mesh position={[0, 0.28, -2.20]}>
+        <boxGeometry args={[0.84, 0.14, 0.015]} />
+        <meshStandardMaterial color="#334155" metalness={0.88} roughness={0.35} />
+      </mesh>
+      {/* 4 Inner Wheel Arch Liners (Blocks see-through hollow chassis) */}
+      <mesh position={[-0.88, 0.38, -1.35]}>
+        <boxGeometry args={[0.04, 0.34, 0.96]} />
+        {matteTrim}
+      </mesh>
+      <mesh position={[0.88, 0.38, -1.35]}>
+        <boxGeometry args={[0.04, 0.34, 0.96]} />
+        {matteTrim}
+      </mesh>
+      <mesh position={[-0.88, 0.38, 1.35]}>
+        <boxGeometry args={[0.04, 0.34, 0.96]} />
+        {matteTrim}
+      </mesh>
+      <mesh position={[0.88, 0.38, 1.35]}>
+        <boxGeometry args={[0.04, 0.34, 0.96]} />
+        {matteTrim}
+      </mesh>
+
+      {/* Iconic Dual Kidney Grilles with 3D Vertical Slats */}
       <group position={[-0.22, 0.47, -2.21]}>
         <mesh>
           <boxGeometry args={[0.26, 0.18, 0.04]} />
@@ -489,6 +511,12 @@ export function BmwM3GtrModel({
           <boxGeometry args={[0.28, 0.2, 0.02]} />
           {polishedChrome}
         </mesh>
+        {[-0.08, -0.03, 0.03, 0.08].map((sx, k) => (
+          <mesh key={k} position={[sx, 0, 0.022]}>
+            <boxGeometry args={[0.014, 0.16, 0.012]} />
+            {matteTrim}
+          </mesh>
+        ))}
       </group>
       <group position={[0.22, 0.47, -2.21]}>
         <mesh>
@@ -499,6 +527,12 @@ export function BmwM3GtrModel({
           <boxGeometry args={[0.28, 0.2, 0.02]} />
           {polishedChrome}
         </mesh>
+        {[-0.08, -0.03, 0.03, 0.08].map((sx, k) => (
+          <mesh key={k} position={[sx, 0, 0.022]}>
+            <boxGeometry args={[0.014, 0.16, 0.012]} />
+            {matteTrim}
+          </mesh>
+        ))}
       </group>
       {/* Front BMW Roundel Badge */}
       <mesh position={[0, 0.62, -2.19]} rotation={[0.35, 0, 0]}>

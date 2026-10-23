@@ -15,8 +15,8 @@ import { getAsphaltTexture, getAsphaltBumpTexture } from '../../../utils/asphalt
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 320
-const GRID_X = 96
-const GRID_Z = 72
+const GRID_X = 64
+const GRID_Z = 48
 
 // Helper to merge multiple BufferGeometries into a single geometry
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -780,155 +780,183 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
       )}
 
       {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
-      {sceneryData.pines.length > 0 && (
-        <>
-          <instancedMesh
-            ref={pineTrunkRef}
-            args={[pineTrunkGeo, undefined, sceneryData.pines.length]}
-            castShadow
-            receiveShadow
-          >
-            <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
-          </instancedMesh>
-          <instancedMesh
-            ref={pineCanopyRef}
-            args={[pineCanopyGeo, undefined, sceneryData.pines.length]}
-            castShadow
-            receiveShadow
-          >
-            <meshStandardMaterial
-              color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
-              roughness={0.82}
-            />
-          </instancedMesh>
-        </>
-      )}
+      <instancedMesh
+        ref={pineTrunkRef}
+        args={[pineTrunkGeo, undefined, 36]}
+        count={sceneryData.pines.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
+      </instancedMesh>
+      <instancedMesh
+        ref={pineCanopyRef}
+        args={[pineCanopyGeo, undefined, 36]}
+        count={sceneryData.pines.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial
+          color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
+          roughness={0.82}
+        />
+      </instancedMesh>
 
       {/* 7. Organic Broadleaf / Mountain Maples */}
-      {sceneryData.broadleafs.length > 0 && (
-        <>
-          <instancedMesh
-            ref={broadleafTrunkRef}
-            args={[broadleafTrunkGeo, undefined, sceneryData.broadleafs.length]}
-            castShadow
-            receiveShadow
-          >
-            <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
-          </instancedMesh>
-          <instancedMesh
-            ref={broadleafCanopyRef}
-            args={[broadleafCanopyGeo, undefined, sceneryData.broadleafs.length]}
-            castShadow
-            receiveShadow
-          >
-            <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
-          </instancedMesh>
-        </>
-      )}
+      <instancedMesh
+        ref={broadleafTrunkRef}
+        args={[broadleafTrunkGeo, undefined, 36]}
+        count={sceneryData.broadleafs.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
+      </instancedMesh>
+      <instancedMesh
+        ref={broadleafCanopyRef}
+        args={[broadleafCanopyGeo, undefined, 36]}
+        count={sceneryData.broadleafs.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
+      </instancedMesh>
 
       {/* 8. Desert Saguaro Cacti */}
-      {sceneryData.saguaros.length > 0 && (
-        <instancedMesh
-          ref={saguaroRef}
-          args={[saguaroGeo, undefined, sceneryData.saguaros.length]}
-          castShadow
-          receiveShadow
-        >
-          <meshStandardMaterial color="#166534" roughness={0.85} />
-        </instancedMesh>
-      )}
+      <instancedMesh
+        ref={saguaroRef}
+        args={[saguaroGeo, undefined, 24]}
+        count={sceneryData.saguaros.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color="#166534" roughness={0.85} />
+      </instancedMesh>
 
       {/* 9. Mountain Shrubs & Roadside Bushes */}
-      {sceneryData.shrubs.length > 0 && (
-        <instancedMesh
-          ref={shrubRef}
-          args={[shrubGeo, undefined, sceneryData.shrubs.length]}
-          castShadow
-          receiveShadow
-        >
-          <meshStandardMaterial
-            color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
-            roughness={0.88}
-          />
-        </instancedMesh>
-      )}
+      <instancedMesh
+        ref={shrubRef}
+        args={[shrubGeo, undefined, 24]}
+        count={sceneryData.shrubs.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial
+          color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
+          roughness={0.88}
+        />
+      </instancedMesh>
 
       {/* 10. Weathered Boulders & Rock Outcrops */}
-      {sceneryData.rocks.length > 0 && (
-        <instancedMesh
-          ref={rockRef}
-          args={[rockGeo, undefined, sceneryData.rocks.length]}
-          castShadow
-          receiveShadow
-        >
-          <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
-        </instancedMesh>
-      )}
+      <instancedMesh
+        ref={rockRef}
+        args={[rockGeo, undefined, 24]}
+        count={sceneryData.rocks.length}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
+      </instancedMesh>
 
       {/* 11. Roadside Wild Grass Tufts */}
-      {sceneryData.grassTufts.length > 0 && (
-        <instancedMesh
-          ref={grassRef}
-          args={[grassTuftGeo, undefined, sceneryData.grassTufts.length]}
-          receiveShadow
-        >
-          <meshStandardMaterial
-            color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
-            roughness={0.85}
-            side={THREE.DoubleSide}
-          />
-        </instancedMesh>
-      )}
+      <instancedMesh
+        ref={grassRef}
+        args={[grassTuftGeo, undefined, 36]}
+        count={sceneryData.grassTufts.length}
+        receiveShadow
+      >
+        <meshStandardMaterial
+          color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
+          roughness={0.85}
+          side={THREE.DoubleSide}
+        />
+      </instancedMesh>
 
       {/* 12. Roadside Highway Utility Poles */}
-      {sceneryData.poles.length > 0 && (
-        <instancedMesh
-          ref={poleRef}
-          args={[poleGeo, undefined, sceneryData.poles.length]}
-          castShadow
-        >
-          <meshStandardMaterial color="#362316" roughness={0.95} />
-        </instancedMesh>
-      )}
+      <instancedMesh
+        ref={poleRef}
+        args={[poleGeo, undefined, 16]}
+        count={sceneryData.poles.length}
+        castShadow
+      >
+        <meshStandardMaterial color="#362316" roughness={0.95} />
+      </instancedMesh>
     </group>
   )
 }
 
-// Infinite Chunk Manager: Tracks player camera Z and dynamically streams tiles
+// Predictive High-Speed Chunk Manager:
+// Pre-generates a 2.4-kilometer forward horizon buffer (14 active chunks).
+// Uses stable slot-based object pooling so React never unmounts/remounts components,
+// eliminating GC freezes and guaranteeing the world stays 2+ km ahead of the vehicle at any speed.
+const NUM_CHUNKS = 14
+const CHUNKS_BEHIND = 2
+
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
   const weather = useGameStore((state) => state.weather)
   const { camera } = useThree()
 
-  // Initial active chunks around spawn (1 chunk behind, 5 chunks forward)
-  const [chunks, setChunks] = useState<number[]>([200, 0, -200, -400, -600, -800])
-  const lastCenterIndex = useRef<number>(0)
+  // Initial chunks spanning 400m behind down to -2200m ahead
+  const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
+    const initial: number[] = []
+    for (let i = 0; i < NUM_CHUNKS; i++) {
+      initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
+    }
+    return initial
+  })
+
+  // Ref to track chunk slots synchronously across frames without React re-render lag
+  const slotsRef = useRef<number[]>(chunkSlots)
+  slotsRef.current = chunkSlots
+
+  const isRecyclingRef = useRef(false)
 
   useFrame(() => {
     const camZ = camera.position.z
-    const centerIndex = Math.round(camZ / CHUNK_LEN)
 
-    if (centerIndex !== lastCenterIndex.current) {
-      lastCenterIndex.current = centerIndex
-      const centerZ = centerIndex * CHUNK_LEN
-      setChunks([
-        centerZ + CHUNK_LEN,
-        centerZ,
-        centerZ - CHUNK_LEN,
-        centerZ - CHUNK_LEN * 2,
-        centerZ - CHUNK_LEN * 3,
-        centerZ - CHUNK_LEN * 4,
-      ])
+    // Find the rearmost chunk (highest Z value, since forward is negative Z)
+    let rearmostIdx = 0
+    let rearmostZ = slotsRef.current[0]
+    let frontmostZ = slotsRef.current[0]
+
+    for (let i = 0; i < NUM_CHUNKS; i++) {
+      const z = slotsRef.current[i]
+      if (z > rearmostZ) {
+        rearmostZ = z
+        rearmostIdx = i
+      }
+      if (z < frontmostZ) {
+        frontmostZ = z
+      }
+    }
+
+    // If the rearmost chunk is further behind the camera than (CHUNKS_BEHIND * CHUNK_LEN + 60m):
+    const retireThreshold = camZ + (CHUNKS_BEHIND + 0.3) * CHUNK_LEN
+    if (rearmostZ > retireThreshold && !isRecyclingRef.current) {
+      isRecyclingRef.current = true
+      const nextFrontZ = frontmostZ - CHUNK_LEN
+
+      // Recycle the single rearmost slot to the far front horizon
+      const updated = [...slotsRef.current]
+      updated[rearmostIdx] = nextFrontZ
+      slotsRef.current = updated
+      setChunkSlots(updated)
+
+      // Throttle recycling to avoid multiple updates in the same frame
+      setTimeout(() => {
+        isRecyclingRef.current = false
+      }, 16)
     }
   })
 
   return (
     <group>
-      {chunks.map((cz) => {
+      {chunkSlots.map((cz, slotIndex) => {
         const chunkBiome = getActiveBiomeAt(cz, biome)
         return (
           <TerrainChunkTile
-            key={cz}
+            key={slotIndex}
             chunkZ={cz}
             biomeConfig={chunkBiome}
             isRaining={weather === 'rain'}
