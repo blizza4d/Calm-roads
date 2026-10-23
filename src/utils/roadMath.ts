@@ -1,6 +1,6 @@
 import { createNoise2D } from 'simplex-noise'
 
-// High-precision Simplex Noise generators for realistic multi-octave rolling terrain
+// High-precision Simplex Noise generators for realistic multi-octave geological terrain
 const terrainNoise = createNoise2D()
 const detailNoise = createNoise2D()
 const microNoise = createNoise2D()
@@ -32,14 +32,14 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     name: 'Lush Forest',
     grassColor: '#2d4e30',
     rockColor: '#525d6b',
-    roadColor: '#1c1f24',
+    roadColor: '#2b3038',
     shoulderColor: '#5c5449',
     treeFoliageColor: '#194520',
     treeTrunkColor: '#3d2817',
     skyHemiSky: '#dbeafe',
-    skyHemiGround: '#243e1c',
+    skyHemiGround: '#3f4f34',
     fogColor: '#bed3eb',
-    fogDensity: 0.002,
+    fogDensity: 0.0015,
     hillHeightMultiplier: 0.95,
     roughness: 0.88,
   },
@@ -48,15 +48,15 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     name: 'Autumn Mountains',
     grassColor: '#5c4826',
     rockColor: '#6b3414',
-    roadColor: '#181b20',
+    roadColor: '#282d35',
     shoulderColor: '#78461b',
     treeFoliageColor: '#b91c1c', // Rich crimson & amber maples
     treeTrunkColor: '#3b1805',
     skyHemiSky: '#ffedd5',
-    skyHemiGround: '#632c0f',
-    fogColor: '#ea580c',
-    fogDensity: 0.0028,
-    hillHeightMultiplier: 1.15,
+    skyHemiGround: '#6b472e',
+    fogColor: '#c27845',
+    fogDensity: 0.0018,
+    hillHeightMultiplier: 1.12,
     roughness: 0.9,
   },
   tundra: {
@@ -64,15 +64,15 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     name: 'Snowy Tundra',
     grassColor: '#f1f5f9', // Pure winter snow cover
     rockColor: '#64748b',
-    roadColor: '#222834',
+    roadColor: '#2b323f',
     shoulderColor: '#cbd5e1',
     treeFoliageColor: '#cbd5e1', // Frosted snow pines
     treeTrunkColor: '#334155',
     skyHemiSky: '#e0f2fe',
-    skyHemiGround: '#94a3b8',
+    skyHemiGround: '#718096',
     fogColor: '#cbd5e1',
-    fogDensity: 0.0035,
-    hillHeightMultiplier: 1.05,
+    fogDensity: 0.0020,
+    hillHeightMultiplier: 1.08,
     roughness: 0.94,
   },
   desert: {
@@ -80,15 +80,15 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     name: 'Desert Dunes',
     grassColor: '#c27823', // Warm golden terracotta sand dunes
     rockColor: '#854d0e',
-    roadColor: '#262322',
+    roadColor: '#2e2c2a',
     shoulderColor: '#a15c15',
     treeFoliageColor: '#15803d', // Desert cacti / shrubs
     treeTrunkColor: '#78350f',
     skyHemiSky: '#fef3c7',
-    skyHemiGround: '#92400e',
-    fogColor: '#fde68a',
-    fogDensity: 0.0016,
-    hillHeightMultiplier: 0.92, // Smooth sweeping parabolic dunes
+    skyHemiGround: '#8c5930',
+    fogColor: '#edd8aa',
+    fogDensity: 0.0014,
+    hillHeightMultiplier: 0.95,
     roughness: 0.96,
   },
 }
@@ -151,6 +151,18 @@ export function getRoadBanking(z: number): number {
   return Math.max(-0.08, Math.min(0.08, curvature * 2.8))
 }
 
+/**
+ * Smooth continuous ridged multi-fractal shaping function.
+ * Unlike Math.abs() which produces sharp V-creases and triangular pyramid spikes,
+ * this continuous function produces natural rounded mountain summits, broad
+ * sweeping arêtes, and geological plateaus with zero gradient discontinuities.
+ */
+function smoothRidge(n: number): number {
+  const clamped = Math.max(-1, Math.min(1, n))
+  // Smooth parabolic peak with C1 zero derivative at the summit (n = 0)
+  return 1.0 - clamped * clamped
+}
+
 // 5. Complete World Terrain Elevation at ANY (x, z)
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const roadX = getRoadCenter(z)
@@ -163,46 +175,48 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     return roadY
   }
 
-  // Smooth Hermite smoothstep transition from road shoulder to natural terrain (24m smooth blend)
+  // Smooth Hermite smoothstep transition from road shoulder to natural terrain (26m smooth blend)
   const distPastShoulder = distFromRoad - shoulderWidth
-  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 24.0))
+  const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 26.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at shoulder edge
 
   const config = BIOMES[biomeId] || BIOMES.forest
   const mult = config.hillHeightMultiplier
 
-  // Multi-octave natural terrain synthesis with distinctive biome geomorphology
+  // Multi-octave continuous geological terrain synthesis
   let naturalElevation = 0
 
   if (biomeId === 'desert') {
     // Vast sculpted canyon walls, flat-topped mesa bluffs and undulating parabolic dunes
-    const duneWave = Math.sin(x * 0.012 + z * 0.006) * 12.0
-    const mesaMacro = Math.sin(x * 0.0035 + z * 0.0025) * 28.0
-    const mesaPlateau = Math.max(-10, Math.min(22, mesaMacro * 1.6))
-    const duneRipple = detailNoise(x * 0.018, z * 0.018) * 3.5
-    naturalElevation = duneWave + mesaPlateau + duneRipple
+    // Tanh produces steep canyon walls that flatten out into mesa plateaus
+    const mesaShape = Math.tanh(terrainNoise(x * 0.0032, z * 0.0032) * 2.4) * 32.0
+    const duneWave = (Math.sin(x * 0.012 + z * 0.006) * 0.65 + detailNoise(x * 0.014, z * 0.014) * 0.35) * 14.0
+    const duneRipple = microNoise(x * 0.028, z * 0.028) * 2.2
+    naturalElevation = mesaShape + duneWave + duneRipple
   } else if (biomeId === 'tundra') {
-    // Majestic snow-capped alpine mountain ridges, glacial valleys and sheer icy crags
-    const mountainSpines = Math.abs(terrainNoise(x * 0.003, z * 0.003)) * 48.0
-    const crags = Math.abs(detailNoise(x * 0.009, z * 0.009)) * 18.0
-    const frostRoll = microNoise(x * 0.025, z * 0.025) * 3.5
-    naturalElevation = mountainSpines + crags + frostRoll - 14.0
+    // Majestic snow-capped alpine mountain massifs, glacial cirques and rolling foothills
+    // Smooth continuous ridges prevent sharp low-poly pyramids
+    const primaryMassif = (smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 0.72 + terrainNoise(x * 0.0032, z * 0.0032) * 0.28) * 52.0
+    const secondaryRidge = smoothRidge(detailNoise(x * 0.0075, z * 0.0075)) * 16.0
+    const glacialValley = microNoise(x * 0.018, z * 0.018) * 3.8 - 12.0
+    naturalElevation = primaryMassif + secondaryRidge + glacialValley
   } else if (biomeId === 'autumn') {
-    // Autumn alpine passes: rugged mountain ridges and rolling golden valleys
-    const alpineMacro = terrainNoise(x * 0.004, z * 0.004) * 38.0
-    const ridgeDetail = Math.abs(detailNoise(x * 0.011, z * 0.011)) * 14.0
-    const valleyKnolls = microNoise(x * 0.028, z * 0.028) * 2.8
-    naturalElevation = alpineMacro + ridgeDetail + valleyKnolls
+    // Autumn alpine passes: sweeping mountain crests, stratified foothills and rolling golden valleys
+    const alpineMassif = (smoothRidge(terrainNoise(x * 0.0034, z * 0.0034)) * 0.65 + terrainNoise(x * 0.0038, z * 0.0038) * 0.35) * 44.0
+    const ridgePasses = smoothRidge(detailNoise(x * 0.0085, z * 0.0085)) * 14.0
+    const valleyFoothills = microNoise(x * 0.022, z * 0.022) * 3.4
+    naturalElevation = alpineMassif + ridgePasses + valleyFoothills - 6.0
   } else {
-    // Lush rolling green countryside and forested mountain valleys
-    const rollingCountryside = terrainNoise(x * 0.0045, z * 0.0045) * 26.0
-    const forestKnolls = detailNoise(x * 0.012, z * 0.012) * 8.5
-    const gentleHills = microNoise(x * 0.032, z * 0.032) * 2.4
+    // Lush rolling green countryside, broad rounded hills and forested mountain valleys
+    const rollingCountryside = terrainNoise(x * 0.0038, z * 0.0038) * 28.0
+    const forestKnolls = detailNoise(x * 0.0095, z * 0.0095) * 9.5
+    const gentleHills = microNoise(x * 0.025, z * 0.025) * 2.8
     naturalElevation = rollingCountryside + forestKnolls + gentleHills
   }
 
-  // Distance scaling: as we get farther from the road (50m to 150m), mountains rise dramatically into distant silhouettes
-  const mountainRamp = Math.min(2.8, 0.35 + (distPastShoulder / 55.0) * 1.1)
+  // Distance scaling: Gradual elevation gain into distant mountain horizons
+  // Prevents cliffs right beside the road while building grand panoramas in the distance
+  const mountainRamp = Math.min(2.6, 0.45 + Math.pow(distPastShoulder / 52.0, 1.15) * 0.95)
 
   return roadY + naturalElevation * smoothBlend * mountainRamp * mult
 }

@@ -14,11 +14,11 @@ import {
 import { getAsphaltTexture, getAsphaltBumpTexture } from '../../../utils/asphaltTexture'
 
 const CHUNK_LEN = 200
-const TERRAIN_W = 300
-const GRID_X = 64
-const GRID_Z = 48
+const TERRAIN_W = 320
+const GRID_X = 96
+const GRID_Z = 72
 
-// Lightweight helper to merge multiple BufferGeometries into a single geometry
+// Helper to merge multiple BufferGeometries into a single geometry
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const merged = new THREE.BufferGeometry()
   const posList: number[] = []
@@ -56,7 +56,7 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
 }
 
 // ------------------------------------------------------------------------
-// Realistic Procedural Vegetation Geometries (Shared across all chunks)
+// Realistic Procedural Vegetation & Geological Geometries
 // ------------------------------------------------------------------------
 // 1. Alpine / Mountain Conifer: 3-tiered conical skirt canopy
 const pineCanopyGeo = (() => {
@@ -89,10 +89,31 @@ const saguaroGeo = (() => {
 // 4. Roadside Shrub / Bush
 const shrubGeo = new THREE.DodecahedronGeometry(1.15, 1).scale(1.2, 0.65, 1.1).translate(0, 0.6, 0)
 
-// 5. Weathered Boulders & Rock Formations
-const rockGeo = new THREE.DodecahedronGeometry(1.35, 1)
+// 5. Geological Weathered Boulders with sharp fracture cleavage planes
+const rockGeo = (() => {
+  const geo = new THREE.DodecahedronGeometry(1.4, 0)
+  const pos = geo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const z = pos.getZ(i)
+    // Irregular geological shearing and cleavage facets
+    const shear = Math.sin(x * 2.8 + y * 1.9) * 0.22
+    pos.setXYZ(i, x * (1.15 + shear), y * 0.74 + shear * 0.35, z * (0.92 - shear))
+  }
+  geo.computeVertexNormals()
+  return geo
+})()
 
-// 6. Utility Poles
+// 6. Roadside Wild Grass / Meadow Foliage Clumps
+const grassTuftGeo = (() => {
+  const p1 = new THREE.PlaneGeometry(0.85, 0.65).translate(0, 0.32, 0)
+  const p2 = new THREE.PlaneGeometry(0.85, 0.65).rotateY(Math.PI / 3).translate(0, 0.32, 0)
+  const p3 = new THREE.PlaneGeometry(0.85, 0.65).rotateY(-Math.PI / 3).translate(0, 0.32, 0)
+  return mergeBufferGeometries([p1, p2, p3])
+})()
+
+// 7. Utility Poles
 const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 6.4, 8).translate(0, 3.2, 0)
 
 interface ChunkProps {
@@ -102,22 +123,24 @@ interface ChunkProps {
 }
 
 // Single Procedural Infinite Chunk Tile containing:
-// 1. Terrain Ground Mesh Geometry with slope-based rock/grass vertex coloring
-// 2. Curved Asphalt Highway Ribbon with realistic road camber & edge bevels
+// 1. High-Density Smooth Geological Terrain Ground Mesh
+// 2. Curved Asphalt Highway Ribbon with Realistic Diffuse Aggregate & Camber
 // 3. Roadside Gravel Shoulder Strips
-// 4. Highway Markings: Yellow Dashed Centerline + Dual Solid White Edge Lines
+// 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines
 // 5. Realistic Steel W-Beam Guardrails on curved segments
-// 6. Biome-Specific Instanced Scenery (Multi-tier Pines, Maples, Cacti, Boulders, Poles)
+// 6. Biome-Specific Instanced Scenery (Pines, Maples, Cacti, Boulders, Grass Tufts, Poles)
 function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
-  // 1. Terrain Ground Mesh Geometry with slope-aware natural shading
+
+  // 1. Terrain Ground Mesh Geometry with slope-aware natural shading and dense vertices
   const terrainGeo = useMemo(() => {
     const geo = new THREE.PlaneGeometry(TERRAIN_W, CHUNK_LEN, GRID_X, GRID_Z)
     geo.rotateX(-Math.PI / 2)
 
     const pos = geo.attributes.position
     const count = pos.count
+
     for (let i = 0; i < count; i++) {
       const localX = pos.getX(i)
       const localZ = pos.getZ(i)
@@ -128,27 +151,46 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
 
     geo.computeVertexNormals()
 
-    // Generate slope-based vertex colors (steep slopes show natural rock strata)
+    // Multi-gradient natural vertex coloring:
+    // Steep slopes expose rock strata; flat regions display lush vegetation; high elevations get alpine tone
     const normals = geo.attributes.normal
     const colors = new Float32Array(count * 3)
 
     const grassColor = new THREE.Color(biomeConfig.grassColor)
     const rockColor = new THREE.Color(biomeConfig.rockColor)
+    const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
     const tempColor = new THREE.Color()
 
     for (let i = 0; i < count; i++) {
       const ny = normals.getY(i) // 1.0 = flat horizontal, 0.0 = sheer vertical
-      const slope = Math.max(0, Math.min(1, (ny - 0.72) / 0.25)) // 0 (steep rock) to 1 (flat grass)
+      const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28)) // 0 (steep rock) to 1 (flat grass)
 
-      // Add subtle spatial color variation
       const px = pos.getX(i)
+      const py = pos.getY(i)
       const pz = pos.getZ(i)
-      const noiseVar = Math.sin(px * 0.05 + pz * 0.05) * 0.04
+
+      // Subtle geological strata banding
+      const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
+      const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
 
       tempColor.copy(rockColor).lerp(grassColor, slope)
-      tempColor.r = Math.max(0, Math.min(1, tempColor.r + noiseVar))
-      tempColor.g = Math.max(0, Math.min(1, tempColor.g + noiseVar))
-      tempColor.b = Math.max(0, Math.min(1, tempColor.b + noiseVar))
+
+      // Alpine summit frosting for tundra at high elevations
+      if (biomeConfig.id === 'tundra' && py > 24) {
+        const snowT = Math.min(1.0, (py - 24) / 18.0)
+        tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.6)
+      }
+
+      // Proximity to road shoulder - subtle soil blending
+      const distFromCenter = Math.abs(px - getRoadCenter(chunkZ + pz))
+      if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
+        const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
+        tempColor.lerp(shoulderColor, blendToSoil * 0.45)
+      }
+
+      tempColor.r = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
+      tempColor.g = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
+      tempColor.b = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
 
       colors[i * 3] = tempColor.r
       colors[i * 3 + 1] = tempColor.g
@@ -341,7 +383,7 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         // Left edge quad (Upward CCW winding)
         indices.push(base, base + 1, base + 4)
         indices.push(base + 1, base + 5, base + 4)
-        // Right edge quad (Upward CCW winding - fixed missing right line bug)
+        // Right edge quad (Upward CCW winding)
         indices.push(base + 2, base + 3, base + 6)
         indices.push(base + 3, base + 7, base + 6)
       }
@@ -374,7 +416,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
       const wz1 = chunkZ + z1
       const wz2 = chunkZ + z2
 
-      // Check curvature along this section
       const cx1 = getRoadCenter(wz1)
       const cx2 = getRoadCenter(wz2)
       const cy1 = getRoadElevation(wz1)
@@ -383,7 +424,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
       const tan1 = getRoadTangent(wz1)
       const tan2 = getRoadTangent(wz2)
 
-      // Guardrails appear on outer curves
       const isCurving = Math.abs(cx2 - cx1) > 0.4
       if (isCurving) {
         const side = cx2 > cx1 ? 1 : -1
@@ -392,7 +432,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         const p2x = cx2 + tan2.nx * railOffset * side
         const p2z = z2 + tan2.nz * railOffset * side
 
-        // Guardrail beam ribbon
         positions.push(p1x, cy1 + railHeight, p1z)
         positions.push(p1x, cy1 + railHeight - railThickness, p1z)
         positions.push(p2x, cy2 + railHeight, p2z)
@@ -415,20 +454,20 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
     return geo
   }, [chunkZ])
 
-  // 6. Natural Clustered Roadside Scenery (Multi-Tier Pines, Organic Broadleafs, Saguaros, Shrubs, Rocks, Poles)
+  // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles)
   const sceneryData = useMemo(() => {
     const pines: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const broadleafs: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const saguaros: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const shrubs: { pos: [number, number, number]; scale: number; rotY: number }[] = []
-    const rocks: { pos: [number, number, number]; scale: number; rot: [number, number, number] }[] = []
+    const rocks: { pos: [number, number, number]; scale: [number, number, number]; rot: [number, number, number] }[] = []
+    const grassTufts: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const poles: { pos: [number, number, number] }[] = []
 
     const isDesert = biomeConfig.id === 'desert'
     const isTundra = biomeConfig.id === 'tundra'
     const isAutumn = biomeConfig.id === 'autumn'
 
-    // Generate 6 organic vegetation cluster centers along the 200m chunk
     const numClusters = 6
     const clusterStep = CHUNK_LEN / numClusters
 
@@ -448,15 +487,30 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         poles.push({ pos: [poleX, poleY, clusterZ] })
       }
 
-      // Both sides of highway
+      // Roadside grass tufts along shoulder borders
+      if (!isDesert) {
+        const sides = [-1, 1]
+        sides.forEach((side) => {
+          const grassDist = ROAD_WIDTH / 2 + 1.6 + hash1 * 1.8
+          const grassX = roadCx + side * grassDist
+          const grassZ = clusterZ + (hash2 - 0.5) * 12
+          const grassWorldZ = chunkZ + grassZ
+          const grassY = getTerrainHeight(grassX, grassWorldZ, biomeConfig.id)
+          grassTufts.push({
+            pos: [grassX, grassY, grassZ],
+            scale: 0.8 + hash3 * 0.5,
+            rotY: hash1 * Math.PI * 2,
+          })
+        })
+      }
+
+      // Scenery on both sides of highway
       const sides = [-1, 1]
       sides.forEach((side) => {
-        // Cluster center distance from road (between 9m and 45m out)
         const clusterDist = ROAD_WIDTH / 2 + 7.5 + (side === -1 ? hash1 : hash2) * 36
         const clusterCenterX = roadCx + side * clusterDist
 
         if (isDesert) {
-          // Desert Flora: Saguaros, spiky shrubs and sandstone rocks
           const numSaguaros = 1 + Math.floor(hash3 * 2.5)
           for (let i = 0; i < numSaguaros; i++) {
             const offsetX = (Math.sin(i * 2.4 + hash1) - 0.5) * 14
@@ -465,7 +519,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
             const treeZ = clusterZ + offsetZ
             const treeWorldZ = chunkZ + treeZ
 
-            // Ensure tree does not intersect highway buffer
             if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 3.8) {
               const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
               saguaros.push({
@@ -476,7 +529,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
             }
           }
 
-          // Desert scrub / low-lying shrubs
           if (hash3 > 0.3) {
             const shrubX = clusterCenterX + (hash2 - 0.5) * 10
             const shrubZ = clusterZ + (hash1 - 0.5) * 12
@@ -491,7 +543,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
             }
           }
         } else {
-          // Forest / Autumn / Tundra: Multi-tier Pines and Organic Broadleaf Maples
           const treesInCluster = 2 + Math.floor(hash2 * 3.2)
           for (let i = 0; i < treesInCluster; i++) {
             const angle = (i / treesInCluster) * Math.PI * 2 + hash1
@@ -500,12 +551,9 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
             const treeZ = clusterZ + Math.sin(angle) * radius
             const treeWorldZ = chunkZ + treeZ
 
-            // Safe buffer from asphalt
             if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 4.2) {
               const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
-              const scale = 0.82 + ((hash1 + i * 0.3) % 0.6)
-
-              // Species distribution based on biome
+              const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
               const isPine = isTundra ? true : isAutumn ? (i % 3 === 0) : (i % 2 === 0)
 
               if (isPine) {
@@ -524,7 +572,6 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
             }
           }
 
-          // Roadside mountain shrubs / bushes
           if (hash1 > 0.35) {
             const shrubDist = ROAD_WIDTH / 2 + 4.8 + hash2 * 12
             const shrubX = roadCx + side * shrubDist
@@ -539,23 +586,29 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
           }
         }
 
-        // Weathered Rock Formations / Boulders
-        if (hash3 > 0.45) {
+        // Stratified geological rock outcrops
+        if (hash3 > 0.4) {
           const rockDist = ROAD_WIDTH / 2 + 6.0 + hash1 * 26
           const rockX = roadCx + side * rockDist
           const rockZ = clusterZ + (hash2 - 0.5) * 18
           const rockWorldZ = chunkZ + rockZ
           const rockY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
+
+          // Non-uniform geological scaling for natural boulder silhouette
+          const sx = 0.9 + hash3 * 1.6
+          const sy = (0.65 + hash1 * 0.8) * sx
+          const sz = (0.85 + hash2 * 1.2) * sx
+
           rocks.push({
-            pos: [rockX, rockY, rockZ],
-            scale: 0.8 + hash3 * 1.5,
-            rot: [hash1 * 0.4, hash2 * Math.PI * 2, hash3 * 0.3],
+            pos: [rockX, rockY + 0.3 * sy, rockZ],
+            scale: [sx, sy, sz],
+            rot: [hash1 * 0.3, hash2 * Math.PI * 2, hash3 * 0.25],
           })
         }
       })
     }
 
-    return { pines, broadleafs, saguaros, shrubs, rocks, poles }
+    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles }
   }, [chunkZ, biomeConfig.id])
 
   // Instanced Meshes for Vegetation & Scenery Props
@@ -566,6 +619,7 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
   const saguaroRef = useRef<THREE.InstancedMesh>(null)
   const shrubRef = useRef<THREE.InstancedMesh>(null)
   const rockRef = useRef<THREE.InstancedMesh>(null)
+  const grassRef = useRef<THREE.InstancedMesh>(null)
   const poleRef = useRef<THREE.InstancedMesh>(null)
 
   useEffect(() => {
@@ -626,8 +680,8 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
     // 5. Rocks
     if (rockRef.current) {
       sceneryData.rocks.forEach((r, i) => {
-        dummy.position.set(r.pos[0], r.pos[1] + 0.4 * r.scale, r.pos[2])
-        dummy.scale.set(r.scale, r.scale * 0.72, r.scale)
+        dummy.position.set(r.pos[0], r.pos[1], r.pos[2])
+        dummy.scale.set(r.scale[0], r.scale[1], r.scale[2])
         dummy.rotation.set(r.rot[0], r.rot[1], r.rot[2])
         dummy.updateMatrix()
         rockRef.current?.setMatrixAt(i, dummy.matrix)
@@ -635,7 +689,19 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
       rockRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 6. Utility Poles
+    // 6. Grass Tufts
+    if (grassRef.current) {
+      sceneryData.grassTufts.forEach((g, i) => {
+        dummy.position.set(g.pos[0], g.pos[1], g.pos[2])
+        dummy.scale.set(g.scale, g.scale, g.scale)
+        dummy.rotation.set(0, g.rotY, 0)
+        dummy.updateMatrix()
+        grassRef.current?.setMatrixAt(i, dummy.matrix)
+      })
+      grassRef.current.instanceMatrix.needsUpdate = true
+    }
+
+    // 7. Utility Poles
     if (poleRef.current) {
       sceneryData.poles.forEach((p, i) => {
         dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
@@ -670,16 +736,16 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         />
       </mesh>
 
-      {/* 2. Curved Asphalt Highway Ribbon with Procedural Aggregate Texture & Camber */}
+      {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
       <mesh geometry={roadGeo} receiveShadow>
         <meshStandardMaterial
           map={asphaltTex}
           bumpMap={asphaltBumpTex}
-          bumpScale={0.015}
-          color={biomeConfig.roadColor}
-          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.35 : 0.72}
-          metalness={isRaining ? 0.48 : 0.12}
-          envMapIntensity={isRaining ? 1.6 : 0.6}
+          bumpScale={0.018}
+          color="#ffffff"
+          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.42 : 0.65}
+          metalness={isRaining ? 0.45 : 0.08}
+          envMapIntensity={isRaining ? 1.6 : 0.8}
         />
       </mesh>
 
@@ -692,7 +758,7 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         />
       </mesh>
 
-      {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines (Zero Z-Fighting) */}
+      {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
       <mesh geometry={markingsGeo} renderOrder={2}>
         <meshStandardMaterial
           vertexColors
@@ -799,7 +865,22 @@ function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
         </instancedMesh>
       )}
 
-      {/* 11. Roadside Highway Utility Poles */}
+      {/* 11. Roadside Wild Grass Tufts */}
+      {sceneryData.grassTufts.length > 0 && (
+        <instancedMesh
+          ref={grassRef}
+          args={[grassTuftGeo, undefined, sceneryData.grassTufts.length]}
+          receiveShadow
+        >
+          <meshStandardMaterial
+            color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
+            roughness={0.85}
+            side={THREE.DoubleSide}
+          />
+        </instancedMesh>
+      )}
+
+      {/* 12. Roadside Highway Utility Poles */}
       {sceneryData.poles.length > 0 && (
         <instancedMesh
           ref={poleRef}

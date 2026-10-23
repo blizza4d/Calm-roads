@@ -8,7 +8,7 @@ import { BIOMES } from '../../../utils/roadMath'
 
 export default function GameEnvironment() {
   const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
-  const { camera } = useThree()
+  const { gl, scene, camera } = useThree()
 
   // Directional Light & Shadow target
   const dirLightRef = useRef<THREE.DirectionalLight>(null)
@@ -43,7 +43,7 @@ export default function GameEnvironment() {
     const lightY = isNight ? Math.max(26, -sunY * 0.85) : Math.max(8, sunY)
     const lightZ = isNight ? -sunZ : sunZ
 
-    let lightColor = '#fffdfa'
+    let lightColor = '#fffdf8'
     let lightIntensity = 2.6
     let skyTurbidity = 2.0
     let skyRayleigh = 1.1
@@ -54,10 +54,10 @@ export default function GameEnvironment() {
       skyTurbidity = 0.1
       skyRayleigh = 0.08
     } else if (isSunsetOrSunrise) {
-      lightColor = '#f97316' // Rich golden-amber sunset rays
-      lightIntensity = 2.3
-      skyTurbidity = 6.8
-      skyRayleigh = 3.8
+      lightColor = '#fed7aa' // Warm golden amber sunlight (natural, not neon orange)
+      lightIntensity = 2.4
+      skyTurbidity = 2.8
+      skyRayleigh = 1.6
     }
 
     if (weather === 'rain') {
@@ -87,16 +87,86 @@ export default function GameEnvironment() {
     if (weather === 'rain') return '#334155'
     if (weather === 'mist') return '#94a3b8'
     if (celestialData.isNight) return '#050811'
-    if (timeOfDay >= 17 && timeOfDay <= 19.5) return '#ea580c' // Golden hour fog
+    if (timeOfDay >= 17 && timeOfDay <= 19.5) return '#c27845' // Natural sunset mist
     return biomeConfig.fogColor
   }, [weather, celestialData.isNight, timeOfDay, biomeConfig])
 
   const fogDensity = useMemo(() => {
-    if (weather === 'mist') return 0.014
-    if (weather === 'rain') return 0.0065
-    if (weather === 'snow') return 0.0045
+    if (weather === 'mist') return 0.012
+    if (weather === 'rain') return 0.0055
+    if (weather === 'snow') return 0.0038
     return biomeConfig.fogDensity
   }, [weather, biomeConfig])
+
+  // Procedural PBR Irradiance Environment Map Generation
+  // Provides real-time IBL specular reflections for car clearcoat paint, glass, chrome and wet roads
+  useEffect(() => {
+    const pmremGenerator = new THREE.PMREMGenerator(gl)
+    pmremGenerator.compileEquirectangularShader()
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')
+
+    if (!ctx) return
+
+    // Equirectangular sky gradient matching the celestial phase
+    const grad = ctx.createLinearGradient(0, 0, 0, 128)
+    if (celestialData.isNight) {
+      grad.addColorStop(0.0, '#020617') // Zenith
+      grad.addColorStop(0.48, '#0f172a') // Horizon
+      grad.addColorStop(0.50, '#1e293b') // Moonlight horizon rim
+      grad.addColorStop(0.52, '#0f172a') // Ground horizon
+      grad.addColorStop(1.0, '#020617') // Ground nadir
+    } else if (timeOfDay >= 16.5 && timeOfDay <= 19.5) {
+      // Golden Hour Sunset
+      grad.addColorStop(0.0, '#38bdf8') // Blue zenith
+      grad.addColorStop(0.42, '#fde68a') // Warm sky
+      grad.addColorStop(0.50, '#fb923c') // Golden-amber horizon
+      grad.addColorStop(0.52, '#78350f') // Warm ground bounce
+      grad.addColorStop(1.0, '#292524') // Ground nadir
+    } else if (timeOfDay >= 5.0 && timeOfDay <= 7.5) {
+      // Crisp Sunrise
+      grad.addColorStop(0.0, '#60a5fa')
+      grad.addColorStop(0.42, '#fbcfe8')
+      grad.addColorStop(0.50, '#f43f5e')
+      grad.addColorStop(0.53, '#4c1d95')
+      grad.addColorStop(1.0, '#1e1b4b')
+    } else {
+      // Crisp Daylight
+      grad.addColorStop(0.0, '#0284c7') // Sky blue zenith
+      grad.addColorStop(0.45, '#bae6fd') // Near horizon
+      grad.addColorStop(0.50, '#e0f2fe') // Bright horizon haze
+      grad.addColorStop(0.53, '#94a3b8') // Ground horizon
+      grad.addColorStop(1.0, '#334155') // Ground
+    }
+
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 256, 128)
+
+    // Sun disc specular reflection source
+    if (!celestialData.isNight) {
+      const sunNormY = (celestialData.skySunPos[1] / 100) * 0.5 + 0.5
+      const sunPixelY = Math.max(10, Math.min(118, (1 - sunNormY) * 128))
+      const sunGrad = ctx.createRadialGradient(128, sunPixelY, 0, 128, sunPixelY, 28)
+      sunGrad.addColorStop(0, '#ffffff')
+      sunGrad.addColorStop(0.3, 'rgba(255, 250, 230, 0.85)')
+      sunGrad.addColorStop(1, 'rgba(255, 230, 180, 0)')
+      ctx.fillStyle = sunGrad
+      ctx.fillRect(100, sunPixelY - 28, 56, 56)
+    }
+
+    const texture = new THREE.CanvasTexture(canvas)
+    const envMap = pmremGenerator.fromEquirectangular(texture).texture
+    scene.environment = envMap
+
+    return () => {
+      texture.dispose()
+      envMap.dispose()
+      pmremGenerator.dispose()
+    }
+  }, [gl, scene, celestialData.isNight, timeOfDay, celestialData.skySunPos])
 
   // Player-following directional light with smooth target tracking
   useFrame(() => {
@@ -203,7 +273,7 @@ export default function GameEnvironment() {
       <hemisphereLight
         color={biomeConfig.skyHemiSky}
         groundColor={biomeConfig.skyHemiGround}
-        intensity={celestialData.isNight ? 0.38 : 0.9}
+        intensity={celestialData.isNight ? 0.42 : 0.98}
       />
 
       {/* Rain or Snow Particles */}
@@ -221,9 +291,9 @@ export default function GameEnvironment() {
 
       {/* Cinematic Post-Processing Pass */}
       <EffectComposer multisampling={graphicsQuality === 'low' ? 0 : graphicsQuality === 'medium' ? 2 : 4}>
-        <Bloom luminanceThreshold={0.85} intensity={graphicsQuality === 'low' ? 0.4 : 0.65} mipmapBlur />
+        <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'low' ? 0.35 : 0.55} mipmapBlur />
         <ToneMapping />
-        <Vignette eskil={false} offset={0.12} darkness={0.72} />
+        <Vignette eskil={false} offset={0.35} darkness={0.28} />
       </EffectComposer>
     </>
   )
