@@ -2,6 +2,7 @@ import * as THREE from 'three'
 
 let cachedAsphaltTexture: THREE.CanvasTexture | null = null
 let cachedBumpTexture: THREE.CanvasTexture | null = null
+let cachedTerrainBumpTexture: THREE.CanvasTexture | null = null
 
 /**
  * High-fidelity procedural PBR asphalt texture generator.
@@ -148,5 +149,59 @@ export function getAsphaltBumpTexture(): THREE.CanvasTexture {
   texture.needsUpdate = true
 
   cachedBumpTexture = texture
+  return texture
+}
+
+/**
+ * Procedural micro-relief bump map for terrain (rock facets, soil granules, grass sod texture).
+ */
+export function getTerrainBumpTexture(): THREE.CanvasTexture {
+  if (cachedTerrainBumpTexture) return cachedTerrainBumpTexture
+
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    const fallback = new THREE.CanvasTexture(canvas)
+    cachedTerrainBumpTexture = fallback
+    return fallback
+  }
+
+  ctx.fillStyle = '#808080'
+  ctx.fillRect(0, 0, size, size)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4
+      // Multi-frequency organic noise for natural earth micro-relief
+      const n1 = (Math.random() - 0.5) * 55
+      const n2 = Math.sin(x * 0.12) * Math.cos(y * 0.12) * 25
+      const n3 = Math.sin(x * 0.03 + y * 0.03) * 18
+      const val = Math.max(0, Math.min(255, 128 + n1 + n2 + n3))
+      data[idx] = val
+      data[idx + 1] = val
+      data[idx + 2] = val
+      data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(36, 6)
+  texture.anisotropy = 8
+  texture.generateMipmaps = true
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  cachedTerrainBumpTexture = texture
   return texture
 }

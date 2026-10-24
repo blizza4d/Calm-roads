@@ -1,6 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
 import { KeyboardControls } from '@react-three/drei'
+import * as THREE from 'three'
 import Experience from './components/3d/Experience'
 import Overlay from './components/ui/Overlay'
 import { useGameStore } from './store/useGameStore'
@@ -37,6 +38,12 @@ export default function App() {
               powerPreference: 'high-performance',
               preserveDrawingBuffer: true,
               alpha: false,
+              toneMapping: THREE.ACESFilmicToneMapping,
+              toneMappingExposure: 1.08,
+            }}
+            onCreated={({ gl }) => {
+              gl.toneMapping = THREE.ACESFilmicToneMapping
+              gl.toneMappingExposure = 1.08
             }}
             style={{ width: '100%', height: '100%' }}
           >

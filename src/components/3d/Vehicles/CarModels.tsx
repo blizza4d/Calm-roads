@@ -595,6 +595,16 @@ export function BmwM3GtrModel({
           <cylinderGeometry args={[0.039, 0.039, 0.01, 16]} />
           {burntTipBlue}
         </mesh>
+        {/* Exhaust interior heat glow on braking / overrun */}
+        <mesh position={[-0.02, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <circleGeometry args={[0.034, 16]} />
+          <meshBasicMaterial
+            color="#ff4400"
+            toneMapped={false}
+            transparent
+            opacity={isBraking ? 0.85 : 0.06}
+          />
+        </mesh>
       </group>
 
       {/* 8. Race Cockpit Interior: Dashboard, Momo Steering Wheel, Recaro Bucket Seats & Roll Cage */}
@@ -1038,6 +1048,15 @@ export function BmwM3GtrModel({
           <cylinderGeometry args={[0.044, 0.044, 0.02, 18]} />
           <meshBasicMaterial color="#000000" />
         </mesh>
+        <mesh position={[-0.08, 0, 0.088]}>
+          <circleGeometry args={[0.038, 16]} />
+          <meshBasicMaterial
+            color="#ff4400"
+            toneMapped={false}
+            transparent
+            opacity={isBraking ? 0.85 : 0.06}
+          />
+        </mesh>
 
         {/* Inner Tip (slightly recessed) */}
         <mesh position={[0.06, -0.01, -0.02]} rotation={[Math.PI / 2, 0, 0]}>
@@ -1051,6 +1070,15 @@ export function BmwM3GtrModel({
         <mesh position={[0.06, -0.01, 0.065]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.042, 0.042, 0.02, 18]} />
           <meshBasicMaterial color="#000000" />
+        </mesh>
+        <mesh position={[0.06, -0.01, 0.068]}>
+          <circleGeometry args={[0.036, 16]} />
+          <meshBasicMaterial
+            color="#ff4400"
+            toneMapped={false}
+            transparent
+            opacity={isBraking ? 0.85 : 0.06}
+          />
         </mesh>
       </group>
 
@@ -1069,6 +1097,15 @@ export function BmwM3GtrModel({
           <cylinderGeometry args={[0.042, 0.042, 0.02, 18]} />
           <meshBasicMaterial color="#000000" />
         </mesh>
+        <mesh position={[-0.06, -0.01, 0.068]}>
+          <circleGeometry args={[0.036, 16]} />
+          <meshBasicMaterial
+            color="#ff4400"
+            toneMapped={false}
+            transparent
+            opacity={isBraking ? 0.85 : 0.06}
+          />
+        </mesh>
 
         {/* Outer Tip */}
         <mesh position={[0.08, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
@@ -1082,6 +1119,15 @@ export function BmwM3GtrModel({
         <mesh position={[0.08, 0, 0.085]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.044, 0.044, 0.02, 18]} />
           <meshBasicMaterial color="#000000" />
+        </mesh>
+        <mesh position={[0.08, 0, 0.088]}>
+          <circleGeometry args={[0.038, 16]} />
+          <meshBasicMaterial
+            color="#ff4400"
+            toneMapped={false}
+            transparent
+            opacity={isBraking ? 0.85 : 0.06}
+          />
         </mesh>
       </group>
 

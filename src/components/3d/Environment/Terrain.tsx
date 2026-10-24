@@ -11,7 +11,7 @@ import {
   getActiveBiomeAt,
   BiomeConfig,
 } from '../../../utils/roadMath'
-import { getAsphaltTexture, getAsphaltBumpTexture } from '../../../utils/asphaltTexture'
+import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture } from '../../../utils/asphaltTexture'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
@@ -126,6 +126,9 @@ const grassTuftGeo = (() => {
 // 7. Utility Poles
 const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 6.4, 8).translate(0, 3.2, 0)
 
+// Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
+const _dummy = new THREE.Object3D()
+
 interface ChunkProps {
   chunkZ: number
   biomeConfig: BiomeConfig
@@ -142,6 +145,7 @@ interface ChunkProps {
 const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
+  const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
 
   // 1. Terrain Ground Mesh Geometry with slope-aware natural shading and dense vertices
   const terrainGeo = useMemo(() => {
@@ -648,19 +652,17 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const grassRef = useRef<THREE.InstancedMesh>(null)
   const poleRef = useRef<THREE.InstancedMesh>(null)
 
-  // Synchronous Matrix Updates before paint to prevent 1-frame visual popping
+  // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
   useLayoutEffect(() => {
-    const dummy = new THREE.Object3D()
-
     // 1. Pines
     if (pineTrunkRef.current && pineCanopyRef.current) {
       sceneryData.pines.forEach((p, i) => {
-        dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
-        dummy.scale.set(p.scale, p.scale, p.scale)
-        dummy.rotation.set(0, p.rotY, 0)
-        dummy.updateMatrix()
-        pineTrunkRef.current?.setMatrixAt(i, dummy.matrix)
-        pineCanopyRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
+        _dummy.scale.set(p.scale, p.scale, p.scale)
+        _dummy.rotation.set(0, p.rotY, 0)
+        _dummy.updateMatrix()
+        pineTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
+        pineCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       pineTrunkRef.current.instanceMatrix.needsUpdate = true
       pineCanopyRef.current.instanceMatrix.needsUpdate = true
@@ -669,12 +671,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 2. Broadleafs
     if (broadleafTrunkRef.current && broadleafCanopyRef.current) {
       sceneryData.broadleafs.forEach((b, i) => {
-        dummy.position.set(b.pos[0], b.pos[1], b.pos[2])
-        dummy.scale.set(b.scale, b.scale, b.scale)
-        dummy.rotation.set(0, b.rotY, 0)
-        dummy.updateMatrix()
-        broadleafTrunkRef.current?.setMatrixAt(i, dummy.matrix)
-        broadleafCanopyRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(b.pos[0], b.pos[1], b.pos[2])
+        _dummy.scale.set(b.scale, b.scale, b.scale)
+        _dummy.rotation.set(0, b.rotY, 0)
+        _dummy.updateMatrix()
+        broadleafTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
+        broadleafCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       broadleafTrunkRef.current.instanceMatrix.needsUpdate = true
       broadleafCanopyRef.current.instanceMatrix.needsUpdate = true
@@ -683,11 +685,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 3. Saguaros
     if (saguaroRef.current) {
       sceneryData.saguaros.forEach((s, i) => {
-        dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
-        dummy.scale.set(s.scale, s.scale, s.scale)
-        dummy.rotation.set(0, s.rotY, 0)
-        dummy.updateMatrix()
-        saguaroRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
+        _dummy.scale.set(s.scale, s.scale, s.scale)
+        _dummy.rotation.set(0, s.rotY, 0)
+        _dummy.updateMatrix()
+        saguaroRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       saguaroRef.current.instanceMatrix.needsUpdate = true
     }
@@ -695,11 +697,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 4. Shrubs
     if (shrubRef.current) {
       sceneryData.shrubs.forEach((s, i) => {
-        dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
-        dummy.scale.set(s.scale, s.scale, s.scale)
-        dummy.rotation.set(0, s.rotY, 0)
-        dummy.updateMatrix()
-        shrubRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
+        _dummy.scale.set(s.scale, s.scale, s.scale)
+        _dummy.rotation.set(0, s.rotY, 0)
+        _dummy.updateMatrix()
+        shrubRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       shrubRef.current.instanceMatrix.needsUpdate = true
     }
@@ -707,11 +709,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 5. Rocks
     if (rockRef.current) {
       sceneryData.rocks.forEach((r, i) => {
-        dummy.position.set(r.pos[0], r.pos[1], r.pos[2])
-        dummy.scale.set(r.scale[0], r.scale[1], r.scale[2])
-        dummy.rotation.set(r.rot[0], r.rot[1], r.rot[2])
-        dummy.updateMatrix()
-        rockRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(r.pos[0], r.pos[1], r.pos[2])
+        _dummy.scale.set(r.scale[0], r.scale[1], r.scale[2])
+        _dummy.rotation.set(r.rot[0], r.rot[1], r.rot[2])
+        _dummy.updateMatrix()
+        rockRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       rockRef.current.instanceMatrix.needsUpdate = true
     }
@@ -719,11 +721,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 6. Grass Tufts
     if (grassRef.current) {
       sceneryData.grassTufts.forEach((g, i) => {
-        dummy.position.set(g.pos[0], g.pos[1], g.pos[2])
-        dummy.scale.set(g.scale, g.scale, g.scale)
-        dummy.rotation.set(0, g.rotY, 0)
-        dummy.updateMatrix()
-        grassRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(g.pos[0], g.pos[1], g.pos[2])
+        _dummy.scale.set(g.scale, g.scale, g.scale)
+        _dummy.rotation.set(0, g.rotY, 0)
+        _dummy.updateMatrix()
+        grassRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       grassRef.current.instanceMatrix.needsUpdate = true
     }
@@ -731,11 +733,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     // 7. Utility Poles
     if (poleRef.current) {
       sceneryData.poles.forEach((p, i) => {
-        dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
-        dummy.scale.set(1, 1, 1)
-        dummy.rotation.set(0, 0, 0)
-        dummy.updateMatrix()
-        poleRef.current?.setMatrixAt(i, dummy.matrix)
+        _dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
+        _dummy.scale.set(1, 1, 1)
+        _dummy.rotation.set(0, 0, 0)
+        _dummy.updateMatrix()
+        poleRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       poleRef.current.instanceMatrix.needsUpdate = true
     }
@@ -754,10 +756,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   return (
     <group position={[0, 0, chunkZ]}>
-      {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors */}
+      {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors & Micro-Relief */}
       <mesh geometry={terrainGeo} receiveShadow>
         <meshStandardMaterial
           vertexColors
+          bumpMap={terrainBumpTex}
+          bumpScale={0.032}
           roughness={biomeConfig.roughness}
           metalness={0.04}
         />
