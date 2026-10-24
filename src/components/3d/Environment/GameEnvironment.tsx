@@ -397,9 +397,9 @@ export default function GameEnvironment() {
   }, [weather, celestialData.isNight, timeOfDay, biomeConfig])
 
   const fogDensity = useMemo(() => {
-    if (weather === 'mist') return 0.012
-    if (weather === 'rain') return 0.0055
-    if (weather === 'snow') return 0.0038
+    if (weather === 'mist') return 0.0022
+    if (weather === 'rain') return 0.0012
+    if (weather === 'snow') return 0.0009
     return biomeConfig.fogDensity
   }, [weather, biomeConfig])
 
