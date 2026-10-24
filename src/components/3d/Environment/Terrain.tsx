@@ -14,8 +14,8 @@ import {
 import { getAsphaltTexture, getAsphaltBumpTexture } from '../../../utils/asphaltTexture'
 
 const CHUNK_LEN = 200
-const TERRAIN_W = 320
-const GRID_X = 64
+const TERRAIN_W = 1200
+const GRID_X = 96
 const GRID_Z = 48
 
 // Helper to merge multiple BufferGeometries into a single geometry
@@ -141,13 +141,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const pos = geo.attributes.position
     const count = pos.count
 
-    // Precompute road centers along the 49 Z-rows of the chunk (65x speedup for road center queries)
-    const roadCenterByRow = new Float32Array(GRID_Z + 1)
-    for (let r = 0; r <= GRID_Z; r++) {
-      const localZ = CHUNK_LEN / 2 - (r / GRID_Z) * CHUNK_LEN
-      roadCenterByRow[r] = getRoadCenter(chunkZ + localZ)
-    }
-
     for (let i = 0; i < count; i++) {
       const localX = pos.getX(i)
       const localZ = pos.getZ(i)
@@ -167,7 +160,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const rockColor = new THREE.Color(biomeConfig.rockColor)
     const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
     const tempColor = new THREE.Color()
-    const colsPerRow = GRID_X + 1
 
     for (let i = 0; i < count; i++) {
       const ny = normals.getY(i) // 1.0 = flat horizontal, 0.0 = sheer vertical
@@ -176,9 +168,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const px = pos.getX(i)
       const py = pos.getY(i)
       const pz = pos.getZ(i)
+      const worldZ = chunkZ + pz
 
-      const rowIndex = Math.min(GRID_Z, Math.max(0, Math.floor(i / colsPerRow)))
-      const roadCx = roadCenterByRow[rowIndex] ?? getRoadCenter(chunkZ + pz)
+      const roadCx = getRoadCenter(worldZ)
 
       // Subtle geological strata banding
       const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
@@ -186,13 +178,16 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
       tempColor.copy(rockColor).lerp(grassColor, slope)
 
-      // Alpine summit frosting for tundra at high elevations
+      // Alpine summit snow frosting at high elevations (py > 65m, and tundra py > 24m)
       if (biomeConfig.id === 'tundra' && py > 24) {
         const snowT = Math.min(1.0, (py - 24) / 18.0)
-        tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.6)
+        tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.75)
+      } else if (py > 65) {
+        const snowT = Math.min(1.0, (py - 65) / 35.0)
+        tempColor.lerp(new THREE.Color('#f1f5f9'), snowT * 0.6)
       }
 
-      // Proximity to road shoulder - subtle soil blending
+      // Proximity to road shoulder - accurate soil blending
       const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)

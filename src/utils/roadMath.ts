@@ -215,10 +215,11 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   }
 
   // Distance scaling: Gradual elevation gain into distant mountain horizons
-  // Prevents cliffs right beside the road while building grand panoramas in the distance
-  const mountainRamp = Math.min(2.6, 0.45 + Math.pow(distPastShoulder / 52.0, 1.15) * 0.95)
+  // Prevents cliffs right beside the road while building grand mountain valleys in the distance
+  const mountainRamp = Math.min(2.5, 0.15 + Math.pow(distPastShoulder / 95.0, 1.35) * 1.8)
+  const valleyWallLift = Math.pow(Math.min(1.0, distPastShoulder / 520.0), 1.6) * 55.0
 
-  return roadY + naturalElevation * smoothBlend * mountainRamp * mult
+  return roadY + (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult
 }
 
 // 6. Heading-Aware Terrain Slope for Vehicle (Pitch & Roll in local vehicle coordinates)

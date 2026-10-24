@@ -294,6 +294,114 @@ function CosmicCelestialSky({
   )
 }
 
+// ------------------------------------------------------------------------
+// Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt
+// 1. DistantMountainHorizon: 360-degree panoramic alpine mountain silhouette ring
+// 2. AtmosphericHorizonGround: Soft atmospheric ground skirt preventing Drei Sky black void
+// ------------------------------------------------------------------------
+function PanoramicMountainHorizon({
+  fogColor,
+  rockColor,
+  isNight,
+}: {
+  fogColor: string
+  rockColor: string
+  isNight: boolean
+}) {
+  const { camera } = useThree()
+  const ringGroupRef = useRef<THREE.Group>(null)
+
+  const mountainGeo = useMemo(() => {
+    const segments = 128
+    const radius = 2400
+    const positions: number[] = []
+    const colors: number[] = []
+    const indices: number[] = []
+
+    const fogCol = new THREE.Color(fogColor)
+    const baseRock = new THREE.Color(rockColor)
+    // Mountain summit color: slightly darker rock tinted with atmospheric fog
+    const summitCol = isNight
+      ? new THREE.Color('#0f172a').lerp(fogCol, 0.4)
+      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.48)
+
+    for (let i = 0; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2
+      const cosT = Math.cos(theta)
+      const sinT = Math.sin(theta)
+
+      const x = radius * sinT
+      const z = radius * cosT
+
+      // Multi-octave natural mountain peak silhouettes with variable heights
+      const peakH =
+        130 +
+        Math.sin(theta * 3.0) * 60 +
+        Math.cos(theta * 7.0 + 1.2) * 38 +
+        Math.sin(theta * 13.0) * 22 +
+        Math.cos(theta * 23.0) * 12
+
+      // Bottom vertex (at horizon base)
+      positions.push(x, -10, z)
+      colors.push(fogCol.r, fogCol.g, fogCol.b)
+
+      // Top vertex (mountain summit)
+      positions.push(x, peakH, z)
+      colors.push(summitCol.r, summitCol.g, summitCol.b)
+    }
+
+    for (let i = 0; i < segments; i++) {
+      const b1 = i * 2
+      const t1 = b1 + 1
+      const b2 = (i + 1) * 2
+      const t2 = b2 + 1
+
+      // Quad facing inwards towards camera
+      indices.push(b1, t1, b2)
+      indices.push(b2, t1, t2)
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    geo.setIndex(indices)
+    geo.computeVertexNormals()
+    return geo
+  }, [fogColor, rockColor, isNight])
+
+  // Track camera in X and Z so mountains stay on the horizon
+  useFrame(() => {
+    if (ringGroupRef.current) {
+      ringGroupRef.current.position.set(camera.position.x, 0, camera.position.z)
+    }
+  })
+
+  useEffect(() => {
+    return () => {
+      mountainGeo.dispose()
+    }
+  }, [mountainGeo])
+
+  return (
+    <group ref={ringGroupRef}>
+      {/* 1. 360-Degree Panoramic Mountain Horizon Silhouettes */}
+      <mesh geometry={mountainGeo}>
+        <meshBasicMaterial vertexColors side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+
+      {/* 2. Atmospheric Ground Skirt & Nadir Floor (Prevents Drei Sky black void below horizon) */}
+      <mesh position={[0, -220, 0]}>
+        <cylinderGeometry args={[2800, 2800, 440, 48, 1, true]} />
+        <meshBasicMaterial color={fogColor} side={THREE.BackSide} depthWrite={false} />
+      </mesh>
+      <mesh position={[0, -420, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[2800, 32]} />
+        <meshBasicMaterial color={fogColor} depthWrite={false} />
+      </mesh>
+    </group>
+  )
+}
+
 export default function GameEnvironment() {
   const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
   const { gl, scene, camera } = useThree()
@@ -581,6 +689,13 @@ export default function GameEnvironment() {
       <CosmicCelestialSky
         sunHeight={celestialData.sunHeight}
         moonPosition={celestialData.moonPos}
+        isNight={celestialData.isNight}
+      />
+
+      {/* Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt */}
+      <PanoramicMountainHorizon
+        fogColor={fogColor}
+        rockColor={biomeConfig.rockColor}
         isNight={celestialData.isNight}
       />
 

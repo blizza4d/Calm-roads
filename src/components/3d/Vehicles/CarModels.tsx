@@ -234,52 +234,59 @@ export function BmwM3GtrModel({
       )
     }
 
-    const sideMult = isLeft ? 1 : -1
+    const outerDir = isLeft ? -1 : 1
 
     return (
       <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
+        {/* Stationary Performance Brake Caliper (stays fixed upright on hub knuckle, does not spin with wheel) */}
+        <mesh position={[-outerDir * 0.025, 0.14, 0]}>
+          <boxGeometry args={[0.065, 0.12, 0.09]} />
+          {bremboBlue}
+        </mesh>
+
         <group rotation={[wheelRotation, 0, 0]}>
           {/* 1. Low-Profile Performance Radial Tire with Rounded Sidewalls */}
-          {/* Main Tread Crown */}
+          {/* Main Tread Crown (Solid rubber cylinder along axle X) */}
           <mesh rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.36, 0.36, 0.22, 32]} />
+            <cylinderGeometry args={[0.36, 0.36, 0.24, 32]} />
             {tireRubber}
           </mesh>
-          {/* Outer Rounded Sidewall (Torus) */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.11, 0, 0]}>
-            <torusGeometry args={[0.31, 0.05, 16, 32]} />
+          {/* Outer Rounded Sidewall (Torus with normal aligned along axle X) */}
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[outerDir * 0.08, 0, 0]}>
+            <torusGeometry args={[0.315, 0.045, 16, 32]} />
             {tireRubber}
           </mesh>
-          {/* Inner Rounded Sidewall (Torus) */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.11, 0, 0]}>
-            <torusGeometry args={[0.31, 0.05, 16, 32]} />
+          {/* Inner Rounded Sidewall (Torus with normal aligned along axle X) */}
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[-outerDir * 0.08, 0, 0]}>
+            <torusGeometry args={[0.315, 0.045, 16, 32]} />
             {tireRubber}
           </mesh>
 
-          {/* 2. Deep-Dish Polished Chrome Stepped Rim Barrel */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.04, 0, 0]}>
-            <cylinderGeometry args={[0.29, 0.29, 0.20, 32, 1, true]} />
+          {/* 2. Deep-Dish Polished Chrome Stepped Rim Barrel (Solid cylinders, no missing back faces) */}
+          {/* Outer Polished Chrome Stepped Lip */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.095, 0, 0]}>
+            <cylinderGeometry args={[0.29, 0.29, 0.05, 32]} />
             {polishedChrome}
           </mesh>
-          {/* Inverted Drop-Center Barrel Step */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.08, 0, 0]}>
-            <cylinderGeometry args={[0.26, 0.28, 0.06, 32, 1, true]} />
+          {/* Inner Rim Barrel */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.01, 0, 0]}>
+            <cylinderGeometry args={[0.27, 0.27, 0.20, 32]} />
             {polishedChrome}
           </mesh>
 
           {/* 3. Concave BBS Motorsport Wheel Center Face */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.09, 0, 0]}>
-            <cylinderGeometry args={[0.24, 0.24, 0.02, 28]} />
-            <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.14} />
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.075, 0, 0]}>
+            <cylinderGeometry args={[0.24, 0.24, 0.02, 32]} />
+            <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.15} />
           </mesh>
-          {/* 16-Spoke BBS Cross-Laced Mesh Pattern */}
+          {/* 16-Spoke BBS Cross-Laced Mesh Pattern (Rotating in the YZ wheel face around axle X) */}
           {[0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5].map((deg, idx) => (
             <mesh
               key={idx}
-              rotation={[0, 0, (deg * Math.PI) / 180]}
-              position={[sideMult * 0.10, 0, 0]}
+              rotation={[(deg * Math.PI) / 180, 0, 0]}
+              position={[outerDir * 0.082, 0, 0]}
             >
-              <boxGeometry args={[0.016, 0.46, 0.022]} />
+              <boxGeometry args={[0.016, 0.44, 0.02]} />
               <meshStandardMaterial color="#e2e8f0" metalness={0.94} roughness={0.12} />
             </mesh>
           ))}
@@ -287,39 +294,34 @@ export function BmwM3GtrModel({
           {[11.25, 33.75, 56.25, 78.75, 101.25, 123.75, 146.25, 168.75].map((deg, idx) => (
             <mesh
               key={`y_${idx}`}
-              rotation={[0, 0, (deg * Math.PI) / 180]}
-              position={[sideMult * 0.095, 0, 0]}
+              rotation={[(deg * Math.PI) / 180, 0, 0]}
+              position={[outerDir * 0.078, 0, 0]}
             >
-              <boxGeometry args={[0.012, 0.38, 0.018]} />
+              <boxGeometry args={[0.014, 0.36, 0.016]} />
               <meshStandardMaterial color="#cbd5e1" metalness={0.90} roughness={0.15} />
             </mesh>
           ))}
 
           {/* 4. Center Hub Nut with M-Colors */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.12, 0, 0]}>
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.095, 0, 0]}>
             <cylinderGeometry args={[0.052, 0.052, 0.024, 16]} />
             {bremboBlue}
           </mesh>
           {/* Center BMW Roundel Ring */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.133, 0, 0]}>
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[outerDir * 0.108, 0, 0]}>
             <torusGeometry args={[0.048, 0.006, 8, 16]} />
             {polishedChrome}
           </mesh>
 
-          {/* 5. Cross-Drilled Ventilated Cast-Iron Brake Rotor */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.03, 0, 0]}>
-            <cylinderGeometry args={[0.24, 0.24, 0.024, 32]} />
+          {/* 5. Cross-Drilled Ventilated Cast-Iron Brake Rotor (Rotates with wheel hub) */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.025, 0, 0]}>
+            <cylinderGeometry args={[0.23, 0.23, 0.024, 32]} />
             {brakeRotor}
           </mesh>
           {/* Rotor Center Aluminum Top Hat */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.02, 0, 0]}>
-            <cylinderGeometry args={[0.12, 0.12, 0.032, 24]} />
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.015, 0, 0]}>
+            <cylinderGeometry args={[0.11, 0.11, 0.03, 24]} />
             <meshStandardMaterial color="#475569" metalness={0.95} roughness={0.25} />
-          </mesh>
-          {/* 6. Brembo 6-Piston Performance Brake Caliper */}
-          <mesh position={[sideMult * 0.02, 0.14, 0]}>
-            <boxGeometry args={[0.078, 0.14, 0.10]} />
-            {bremboBlue}
           </mesh>
         </group>
       </group>
@@ -1049,12 +1051,12 @@ export function CamperVanModel({
           <meshStandardMaterial color="#27272a" roughness={0.88} />
         </mesh>
         {/* White-wall ring */}
-        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? 0.12 : -0.12, 0, 0]}>
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.12 : 0.12, 0, 0]}>
           <cylinderGeometry args={[0.32, 0.32, 0.02, 22]} />
           <meshStandardMaterial color="#f8fafc" roughness={0.3} />
         </mesh>
         {/* Chrome Baby Moon Dome Hubcap */}
-        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? 0.14 : -0.14, 0, 0]}>
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.14 : 0.14, 0, 0]}>
           <cylinderGeometry args={[0.22, 0.22, 0.04, 18]} />
           {chromeMat}
         </mesh>
