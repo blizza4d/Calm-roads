@@ -58,23 +58,28 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
 // ------------------------------------------------------------------------
 // Realistic Procedural Vegetation & Geological Geometries
 // ------------------------------------------------------------------------
-// 1. Alpine / Mountain Conifer: 3-tiered conical skirt canopy
+// Realistic Procedural Vegetation & Geological Geometries
+// ------------------------------------------------------------------------
+// 1. Alpine / Mountain Conifer: 4-tiered organic conical skirt canopy with flaring branches
 const pineCanopyGeo = (() => {
-  const t1 = new THREE.ConeGeometry(2.3, 2.2, 8).translate(0, 2.0, 0)
-  const t2 = new THREE.ConeGeometry(1.75, 2.0, 8).translate(0, 3.2, 0)
-  const t3 = new THREE.ConeGeometry(1.15, 1.8, 8).translate(0, 4.4, 0)
-  return mergeBufferGeometries([t1, t2, t3])
+  const t1 = new THREE.ConeGeometry(2.4, 2.0, 10).translate(0, 2.2, 0)
+  const t2 = new THREE.ConeGeometry(1.9, 1.8, 10).translate(0, 3.4, 0)
+  const t3 = new THREE.ConeGeometry(1.4, 1.6, 10).translate(0, 4.6, 0)
+  const t4 = new THREE.ConeGeometry(0.85, 1.5, 10).translate(0, 5.6, 0)
+  return mergeBufferGeometries([t1, t2, t3, t4])
 })()
-const pineTrunkGeo = new THREE.CylinderGeometry(0.18, 0.42, 4.2, 8).translate(0, 2.1, 0)
+const pineTrunkGeo = new THREE.CylinderGeometry(0.16, 0.45, 4.8, 8).translate(0, 2.4, 0)
 
-// 2. Deciduous Broadleaf / Mountain Maple: Asymmetrical 3-lobed organic crown
+// 2. Deciduous Broadleaf / Mountain Maple: Organic 5-cluster asymmetrical canopy
 const broadleafCanopyGeo = (() => {
-  const c1 = new THREE.DodecahedronGeometry(1.75, 1).translate(0, 3.8, 0)
-  const c2 = new THREE.DodecahedronGeometry(1.3, 1).translate(-0.75, 3.4, 0.35)
-  const c3 = new THREE.DodecahedronGeometry(1.35, 1).translate(0.8, 3.5, -0.35)
-  return mergeBufferGeometries([c1, c2, c3])
+  const c1 = new THREE.DodecahedronGeometry(1.8, 1).translate(0, 4.0, 0)
+  const c2 = new THREE.DodecahedronGeometry(1.35, 1).translate(-0.85, 3.6, 0.35)
+  const c3 = new THREE.DodecahedronGeometry(1.4, 1).translate(0.8, 3.7, -0.3)
+  const c4 = new THREE.DodecahedronGeometry(1.1, 1).translate(0.1, 3.2, 0.85)
+  const c5 = new THREE.DodecahedronGeometry(1.15, 1).translate(-0.2, 3.5, -0.8)
+  return mergeBufferGeometries([c1, c2, c3, c4, c5])
 })()
-const broadleafTrunkGeo = new THREE.CylinderGeometry(0.22, 0.45, 3.8, 8).translate(0, 1.9, 0)
+const broadleafTrunkGeo = new THREE.CylinderGeometry(0.2, 0.48, 4.2, 8).translate(0, 2.1, 0)
 
 // 3. Desert Saguaro Cactus: Multi-armed branching columnar cactus
 const saguaroGeo = (() => {
@@ -86,8 +91,13 @@ const saguaroGeo = (() => {
   return mergeBufferGeometries([main, armL1, armL2, armR1, armR2])
 })()
 
-// 4. Roadside Shrub / Bush
-const shrubGeo = new THREE.DodecahedronGeometry(1.15, 1).scale(1.2, 0.65, 1.1).translate(0, 0.6, 0)
+// 4. Roadside Shrub / Bush: Multi-lobed low foliage clump
+const shrubGeo = (() => {
+  const s1 = new THREE.DodecahedronGeometry(0.95, 1).scale(1.2, 0.7, 1.1).translate(0, 0.55, 0)
+  const s2 = new THREE.DodecahedronGeometry(0.7, 1).scale(1.1, 0.65, 1.0).translate(-0.45, 0.42, 0.2)
+  const s3 = new THREE.DodecahedronGeometry(0.75, 1).scale(1.0, 0.65, 1.1).translate(0.42, 0.45, -0.25)
+  return mergeBufferGeometries([s1, s2, s3])
+})()
 
 // 5. Geological Weathered Boulders with sharp fracture cleavage planes
 const rockGeo = (() => {

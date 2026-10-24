@@ -643,8 +643,8 @@ export default function VehicleController() {
 
     if (cameraPerspective === 'chase') {
       const lookAhead = Math.min(18, Math.max(0, forwardVel.current * 0.22))
-      _tempCamOffset.set(0, 2.1, 5.8).applyQuaternion(carQuat).add(carPos)
-      _tempCamLookAt.set(0, 0.92, -lookAhead - 4.0).applyQuaternion(carQuat).add(carPos)
+      _tempCamOffset.set(0, 1.82, 4.85).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.86, -lookAhead - 2.8).applyQuaternion(carQuat).add(carPos)
 
       // Subtle high-speed micro-vibration
       if (currentSpeedKmh > 80) {
