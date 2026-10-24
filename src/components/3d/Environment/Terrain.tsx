@@ -141,6 +141,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const pos = geo.attributes.position
     const count = pos.count
 
+    // Precompute road centers along the 49 Z-rows of the chunk (65x speedup for road center queries)
+    const roadCenterByRow = new Float32Array(GRID_Z + 1)
+    for (let r = 0; r <= GRID_Z; r++) {
+      const localZ = CHUNK_LEN / 2 - (r / GRID_Z) * CHUNK_LEN
+      roadCenterByRow[r] = getRoadCenter(chunkZ + localZ)
+    }
+
     for (let i = 0; i < count; i++) {
       const localX = pos.getX(i)
       const localZ = pos.getZ(i)
@@ -160,6 +167,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const rockColor = new THREE.Color(biomeConfig.rockColor)
     const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
     const tempColor = new THREE.Color()
+    const colsPerRow = GRID_X + 1
 
     for (let i = 0; i < count; i++) {
       const ny = normals.getY(i) // 1.0 = flat horizontal, 0.0 = sheer vertical
@@ -168,6 +176,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const px = pos.getX(i)
       const py = pos.getY(i)
       const pz = pos.getZ(i)
+
+      const rowIndex = Math.min(GRID_Z, Math.max(0, Math.floor(i / colsPerRow)))
+      const roadCx = roadCenterByRow[rowIndex] ?? getRoadCenter(chunkZ + pz)
 
       // Subtle geological strata banding
       const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
@@ -182,7 +193,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       }
 
       // Proximity to road shoulder - subtle soil blending
-      const distFromCenter = Math.abs(px - getRoadCenter(chunkZ + pz))
+      const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
         tempColor.lerp(shoulderColor, blendToSoil * 0.45)
@@ -198,6 +209,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
 
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geo.computeBoundingSphere()
+    geo.computeBoundingBox()
     return geo
   }, [chunkZ, biomeConfig])
 
@@ -253,6 +266,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     geo.setIndex(indices)
+    geo.computeBoundingSphere()
+    geo.computeBoundingBox()
     return geo
   }, [chunkZ])
 
@@ -299,6 +314,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
     geo.setIndex(indices)
     geo.computeVertexNormals()
+    geo.computeBoundingSphere()
+    geo.computeBoundingBox()
     return geo
   }, [chunkZ])
 
@@ -394,6 +411,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
     geo.setIndex(indices)
+    geo.computeBoundingSphere()
+    geo.computeBoundingBox()
     return geo
   }, [chunkZ])
 
@@ -451,6 +470,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
     geo.setIndex(indices)
+    geo.computeBoundingSphere()
+    geo.computeBoundingBox()
     return geo
   }, [chunkZ])
 
@@ -787,6 +808,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
       </instancedMesh>
@@ -796,6 +818,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
@@ -810,6 +833,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
       </instancedMesh>
@@ -819,6 +843,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
       </instancedMesh>
@@ -830,6 +855,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.saguaros.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color="#166534" roughness={0.85} />
       </instancedMesh>
@@ -841,6 +867,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.shrubs.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
@@ -855,6 +882,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.rocks.length}
         castShadow
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
       </instancedMesh>
@@ -865,6 +893,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         args={[grassTuftGeo, undefined, 36]}
         count={sceneryData.grassTufts.length}
         receiveShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
@@ -879,6 +908,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         args={[poleGeo, undefined, 16]}
         count={sceneryData.poles.length}
         castShadow
+        frustumCulled={false}
       >
         <meshStandardMaterial color="#362316" roughness={0.95} />
       </instancedMesh>
@@ -917,8 +947,8 @@ export default function Terrain() {
   useFrame(() => {
     const camZ = camera.position.z
 
-    // 1. Detect Vehicle Reset or Teleport (camZ jump > 350m)
-    if (Math.abs(camZ - lastCamZ.current) > 350) {
+    // 1. Detect Vehicle Reset or Teleport (camZ jump > 180m)
+    if (Math.abs(camZ - lastCamZ.current) > 180) {
       const centerChunkZ = Math.round(camZ / CHUNK_LEN) * CHUNK_LEN
       const recentered: number[] = []
       for (let i = 0; i < NUM_CHUNKS; i++) {
@@ -931,15 +961,16 @@ export default function Terrain() {
     }
     lastCamZ.current = camZ
 
-    // 2. High-Speed Multi-Chunk Horizon Catchup
+    // 2. High-Speed Horizon Catchup (Bidirectional Streaming)
     let recycledCount = 0
     let didUpdate = false
     const currentSlots = [...slotsRef.current]
 
     // While rearmost chunk has safely passed behind camera, recycle it to the forward horizon
-    while (recycledCount < 3) {
+    while (recycledCount < 2) {
       let rearmostIdx = 0
       let rearmostZ = currentSlots[0]
+      let frontmostIdx = 0
       let frontmostZ = currentSlots[0]
 
       for (let i = 0; i < NUM_CHUNKS; i++) {
@@ -950,13 +981,23 @@ export default function Terrain() {
         }
         if (z < frontmostZ) {
           frontmostZ = z
+          frontmostIdx = i
         }
       }
 
-      // Retire threshold: safely past chase camera and rear-view sightline
-      const retireThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
-      if (rearmostZ > retireThreshold) {
+      // Forward driving retire threshold: safely past chase camera and rear-view sightline
+      const retireRearThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
+      // Reverse driving retire threshold: safely ahead of car when reversing
+      const retireFrontThreshold = camZ - (NUM_CHUNKS - CHUNKS_BEHIND + 0.25) * CHUNK_LEN
+
+      if (rearmostZ > retireRearThreshold) {
+        // Forward driving: recycle rearmost chunk to forward horizon
         currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
+        recycledCount++
+        didUpdate = true
+      } else if (frontmostZ < retireFrontThreshold) {
+        // Reverse driving: recycle forward chunk to rear horizon
+        currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
         recycledCount++
         didUpdate = true
       } else {

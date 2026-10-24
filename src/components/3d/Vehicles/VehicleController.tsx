@@ -225,6 +225,19 @@ export default function VehicleController() {
           }
         }
       }
+      // R Key: Instant Vehicle Reset / Respawn on Centerline
+      else if (e.code === 'KeyR') {
+        const curZ = pos.current.z
+        pos.current.x = getRoadCenter(curZ)
+        pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : 0.44)
+        forwardVel.current = 0
+        lateralVel.current = 0
+        yawAngle.current = 0
+        wheelSpin.current = 0
+        steeringVisual.current = 0
+        currentGearIndex.current = 1
+        isFirstCamFrameRef.current = true
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -386,6 +399,18 @@ export default function VehicleController() {
       // Advance 3D World Position
       pos.current.x += (forwardX * forwardVel.current + rightX * lateralVel.current) * dt
       pos.current.z += (forwardZ * forwardVel.current + rightZ * lateralVel.current) * dt
+
+      // Out-of-bounds safety net: if vehicle is thrown far off terrain or falls into void
+      const roadCx = getRoadCenter(pos.current.z)
+      if (pos.current.y < -35 || Math.abs(pos.current.x - roadCx) > 130) {
+        pos.current.x = roadCx
+        pos.current.y = getRoadElevation(pos.current.z) + (isHoverMode ? 1.25 : 0.44)
+        forwardVel.current = 0
+        lateralVel.current = 0
+        yawAngle.current = 0
+        wheelSpin.current = 0
+        isFirstCamFrameRef.current = true
+      }
     }
 
     // ------------------------------------------------------------------------

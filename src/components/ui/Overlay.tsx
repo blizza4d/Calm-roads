@@ -668,6 +668,7 @@ function ControlsModal({ onClose }: { onClose: () => void }) {
     { key: 'A / ←', action: 'Steer Left' },
     { key: 'D / →', action: 'Steer Right' },
     { key: 'SPACE', action: 'Handbrake / High-Speed Drift' },
+    { key: 'R', action: 'Reset Vehicle onto Road Centerline' },
     { key: 'B', action: 'Vehicle Horn (Beep)' },
     { key: 'H', action: 'Toggle Antigravity / Hover Mode' },
     { key: 'C', action: 'Cycle Camera (Chase, Cockpit, Drone, Bumper)' },

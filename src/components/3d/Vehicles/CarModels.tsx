@@ -72,6 +72,88 @@ function HeadlightBeams({
 }
 
 // ----------------------------------------------------
+// Parametric Sculpted BMW M3 GTR Body Shell Geometry
+// Generates continuous, curved automotive surface profiles
+// with smooth C1 vertex normals across 14 longitudinal stations.
+// ----------------------------------------------------
+function createBmwM3BodyGeometry(): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry()
+
+  const stations = [
+    // z,     w_bot,  w_sill, w_arch, w_belt, w_deck, y_bot,  y_sill, y_arch, y_belt, y_deck, y_spine
+    [-2.25,   0.50,   0.72,   0.74,   0.72,   0.45,   0.14,   0.22,   0.34,   0.46,   0.52,   0.55], // 0: Front bumper tip
+    [-2.05,   0.55,   0.78,   0.82,   0.80,   0.62,   0.13,   0.20,   0.36,   0.52,   0.60,   0.63], // 1: Front fascia / headlights
+    [-1.75,   0.58,   0.82,   0.92,   0.88,   0.72,   0.14,   0.22,   0.42,   0.58,   0.64,   0.67], // 2: Front flare start
+    [-1.35,   0.58,   0.80,   0.95,   0.92,   0.76,   0.15,   0.36,   0.50,   0.62,   0.67,   0.71], // 3: Front wheel center (arch cutout)
+    [-0.95,   0.58,   0.82,   0.90,   0.88,   0.74,   0.15,   0.22,   0.44,   0.62,   0.68,   0.72], // 4: Front flare end / gill
+    [-0.65,   0.56,   0.82,   0.84,   0.85,   0.68,   0.15,   0.20,   0.36,   0.63,   0.70,   0.73], // 5: Windshield cowl base
+    [-0.20,   0.56,   0.82,   0.83,   0.85,   0.62,   0.15,   0.20,   0.36,   0.64,   1.24,   1.27], // 6: Front cabin / A-pillar / roof
+    [+0.35,   0.56,   0.82,   0.83,   0.85,   0.62,   0.15,   0.20,   0.36,   0.64,   1.23,   1.26], // 7: Mid roof / B-pillar
+    [+0.85,   0.56,   0.82,   0.85,   0.86,   0.66,   0.15,   0.20,   0.38,   0.64,   0.98,   1.02], // 8: Rear glass / C-pillar
+    [+1.10,   0.58,   0.84,   0.94,   0.92,   0.74,   0.15,   0.22,   0.45,   0.64,   0.75,   0.77], // 9: Rear flare start
+    [+1.35,   0.58,   0.80,   0.97,   0.95,   0.78,   0.15,   0.38,   0.52,   0.65,   0.74,   0.76], // 10: Rear wheel center (arch cutout)
+    [+1.65,   0.58,   0.84,   0.93,   0.92,   0.75,   0.15,   0.22,   0.44,   0.65,   0.74,   0.76], // 11: Rear flare end / vent
+    [+2.05,   0.54,   0.78,   0.84,   0.82,   0.68,   0.14,   0.22,   0.38,   0.64,   0.76,   0.78], // 12: Trunk deck / ducktail spoiler
+    [+2.25,   0.48,   0.72,   0.76,   0.74,   0.55,   0.16,   0.24,   0.36,   0.58,   0.66,   0.68], // 13: Rear bumper tail
+  ]
+
+  const positions: number[] = []
+  const indices: number[] = []
+  const numSlices = stations.length
+  const ptsPerHalf = 6
+  const ptsPerSlice = ptsPerHalf * 2 - 1
+
+  for (let s = 0; s < numSlices; s++) {
+    const [z, w0, w1, w2, w3, w4, y0, y1, y2, y3, y4, y5] = stations[s]
+    const widths = [w0, w1, w2, w3, w4, 0]
+    const heights = [y0, y1, y2, y3, y4, y5]
+
+    for (let p = 0; p < ptsPerHalf - 1; p++) {
+      positions.push(-widths[p], heights[p], z)
+    }
+    positions.push(0, heights[ptsPerHalf - 1], z)
+    for (let p = ptsPerHalf - 2; p >= 0; p--) {
+      positions.push(widths[p], heights[p], z)
+    }
+  }
+
+  for (let s = 0; s < numSlices - 1; s++) {
+    const sliceA = s * ptsPerSlice
+    const sliceB = (s + 1) * ptsPerSlice
+
+    for (let p = 0; p < ptsPerSlice - 1; p++) {
+      const a1 = sliceA + p
+      const a2 = sliceA + p + 1
+      const b1 = sliceB + p
+      const b2 = sliceB + p + 1
+
+      indices.push(a1, b1, a2)
+      indices.push(a2, b1, b2)
+    }
+  }
+
+  const frontSlice = 0
+  for (let p = 0; p < ptsPerSlice - 2; p++) {
+    indices.push(frontSlice, frontSlice + p + 2, frontSlice + p + 1)
+  }
+
+  const rearSlice = (numSlices - 1) * ptsPerSlice
+  for (let p = 0; p < ptsPerSlice - 2; p++) {
+    indices.push(rearSlice, rearSlice + p + 1, rearSlice + p + 2)
+  }
+
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geo.setIndex(indices)
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  geo.computeBoundingBox()
+
+  return geo
+}
+
+const cachedBmwBodyGeo = createBmwM3BodyGeometry()
+
+// ----------------------------------------------------
 // 1. Realistic BMW M3 GTR '05 (Sculpted GT Widebody)
 // ----------------------------------------------------
 export function BmwM3GtrModel({
@@ -85,6 +167,7 @@ export function BmwM3GtrModel({
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
+  const bmwBodyGeometry = useMemo(() => cachedBmwBodyGeo, [])
   // PBR Automotive Materials with Authentic Clearcoat & IBL Specular Highlights
   const bodyPaint = (
     <meshPhysicalMaterial
@@ -239,45 +322,86 @@ export function BmwM3GtrModel({
     return (
       <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
         <group rotation={[wheelRotation, 0, 0]}>
-          {/* Low-Profile Performance Treaded Tire */}
+          {/* 1. Low-Profile Performance Radial Tire with Rounded Sidewalls */}
+          {/* Main Tread Crown */}
           <mesh rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.36, 0.36, 0.28, 28]} />
+            <cylinderGeometry args={[0.36, 0.36, 0.22, 32]} />
             {tireRubber}
           </mesh>
-          {/* Polished Stepped Chrome Deep-Dish Outer Barrel Lip */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.02, 0, 0]}>
-            <cylinderGeometry args={[0.29, 0.29, 0.29, 28]} />
+          {/* Outer Rounded Sidewall (Torus) */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.11, 0, 0]}>
+            <torusGeometry args={[0.31, 0.05, 16, 32]} />
+            {tireRubber}
+          </mesh>
+          {/* Inner Rounded Sidewall (Torus) */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.11, 0, 0]}>
+            <torusGeometry args={[0.31, 0.05, 16, 32]} />
+            {tireRubber}
+          </mesh>
+
+          {/* 2. Deep-Dish Polished Chrome Stepped Rim Barrel */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.04, 0, 0]}>
+            <cylinderGeometry args={[0.29, 0.29, 0.20, 32, 1, true]} />
             {polishedChrome}
           </mesh>
-          {/* Inverted Concave BBS Motorsport Wheel Center Face */}
+          {/* Inverted Drop-Center Barrel Step */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.08, 0, 0]}>
-            <cylinderGeometry args={[0.26, 0.26, 0.04, 24]} />
-            <meshStandardMaterial color="#e2e8f0" metalness={0.88} roughness={0.15} />
+            <cylinderGeometry args={[0.26, 0.28, 0.06, 32, 1, true]} />
+            {polishedChrome}
           </mesh>
-          {/* Multi-Spoke Geometry Overlay (16 spoke radial mesh pattern) */}
+
+          {/* 3. Concave BBS Motorsport Wheel Center Face */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.09, 0, 0]}>
+            <cylinderGeometry args={[0.24, 0.24, 0.02, 28]} />
+            <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.14} />
+          </mesh>
+          {/* 16-Spoke BBS Cross-Laced Mesh Pattern */}
           {[0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5].map((deg, idx) => (
             <mesh
               key={idx}
               rotation={[0, 0, (deg * Math.PI) / 180]}
               position={[sideMult * 0.10, 0, 0]}
             >
-              <boxGeometry args={[0.02, 0.48, 0.025]} />
-              <meshStandardMaterial color="#cbd5e1" metalness={0.9} roughness={0.14} />
+              <boxGeometry args={[0.016, 0.46, 0.022]} />
+              <meshStandardMaterial color="#e2e8f0" metalness={0.94} roughness={0.12} />
             </mesh>
           ))}
-          {/* Center Hub Nut with Blue BMW Motorsport Accent */}
+          {/* Interlaced Secondary Y-Spoke Accents */}
+          {[11.25, 33.75, 56.25, 78.75, 101.25, 123.75, 146.25, 168.75].map((deg, idx) => (
+            <mesh
+              key={`y_${idx}`}
+              rotation={[0, 0, (deg * Math.PI) / 180]}
+              position={[sideMult * 0.095, 0, 0]}
+            >
+              <boxGeometry args={[0.012, 0.38, 0.018]} />
+              <meshStandardMaterial color="#cbd5e1" metalness={0.90} roughness={0.15} />
+            </mesh>
+          ))}
+
+          {/* 4. Center Hub Nut with M-Colors */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.12, 0, 0]}>
-            <cylinderGeometry args={[0.055, 0.055, 0.025, 12]} />
+            <cylinderGeometry args={[0.052, 0.052, 0.024, 16]} />
             {bremboBlue}
           </mesh>
-          {/* Cross-Drilled Ventilated Cast-Iron Brake Rotor */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.02, 0, 0]}>
-            <cylinderGeometry args={[0.23, 0.23, 0.022, 24]} />
+          {/* Center BMW Roundel Ring */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[sideMult * 0.133, 0, 0]}>
+            <torusGeometry args={[0.048, 0.006, 8, 16]} />
+            {polishedChrome}
+          </mesh>
+
+          {/* 5. Cross-Drilled Ventilated Cast-Iron Brake Rotor */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.03, 0, 0]}>
+            <cylinderGeometry args={[0.24, 0.24, 0.024, 32]} />
             {brakeRotor}
           </mesh>
-          {/* Brembo 6-Piston Performance Brake Caliper */}
+          {/* Rotor Center Aluminum Top Hat */}
+          <mesh rotation={[0, 0, Math.PI / 2]} position={[-sideMult * 0.02, 0, 0]}>
+            <cylinderGeometry args={[0.12, 0.12, 0.032, 24]} />
+            <meshStandardMaterial color="#475569" metalness={0.95} roughness={0.25} />
+          </mesh>
+          {/* 6. Brembo 6-Piston Performance Brake Caliper */}
           <mesh position={[sideMult * 0.02, 0.14, 0]}>
-            <boxGeometry args={[0.075, 0.14, 0.095]} />
+            <boxGeometry args={[0.078, 0.14, 0.10]} />
             {bremboBlue}
           </mesh>
         </group>
@@ -287,389 +411,386 @@ export function BmwM3GtrModel({
 
   return (
     <group position={[0, -0.38, 0]}>
-      {/* 1. Main Lower Sculpted Body & Sills */}
-      <mesh position={[0, 0.42, 0]} castShadow>
-        <boxGeometry args={[1.76, 0.38, 4.28]} />
+      {/* 1. Parametric Sculpted Monocoque Shell with Smooth Continuous C1 Normals */}
+      <mesh geometry={bmwBodyGeometry} castShadow receiveShadow>
         {bodyPaint}
       </mesh>
 
-      {/* 2. Iconic M3 GTR Blue Racing Livery Stripes on Hood, Roof & Trunk */}
-      <mesh position={[-0.18, 0.62, 0]} castShadow>
-        <boxGeometry args={[0.16, 0.02, 4.26]} />
+      {/* 2. Iconic M3 GTR Blue Racing Livery (Hood, Carbon Roof, and Trunk Decklid) */}
+      {/* Hood Twin Stripes */}
+      <mesh position={[-0.18, 0.68, -1.35]} rotation={[0.07, 0, 0]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 1.35]} />
         {iconicGtrBlue}
       </mesh>
-      <mesh position={[0.18, 0.62, 0]} castShadow>
-        <boxGeometry args={[0.16, 0.02, 4.26]} />
+      <mesh position={[0.18, 0.68, -1.35]} rotation={[0.07, 0, 0]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 1.35]} />
         {iconicGtrBlue}
       </mesh>
-      {/* Side Livery Slanted Accents */}
-      <mesh position={[-0.89, 0.42, 0.3]} rotation={[0, 0, 0.22]}>
-        <boxGeometry args={[0.02, 0.22, 1.8]} />
+      {/* Roof Twin Stripes */}
+      <mesh position={[-0.18, 1.275, 0.08]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 1.45]} />
         {iconicGtrBlue}
       </mesh>
-      <mesh position={[0.89, 0.42, 0.3]} rotation={[0, 0, -0.22]}>
-        <boxGeometry args={[0.02, 0.22, 1.8]} />
+      <mesh position={[0.18, 1.275, 0.08]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 1.45]} />
+        {iconicGtrBlue}
+      </mesh>
+      {/* Trunk Twin Stripes */}
+      <mesh position={[-0.18, 0.775, 1.68]} rotation={[-0.03, 0, 0]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 0.85]} />
+        {iconicGtrBlue}
+      </mesh>
+      <mesh position={[0.18, 0.775, 1.68]} rotation={[-0.03, 0, 0]} castShadow>
+        <boxGeometry args={[0.15, 0.012, 0.85]} />
+        {iconicGtrBlue}
+      </mesh>
+      {/* Dynamic Geometric Side Livery Accents along Door & Rear Haunch */}
+      <mesh position={[-0.86, 0.44, 0.2]} rotation={[0, 0, 0.18]}>
+        <boxGeometry args={[0.015, 0.20, 1.6]} />
+        {iconicGtrBlue}
+      </mesh>
+      <mesh position={[0.86, 0.44, 0.2]} rotation={[0, 0, -0.18]}>
+        <boxGeometry args={[0.015, 0.20, 1.6]} />
+        {iconicGtrBlue}
+      </mesh>
+      <mesh position={[-0.94, 0.48, 1.15]} rotation={[0, 0.1, 0.22]}>
+        <boxGeometry args={[0.015, 0.16, 0.65]} />
+        {iconicGtrBlue}
+      </mesh>
+      <mesh position={[0.94, 0.48, 1.15]} rotation={[0, -0.1, -0.22]}>
+        <boxGeometry args={[0.015, 0.16, 0.65]} />
         {iconicGtrBlue}
       </mesh>
 
-      {/* 3. Muscular Widebody Flares (Swollen GT Front & Rear Arches) */}
-      {/* Front Widebody Arches */}
-      <mesh position={[-0.94, 0.38, -1.35]} castShadow>
-        <boxGeometry args={[0.16, 0.32, 1.05]} />
+      {/* 3. Hood Power Dome & Dual Angled Carbon Louvers */}
+      {/* Hood Power Dome Center Bulge */}
+      <mesh position={[0, 0.705, -1.35]} rotation={[0.07, 0, 0]} castShadow>
+        <boxGeometry args={[0.50, 0.045, 1.25]} />
         {bodyPaint}
       </mesh>
-      <mesh position={[0.94, 0.38, -1.35]} castShadow>
-        <boxGeometry args={[0.16, 0.32, 1.05]} />
-        {bodyPaint}
+      {/* Dual Angled Carbon Fiber Cooling Extraction Louvers */}
+      <mesh position={[-0.36, 0.70, -1.25]} rotation={[0.07, 0, 0.08]}>
+        <boxGeometry args={[0.24, 0.02, 0.52]} />
+        {carbonFiber}
       </mesh>
-      {/* Iconic Front Fender Side Gills with Chrome Slats & M Tricolor Badge */}
-      <group position={[-0.96, 0.52, -0.92]}>
+      <mesh position={[0.36, 0.70, -1.25]} rotation={[0.07, 0, -0.08]}>
+        <boxGeometry args={[0.24, 0.02, 0.52]} />
+        {carbonFiber}
+      </mesh>
+
+      {/* 4. Lightweight Exposed Carbon Fiber Roof Panel */}
+      <mesh position={[0, 1.265, 0.08]} castShadow>
+        <boxGeometry args={[1.24, 0.02, 1.48]} />
+        {carbonFiber}
+      </mesh>
+
+      {/* 5. Authentic E46 GTR Front Fender Side Gills & Chrome M Strakes */}
+      <group position={[-0.89, 0.52, -0.92]}>
         <mesh>
-          <boxGeometry args={[0.03, 0.12, 0.26]} />
+          <boxGeometry args={[0.025, 0.12, 0.26]} />
           {matteTrim}
         </mesh>
         <mesh position={[-0.01, 0.02, 0]}>
-          <boxGeometry args={[0.02, 0.015, 0.22]} />
+          <boxGeometry args={[0.015, 0.015, 0.22]} />
           {polishedChrome}
         </mesh>
         <mesh position={[-0.01, -0.02, 0]}>
-          <boxGeometry args={[0.02, 0.015, 0.22]} />
+          <boxGeometry args={[0.015, 0.015, 0.22]} />
           {polishedChrome}
         </mesh>
       </group>
-      <group position={[0.96, 0.52, -0.92]}>
+      <group position={[0.89, 0.52, -0.92]}>
         <mesh>
-          <boxGeometry args={[0.03, 0.12, 0.26]} />
+          <boxGeometry args={[0.025, 0.12, 0.26]} />
           {matteTrim}
         </mesh>
         <mesh position={[0.01, 0.02, 0]}>
-          <boxGeometry args={[0.02, 0.015, 0.22]} />
+          <boxGeometry args={[0.015, 0.015, 0.22]} />
           {polishedChrome}
         </mesh>
         <mesh position={[0.01, -0.02, 0]}>
-          <boxGeometry args={[0.02, 0.015, 0.22]} />
+          <boxGeometry args={[0.015, 0.015, 0.22]} />
           {polishedChrome}
         </mesh>
       </group>
 
-      {/* Rear Widebody Haunches (Swollen Muscle Hips) */}
-      <mesh position={[-0.96, 0.40, 1.35]} castShadow>
-        <boxGeometry args={[0.18, 0.34, 1.15]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[0.96, 0.40, 1.35]} castShadow>
-        <boxGeometry args={[0.18, 0.34, 1.15]} />
-        {bodyPaint}
-      </mesh>
-      {/* Rear Wheel Arch Hot Air Extractor Vents (Classic E46 GTR cooling cutouts) */}
-      <mesh position={[-0.94, 0.38, 1.88]}>
-        <boxGeometry args={[0.04, 0.22, 0.12]} />
-        {matteTrim}
-      </mesh>
-      <mesh position={[0.94, 0.38, 1.88]}>
-        <boxGeometry args={[0.04, 0.22, 0.12]} />
-        {matteTrim}
-      </mesh>
-
-      {/* Aerodynamic Carbon Side Skirts with Aero Winglets */}
-      <mesh position={[-0.92, 0.2, 0]}>
-        <boxGeometry args={[0.09, 0.06, 2.15]} />
+      {/* 6. Aerodynamic Carbon Side Skirts with Integrated Ground-Effect Sills */}
+      <mesh position={[-0.87, 0.19, 0]}>
+        <boxGeometry args={[0.08, 0.05, 2.20]} />
         {carbonFiber}
       </mesh>
-      <mesh position={[0.92, 0.2, 0]}>
-        <boxGeometry args={[0.09, 0.06, 2.15]} />
+      <mesh position={[0.87, 0.19, 0]}>
+        <boxGeometry args={[0.08, 0.05, 2.20]} />
         {carbonFiber}
       </mesh>
-
-      {/* 4. Sculpted Vented GTR Hood with Power Dome & Louvers */}
-      <mesh position={[0, 0.58, -1.26]} rotation={[0.08, 0, 0]} castShadow>
-        <boxGeometry args={[1.68, 0.12, 1.5]} />
-        {bodyPaint}
-      </mesh>
-      {/* Hood Center Bulge (Power Dome) */}
-      <mesh position={[0, 0.66, -1.28]} rotation={[0.08, 0, 0]} castShadow>
-        <boxGeometry args={[0.54, 0.05, 1.3]} />
-        {bodyPaint}
-      </mesh>
-      {/* Dual Carbon Hood Heat Extractors (Louvers) */}
-      <mesh position={[-0.38, 0.66, -1.2]} rotation={[0.08, 0, 0.08]}>
-        <boxGeometry args={[0.26, 0.025, 0.58]} />
-        {carbonFiber}
-      </mesh>
-      <mesh position={[0.38, 0.66, -1.2]} rotation={[0.08, 0, -0.08]}>
-        <boxGeometry args={[0.26, 0.025, 0.58]} />
-        {carbonFiber}
-      </mesh>
-
-      {/* 5. Coupe Greenhouse Cabin, Raked Glass & Pillars */}
-      {/* Carbon Fiber Lightweight Roof Panel */}
-      <mesh position={[0, 1.18, 0.15]} castShadow>
-        <boxGeometry args={[1.34, 0.06, 1.65]} />
-        {carbonFiber}
-      </mesh>
-      {/* A-Pillars, B-Pillars & C-Pillars */}
-      <mesh position={[-0.68, 0.98, -0.68]} rotation={[0.58, 0, -0.1]}>
-        <boxGeometry args={[0.06, 0.68, 0.06]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[0.68, 0.98, -0.68]} rotation={[0.58, 0, 0.1]}>
-        <boxGeometry args={[0.06, 0.68, 0.06]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[-0.68, 0.98, 0.95]} rotation={[-0.54, 0, -0.1]}>
-        <boxGeometry args={[0.06, 0.68, 0.06]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[0.68, 0.98, 0.95]} rotation={[-0.54, 0, 0.1]}>
-        <boxGeometry args={[0.06, 0.68, 0.06]} />
-        {bodyPaint}
-      </mesh>
-
+      {/* 7. Coupe Greenhouse Cabin, Raked Windshield & Defroster Rear Glass */}
       {/* Raked Windshield (Front) */}
-      <mesh position={[0, 0.93, -0.86]} rotation={[0.62, 0, 0]}>
-        <boxGeometry args={[1.38, 0.64, 0.04]} />
+      <mesh position={[0, 0.94, -0.56]} rotation={[0.60, 0, 0]}>
+        <boxGeometry args={[1.32, 0.65, 0.03]} />
         {darkGlass}
       </mesh>
       {/* Sloping Fastback Rear Window with Defroster Lines */}
-      <mesh position={[0, 0.96, 1.12]} rotation={[-0.58, 0, 0]}>
-        <boxGeometry args={[1.36, 0.62, 0.04]} />
+      <mesh position={[0, 0.98, 0.72]} rotation={[-0.56, 0, 0]}>
+        <boxGeometry args={[1.30, 0.62, 0.03]} />
         {darkGlass}
       </mesh>
-      {/* Side Windows */}
-      <mesh position={[0.7, 0.95, 0.15]}>
-        <boxGeometry args={[0.02, 0.44, 1.64]} />
+      {/* Side Windows with Hofmeister Kink Silhouette */}
+      <mesh position={[0.67, 0.96, 0.08]}>
+        <boxGeometry args={[0.02, 0.42, 1.48]} />
         {darkGlass}
       </mesh>
-      <mesh position={[-0.7, 0.95, 0.15]}>
-        <boxGeometry args={[0.02, 0.44, 1.64]} />
+      <mesh position={[-0.67, 0.96, 0.08]}>
+        <boxGeometry args={[0.02, 0.42, 1.48]} />
         {darkGlass}
       </mesh>
-      {/* Chrome Window Surround Line */}
-      <mesh position={[0.71, 1.18, 0.15]}>
-        <boxGeometry args={[0.015, 0.02, 1.68]} />
+      {/* Polished Chrome Window Upper Drip Moldings */}
+      <mesh position={[0.68, 1.18, 0.08]}>
+        <boxGeometry args={[0.012, 0.018, 1.52]} />
         {polishedChrome}
       </mesh>
-      <mesh position={[-0.71, 1.18, 0.15]}>
-        <boxGeometry args={[0.015, 0.02, 1.68]} />
+      <mesh position={[-0.68, 1.18, 0.08]}>
+        <boxGeometry args={[0.012, 0.018, 1.52]} />
         {polishedChrome}
       </mesh>
 
-      {/* Race Cockpit Interior: Dashboard, Steering Wheel, Recaro Seats & Roll Cage */}
+      {/* 8. Race Cockpit Interior: Dashboard, Momo Steering Wheel, Recaro Bucket Seats & Roll Cage */}
       {/* Matte Alcantara Dashboard Top */}
-      <mesh position={[0, 0.76, -0.62]} rotation={[0.1, 0, 0]}>
-        <boxGeometry args={[1.42, 0.12, 0.44]} />
+      <mesh position={[0, 0.76, -0.42]} rotation={[0.1, 0, 0]}>
+        <boxGeometry args={[1.34, 0.12, 0.38]} />
         {alcantara}
       </mesh>
       {/* Driver Instrument Binnacle */}
-      <mesh position={[-0.34, 0.83, -0.58]}>
-        <boxGeometry args={[0.32, 0.12, 0.16]} />
+      <mesh position={[-0.34, 0.83, -0.38]}>
+        <boxGeometry args={[0.30, 0.12, 0.14]} />
         {matteTrim}
       </mesh>
-      {/* Glowing Digital Race Display & RPM Shift Lights */}
-      <mesh position={[-0.34, 0.84, -0.49]} rotation={[-0.2, 0, 0]}>
-        <boxGeometry args={[0.22, 0.07, 0.01]} />
+      {/* Glowing Digital Motec Race Display & Sequential Shift Lights */}
+      <mesh position={[-0.34, 0.84, -0.30]} rotation={[-0.2, 0, 0]}>
+        <boxGeometry args={[0.20, 0.07, 0.01]} />
         {gaugeCluster}
       </mesh>
-      <mesh position={[-0.34, 0.89, -0.50]}>
-        <boxGeometry args={[0.18, 0.015, 0.01]} />
+      <mesh position={[-0.34, 0.89, -0.31]}>
+        <boxGeometry args={[0.16, 0.014, 0.01]} />
         {shiftLightRed}
       </mesh>
-      {/* M-Performance Racing Steering Wheel */}
-      <group position={[-0.34, 0.77, -0.38]} rotation={[0.32, 0, steeringAngle * 1.5]}>
+      {/* Momo 3-Spoke Alcantara Racing Steering Wheel */}
+      <group position={[-0.34, 0.78, -0.22]} rotation={[0.32, 0, steeringAngle * 1.5]}>
         <mesh>
-          <torusGeometry args={[0.16, 0.022, 12, 24]} />
+          <torusGeometry args={[0.15, 0.02, 12, 24]} />
           {alcantara}
         </mesh>
-        <mesh position={[0, 0.16, 0]}>
+        <mesh position={[0, 0.15, 0]}>
           <boxGeometry args={[0.025, 0.015, 0.025]} />
           {iconicGtrBlue}
         </mesh>
         <mesh>
-          <cylinderGeometry args={[0.045, 0.045, 0.03, 16]} />
+          <cylinderGeometry args={[0.04, 0.04, 0.03, 16]} />
           {carbonFiber}
         </mesh>
       </group>
-      {/* Recaro GT Bucket Seats */}
-      <group position={[-0.34, 0.58, 0.12]} rotation={[-0.15, 0, 0]}>
+      {/* Dog-Box Sequential Shifter Lever */}
+      <mesh position={[0, 0.58, -0.05]} rotation={[-0.2, 0, 0]}>
+        <cylinderGeometry args={[0.012, 0.012, 0.22, 12]} />
+        {polishedChrome}
+      </mesh>
+      <mesh position={[0, 0.68, -0.07]}>
+        <sphereGeometry args={[0.028, 12, 12]} />
+        {matteTrim}
+      </mesh>
+      {/* Recaro GT Carbon Bucket Seats with Blue Racing Harness */}
+      <group position={[-0.34, 0.58, 0.16]} rotation={[-0.15, 0, 0]}>
         <mesh position={[0, 0.28, 0]}>
-          <boxGeometry args={[0.44, 0.62, 0.14]} />
+          <boxGeometry args={[0.42, 0.60, 0.12]} />
           {carbonFiber}
         </mesh>
-        <mesh position={[0, 0, 0.18]}>
-          <boxGeometry args={[0.42, 0.12, 0.42]} />
+        <mesh position={[0, 0, 0.16]}>
+          <boxGeometry args={[0.40, 0.12, 0.38]} />
           {alcantara}
+        </mesh>
+        {/* Harness Straps */}
+        <mesh position={[-0.10, 0.28, 0.07]}>
+          <boxGeometry args={[0.05, 0.56, 0.01]} />
+          {iconicGtrBlue}
+        </mesh>
+        <mesh position={[0.10, 0.28, 0.07]}>
+          <boxGeometry args={[0.05, 0.56, 0.01]} />
+          {iconicGtrBlue}
         </mesh>
       </group>
-      <group position={[0.34, 0.58, 0.12]} rotation={[-0.15, 0, 0]}>
+      <group position={[0.34, 0.58, 0.16]} rotation={[-0.15, 0, 0]}>
         <mesh position={[0, 0.28, 0]}>
-          <boxGeometry args={[0.44, 0.62, 0.14]} />
+          <boxGeometry args={[0.42, 0.60, 0.12]} />
           {carbonFiber}
         </mesh>
-        <mesh position={[0, 0, 0.18]}>
-          <boxGeometry args={[0.42, 0.12, 0.42]} />
+        <mesh position={[0, 0, 0.16]}>
+          <boxGeometry args={[0.40, 0.12, 0.38]} />
           {alcantara}
+        </mesh>
+        {/* Harness Straps */}
+        <mesh position={[-0.10, 0.28, 0.07]}>
+          <boxGeometry args={[0.05, 0.56, 0.01]} />
+          {iconicGtrBlue}
+        </mesh>
+        <mesh position={[0.10, 0.28, 0.07]}>
+          <boxGeometry args={[0.05, 0.56, 0.01]} />
+          {iconicGtrBlue}
         </mesh>
       </group>
       {/* Welded Titanium Tubular Safety Roll Cage */}
-      {/* Main Hoop */}
-      <mesh position={[0, 0.94, 0.52]}>
-        <torusGeometry args={[0.62, 0.022, 8, 16, Math.PI]} />
+      <mesh position={[0, 0.94, 0.45]}>
+        <torusGeometry args={[0.58, 0.02, 8, 16, Math.PI]} />
         {rollCage}
       </mesh>
-      {/* Diagonal Cross Struts */}
-      <mesh position={[0, 0.88, 0.52]} rotation={[0, 0, 0.65]}>
-        <cylinderGeometry args={[0.022, 0.022, 1.25, 8]} />
+      <mesh position={[0, 0.88, 0.45]} rotation={[0, 0, 0.65]}>
+        <cylinderGeometry args={[0.02, 0.02, 1.18, 8]} />
         {rollCage}
       </mesh>
-      <mesh position={[-0.54, 0.78, 0.82]} rotation={[0.45, 0, 0]}>
-        <cylinderGeometry args={[0.022, 0.022, 0.82, 8]} />
+      <mesh position={[-0.50, 0.80, 0.65]} rotation={[0.42, 0, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.75, 8]} />
         {rollCage}
       </mesh>
-      <mesh position={[0.54, 0.78, 0.82]} rotation={[0.45, 0, 0]}>
-        <cylinderGeometry args={[0.022, 0.022, 0.82, 8]} />
+      <mesh position={[0.50, 0.80, 0.65]} rotation={[0.42, 0, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.75, 8]} />
         {rollCage}
       </mesh>
 
-      {/* Aerodynamic M3 Side Mirrors */}
-      <group position={[-0.82, 0.88, -0.62]}>
+      {/* Aerodynamic M3 Teardrop Side Mirrors */}
+      <group position={[-0.78, 0.88, -0.45]}>
         <mesh rotation={[0, 0, 0.1]}>
-          <boxGeometry args={[0.16, 0.09, 0.22]} />
+          <boxGeometry args={[0.15, 0.08, 0.20]} />
           {bodyPaint}
         </mesh>
-        <mesh position={[0.08, 0, 0.02]}>
-          <boxGeometry args={[0.02, 0.07, 0.18]} />
+        <mesh position={[0.07, 0, 0.02]}>
+          <boxGeometry args={[0.015, 0.065, 0.16]} />
           {polishedChrome}
         </mesh>
       </group>
-      <group position={[0.82, 0.88, -0.62]}>
+      <group position={[0.78, 0.88, -0.45]}>
         <mesh rotation={[0, 0, -0.1]}>
-          <boxGeometry args={[0.16, 0.09, 0.22]} />
+          <boxGeometry args={[0.15, 0.08, 0.20]} />
           {bodyPaint}
         </mesh>
-        <mesh position={[-0.08, 0, 0.02]}>
-          <boxGeometry args={[0.02, 0.07, 0.18]} />
+        <mesh position={[-0.07, 0, 0.02]}>
+          <boxGeometry args={[0.015, 0.065, 0.16]} />
           {polishedChrome}
         </mesh>
       </group>
 
-      {/* 6. Aggressive Front Bumper, Kidney Grilles & Splitter */}
-      <mesh position={[0, 0.38, -2.18]} castShadow>
-        <boxGeometry args={[1.78, 0.36, 0.18]} />
-        {bodyPaint}
-      </mesh>
-      {/* Lower Carbon Splitter with Endplates */}
-      <mesh position={[0, 0.18, -2.26]} castShadow>
-        <boxGeometry args={[1.90, 0.04, 0.38]} />
+      {/* 9. Aggressive Front Bumper, Splitter with Support Struts & Kidney Grilles */}
+      {/* Front Carbon Splitter Blade with Aero Endplates */}
+      <mesh position={[0, 0.16, -2.26]} castShadow>
+        <boxGeometry args={[1.82, 0.035, 0.36]} />
         {carbonFiber}
       </mesh>
-      {/* Central Radiator Air Dam & Heat Exchanger Core */}
-      <mesh position={[0, 0.28, -2.22]}>
-        <boxGeometry args={[0.88, 0.16, 0.05]} />
+      {/* Dual Splitter Support Tension Struts */}
+      <mesh position={[-0.32, 0.28, -2.25]} rotation={[0.42, 0, 0]}>
+        <cylinderGeometry args={[0.007, 0.007, 0.22, 8]} />
+        {polishedChrome}
+      </mesh>
+      <mesh position={[0.32, 0.28, -2.25]} rotation={[0.42, 0, 0]}>
+        <cylinderGeometry args={[0.007, 0.007, 0.22, 8]} />
+        {polishedChrome}
+      </mesh>
+      {/* Lower Central Radiator Air Dam & Heat Exchanger Core */}
+      <mesh position={[0, 0.26, -2.20]}>
+        <boxGeometry args={[0.82, 0.15, 0.04]} />
         {matteTrim}
       </mesh>
-      <mesh position={[0, 0.28, -2.20]}>
-        <boxGeometry args={[0.84, 0.14, 0.015]} />
+      <mesh position={[0, 0.26, -2.18]}>
+        <boxGeometry args={[0.78, 0.13, 0.015]} />
         <meshStandardMaterial color="#334155" metalness={0.88} roughness={0.35} />
       </mesh>
-      {/* 4 Inner Wheel Arch Liners (Blocks see-through hollow chassis) */}
-      <mesh position={[-0.88, 0.38, -1.35]}>
-        <boxGeometry args={[0.04, 0.34, 0.96]} />
+      {/* Dual Lower Brake Cooling Ducts */}
+      <mesh position={[-0.64, 0.24, -2.18]}>
+        <boxGeometry args={[0.22, 0.10, 0.03]} />
         {matteTrim}
       </mesh>
-      <mesh position={[0.88, 0.38, -1.35]}>
-        <boxGeometry args={[0.04, 0.34, 0.96]} />
-        {matteTrim}
-      </mesh>
-      <mesh position={[-0.88, 0.38, 1.35]}>
-        <boxGeometry args={[0.04, 0.34, 0.96]} />
-        {matteTrim}
-      </mesh>
-      <mesh position={[0.88, 0.38, 1.35]}>
-        <boxGeometry args={[0.04, 0.34, 0.96]} />
+      <mesh position={[0.64, 0.24, -2.18]}>
+        <boxGeometry args={[0.22, 0.10, 0.03]} />
         {matteTrim}
       </mesh>
 
-      {/* Iconic Dual Kidney Grilles with 3D Vertical Slats */}
-      <group position={[-0.22, 0.47, -2.21]}>
+      {/* Iconic E46 Twin Kidney Grilles with Polished Chrome Frame & Black Slats */}
+      <group position={[-0.20, 0.48, -2.21]}>
         <mesh>
-          <boxGeometry args={[0.26, 0.18, 0.04]} />
+          <boxGeometry args={[0.24, 0.16, 0.035]} />
           {matteTrim}
         </mesh>
-        <mesh position={[0, 0, 0.02]}>
-          <boxGeometry args={[0.28, 0.2, 0.02]} />
+        <mesh position={[0, 0, 0.018]}>
+          <boxGeometry args={[0.26, 0.18, 0.015]} />
           {polishedChrome}
         </mesh>
-        {[-0.08, -0.03, 0.03, 0.08].map((sx, k) => (
-          <mesh key={k} position={[sx, 0, 0.022]}>
-            <boxGeometry args={[0.014, 0.16, 0.012]} />
+        {[-0.07, -0.025, 0.025, 0.07].map((sx, k) => (
+          <mesh key={k} position={[sx, 0, 0.02]}>
+            <boxGeometry args={[0.012, 0.14, 0.01]} />
             {matteTrim}
           </mesh>
         ))}
       </group>
-      <group position={[0.22, 0.47, -2.21]}>
+      <group position={[0.20, 0.48, -2.21]}>
         <mesh>
-          <boxGeometry args={[0.26, 0.18, 0.04]} />
+          <boxGeometry args={[0.24, 0.16, 0.035]} />
           {matteTrim}
         </mesh>
-        <mesh position={[0, 0, 0.02]}>
-          <boxGeometry args={[0.28, 0.2, 0.02]} />
+        <mesh position={[0, 0, 0.018]}>
+          <boxGeometry args={[0.26, 0.18, 0.015]} />
           {polishedChrome}
         </mesh>
-        {[-0.08, -0.03, 0.03, 0.08].map((sx, k) => (
-          <mesh key={k} position={[sx, 0, 0.022]}>
-            <boxGeometry args={[0.014, 0.16, 0.012]} />
+        {[-0.07, -0.025, 0.025, 0.07].map((sx, k) => (
+          <mesh key={k} position={[sx, 0, 0.02]}>
+            <boxGeometry args={[0.012, 0.14, 0.01]} />
             {matteTrim}
           </mesh>
         ))}
       </group>
-      {/* Front BMW Roundel Badge */}
-      <mesh position={[0, 0.62, -2.19]} rotation={[0.35, 0, 0]}>
-        <cylinderGeometry args={[0.045, 0.045, 0.015, 16]} />
+      {/* Front BMW Roundel Hood Emblem */}
+      <mesh position={[0, 0.63, -2.18]} rotation={[0.35, 0, 0]}>
+        <cylinderGeometry args={[0.042, 0.042, 0.015, 16]} />
         {bremboBlue}
       </mesh>
 
-      {/* Headlight Assemblies (Dual Projectors & Angel Eye Halos) */}
-      <group position={[-0.64, 0.48, -2.2]}>
+      {/* Headlight Assemblies (Bi-Xenon Projectors & BMW Angel Eye Halos) */}
+      <group position={[-0.62, 0.48, -2.18]}>
         <mesh>
-          <boxGeometry args={[0.38, 0.16, 0.04]} />
+          <boxGeometry args={[0.34, 0.15, 0.035]} />
           {matteTrim}
         </mesh>
-        <mesh position={[-0.08, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.055, 0.055, 0.02, 16]} />
+        <mesh position={[-0.07, 0, 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
           {projectorLens}
         </mesh>
-        <mesh position={[0.08, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.055, 0.055, 0.02, 16]} />
+        <mesh position={[0.07, 0, 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
           {projectorLens}
         </mesh>
-        <mesh position={[-0.08, 0, 0.03]}>
-          <torusGeometry args={[0.065, 0.012, 8, 16]} />
+        <mesh position={[-0.07, 0, 0.028]}>
+          <torusGeometry args={[0.06, 0.011, 8, 16]} />
           {angelEyeGlow}
         </mesh>
-        <mesh position={[0.08, 0, 0.03]}>
-          <torusGeometry args={[0.065, 0.012, 8, 16]} />
+        <mesh position={[0.07, 0, 0.028]}>
+          <torusGeometry args={[0.06, 0.011, 8, 16]} />
           {angelEyeGlow}
         </mesh>
       </group>
-      <group position={[0.64, 0.48, -2.2]}>
+      <group position={[0.62, 0.48, -2.18]}>
         <mesh>
-          <boxGeometry args={[0.38, 0.16, 0.04]} />
+          <boxGeometry args={[0.34, 0.15, 0.035]} />
           {matteTrim}
         </mesh>
-        <mesh position={[-0.08, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.055, 0.055, 0.02, 16]} />
+        <mesh position={[-0.07, 0, 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
           {projectorLens}
         </mesh>
-        <mesh position={[0.08, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.055, 0.055, 0.02, 16]} />
+        <mesh position={[0.07, 0, 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
           {projectorLens}
         </mesh>
-        <mesh position={[-0.08, 0, 0.03]}>
-          <torusGeometry args={[0.065, 0.012, 8, 16]} />
+        <mesh position={[-0.07, 0, 0.028]}>
+          <torusGeometry args={[0.06, 0.011, 8, 16]} />
           {angelEyeGlow}
         </mesh>
-        <mesh position={[0.08, 0, 0.03]}>
-          <torusGeometry args={[0.065, 0.012, 8, 16]} />
+        <mesh position={[0.07, 0, 0.028]}>
+          <torusGeometry args={[0.06, 0.011, 8, 16]} />
           {angelEyeGlow}
         </mesh>
       </group>
