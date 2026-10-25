@@ -314,17 +314,21 @@ function PanoramicMountainHorizon({
 
   const mountainGeo = useMemo(() => {
     const segments = 128
-    const radius = 2400
+    const radius = 3000
     const positions: number[] = []
     const colors: number[] = []
     const indices: number[] = []
 
     const fogCol = new THREE.Color(fogColor)
     const baseRock = new THREE.Color(rockColor)
-    // Mountain summit color: slightly darker rock tinted with atmospheric fog
+    // Mountain summit color: natural rock tinted with atmospheric fog
     const summitCol = isNight
       ? new THREE.Color('#0f172a').lerp(fogCol, 0.4)
-      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.48)
+      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.45)
+    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.35)
+
+    // Deep anchor base (y = -500m) to completely eliminate floating gaps
+    const baseY = -500
 
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2
@@ -336,30 +340,32 @@ function PanoramicMountainHorizon({
 
       // Multi-octave natural mountain peak silhouettes with variable heights
       const peakH =
-        130 +
-        Math.sin(theta * 3.0) * 60 +
-        Math.cos(theta * 7.0 + 1.2) * 38 +
-        Math.sin(theta * 13.0) * 22 +
-        Math.cos(theta * 23.0) * 12
+        220 +
+        Math.sin(theta * 3.0) * 85 +
+        Math.cos(theta * 7.0 + 1.2) * 55 +
+        Math.sin(theta * 13.0) * 32 +
+        Math.cos(theta * 23.0) * 18
 
-      // Bottom vertex (at horizon base)
-      positions.push(x, -10, z)
+      // Bottom vertex (deep horizon base)
+      positions.push(x, baseY, z)
       colors.push(fogCol.r, fogCol.g, fogCol.b)
 
       // Top vertex (mountain summit)
       positions.push(x, peakH, z)
-      colors.push(summitCol.r, summitCol.g, summitCol.b)
+      const col = peakH > 290 ? snowCol : summitCol
+      colors.push(col.r, col.g, col.b)
     }
 
+    // Inward-facing winding: (b1, t1, b2) and (t1, t2, b2)
+    // Ensures all vertex normals point consistently INWARDS towards the camera
     for (let i = 0; i < segments; i++) {
       const b1 = i * 2
       const t1 = b1 + 1
       const b2 = (i + 1) * 2
       const t2 = b2 + 1
 
-      // Quad facing inwards towards camera
       indices.push(b1, t1, b2)
-      indices.push(b2, t1, t2)
+      indices.push(t1, t2, b2)
     }
 
     const geo = new THREE.BufferGeometry()
@@ -370,10 +376,10 @@ function PanoramicMountainHorizon({
     return geo
   }, [fogColor, rockColor, isNight])
 
-  // Track camera in X and Z so mountains stay on the horizon
+  // Track camera in X, Z and damped Y so mountains stay anchored to visual horizon
   useFrame(() => {
     if (ringGroupRef.current) {
-      ringGroupRef.current.position.set(camera.position.x, 0, camera.position.z)
+      ringGroupRef.current.position.set(camera.position.x, camera.position.y * 0.35, camera.position.z)
     }
   })
 
@@ -385,19 +391,9 @@ function PanoramicMountainHorizon({
 
   return (
     <group ref={ringGroupRef}>
-      {/* 1. 360-Degree Panoramic Mountain Horizon Silhouettes */}
+      {/* 360-Degree Panoramic Mountain Horizon Silhouettes */}
       <mesh geometry={mountainGeo}>
-        <meshBasicMaterial vertexColors side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-
-      {/* 2. Atmospheric Ground Skirt & Nadir Floor (Prevents Drei Sky black void below horizon) */}
-      <mesh position={[0, -220, 0]}>
-        <cylinderGeometry args={[2800, 2800, 440, 48, 1, true]} />
-        <meshBasicMaterial color={fogColor} side={THREE.BackSide} depthWrite={false} />
-      </mesh>
-      <mesh position={[0, -420, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[2800, 32]} />
-        <meshBasicMaterial color={fogColor} depthWrite={false} />
+        <meshBasicMaterial vertexColors side={THREE.FrontSide} depthWrite={true} />
       </mesh>
     </group>
   )
@@ -594,6 +590,22 @@ export default function GameEnvironment() {
   // Biome and Weather lighting modifications
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
 
+  // Dynamic Sky Background Color (Guarantees zero black void across day/night and weather cycles)
+  const skyColor = useMemo(() => {
+    if (weather === 'snow') return '#cbd5e1'
+    if (weather === 'rain') return '#1e293b'
+    if (weather === 'mist') return '#64748b'
+    if (celestialData.isNight) return '#030712'
+    if (timeOfDay >= 17 && timeOfDay <= 19.5) return '#c2410c' // Sunset amber
+    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) return '#e11d48' // Sunrise crimson
+    return '#38bdf8' // Crisp daylight cyan-blue
+  }, [weather, celestialData.isNight, timeOfDay])
+
+  // Sync background color directly to scene to prevent canvas black void
+  useEffect(() => {
+    scene.background = new THREE.Color(skyColor)
+  }, [scene, skyColor])
+
   // Atmospheric Fog
   const fogColor = useMemo(() => {
     if (weather === 'snow') return '#e2e8f0'
@@ -769,21 +781,34 @@ export default function GameEnvironment() {
     }
   })
 
+  const skyFollowRef = useRef<THREE.Group>(null)
+  useFrame(() => {
+    if (skyFollowRef.current) {
+      skyFollowRef.current.position.set(camera.position.x, 0, camera.position.z)
+    }
+  })
+
   return (
     <>
       <primitive object={lightTargetRef.current || new THREE.Object3D()} ref={lightTargetRef} />
 
+      {/* Dynamic Background Atmosphere Color (Restores Sky from Black Void) */}
+      <color attach="background" args={[skyColor]} />
+
       {/* Atmospheric Fog */}
       <fogExp2 attach="fog" args={[fogColor, fogDensity]} />
 
-      {/* SkyDome with authentic twilight & Rayleigh transitions */}
-      <Sky
-        sunPosition={celestialData.skySunPos}
-        turbidity={celestialData.skyTurbidity}
-        rayleigh={celestialData.skyRayleigh}
-        mieCoefficient={0.01}
-        mieDirectionalG={0.88}
-      />
+      {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
+      <group ref={skyFollowRef}>
+        <Sky
+          distance={3800}
+          sunPosition={celestialData.skySunPos}
+          turbidity={celestialData.skyTurbidity}
+          rayleigh={celestialData.skyRayleigh}
+          mieCoefficient={0.01}
+          mieDirectionalG={0.88}
+        />
+      </group>
 
       {/* Procedural Tropospheric Cloud Canopy (32 merged clusters, 1 draw call) */}
       <ProceduralCloudLayer celestialPhase={celestialPhase} />

@@ -993,10 +993,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining)
 
 // Predictive High-Speed World Horizon Streaming Engine:
-// Pre-generates 19 active chunks (3.8 kilometers continuous highway coverage).
-// Guarantees >2.9km forward horizon buffer ahead of the vehicle even at top speed (275+ km/h).
+// Pre-generates 23 active chunks (4.6 kilometers continuous highway coverage).
+// Guarantees >3.8km forward horizon buffer ahead of the vehicle even at top speed (300+ km/h).
 // Uses multi-chunk catchup and instant recentering upon vehicle reset or teleport.
-const NUM_CHUNKS = 19
+const NUM_CHUNKS = 23
 const CHUNKS_BEHIND = 3
 
 export default function Terrain() {
@@ -1043,7 +1043,7 @@ export default function Terrain() {
     const currentSlots = [...slotsRef.current]
 
     // While rearmost chunk has safely passed behind camera, recycle it to the forward horizon
-    while (recycledCount < 2) {
+    while (recycledCount < 3) {
       let rearmostIdx = 0
       let rearmostZ = currentSlots[0]
       let frontmostIdx = 0

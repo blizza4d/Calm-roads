@@ -126,10 +126,10 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
 const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
 const _wheelCorners: [number, number][] = [
-  [-0.88, -1.35],
-  [0.88, -1.35],
-  [-0.88, 1.35],
-  [0.88, 1.35],
+  [-0.84, -1.15], // Front-Left
+  [0.83, -1.15],  // Front-Right
+  [-0.82, 1.49],  // Rear-Left
+  [0.82, 1.49],   // Rear-Right
 ]
 
 export default function VehicleController() {

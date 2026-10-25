@@ -163,6 +163,30 @@ function smoothRidge(n: number): number {
   return 1.0 - clamped * clamped
 }
 
+function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
+  if (bId === 'desert') {
+    const mesaShape = Math.tanh(terrainNoise(x * 0.0032, z * 0.0032) * 2.4) * 32.0
+    const duneWave = (Math.sin(x * 0.012 + z * 0.006) * 0.65 + detailNoise(x * 0.014, z * 0.014) * 0.35) * 14.0
+    const duneRipple = microNoise(x * 0.028, z * 0.028) * 2.2
+    return mesaShape + duneWave + duneRipple
+  } else if (bId === 'tundra') {
+    const primaryMassif = (smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 0.72 + terrainNoise(x * 0.0032, z * 0.0032) * 0.28) * 52.0
+    const secondaryRidge = smoothRidge(detailNoise(x * 0.0075, z * 0.0075)) * 16.0
+    const glacialValley = microNoise(x * 0.018, z * 0.018) * 3.8 - 12.0
+    return primaryMassif + secondaryRidge + glacialValley
+  } else if (bId === 'autumn') {
+    const alpineMassif = (smoothRidge(terrainNoise(x * 0.0034, z * 0.0034)) * 0.65 + terrainNoise(x * 0.0038, z * 0.0038) * 0.35) * 44.0
+    const ridgePasses = smoothRidge(detailNoise(x * 0.0085, z * 0.0085)) * 14.0
+    const valleyFoothills = microNoise(x * 0.022, z * 0.022) * 3.4
+    return alpineMassif + ridgePasses + valleyFoothills - 6.0
+  } else {
+    const rollingCountryside = terrainNoise(x * 0.0038, z * 0.0038) * 28.0
+    const forestKnolls = detailNoise(x * 0.0095, z * 0.0095) * 9.5
+    const gentleHills = microNoise(x * 0.025, z * 0.025) * 2.8
+    return rollingCountryside + forestKnolls + gentleHills
+  }
+}
+
 // 5. Complete World Terrain Elevation at ANY (x, z)
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const roadX = getRoadCenter(z)
@@ -180,42 +204,33 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const t = Math.min(1.0, Math.max(0.0, distPastShoulder / 26.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at shoulder edge
 
-  const config = BIOMES[biomeId] || BIOMES.forest
-  const mult = config.hillHeightMultiplier
+  // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
+  const cycleDistance = 900
+  const normZ = Math.abs(z) / cycleDistance
+  const biomeKeys: BiomeType[] = ['forest', 'autumn', 'tundra', 'desert']
+  const idx = Math.floor(normZ) % biomeKeys.length
+  const nextIdx = (idx + 1) % biomeKeys.length
+  const frac = normZ - Math.floor(normZ)
 
-  // Multi-octave continuous geological terrain synthesis
   let naturalElevation = 0
+  let mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
 
-  if (biomeId === 'desert') {
-    // Vast sculpted canyon walls, flat-topped mesa bluffs and undulating parabolic dunes
-    // Tanh produces steep canyon walls that flatten out into mesa plateaus
-    const mesaShape = Math.tanh(terrainNoise(x * 0.0032, z * 0.0032) * 2.4) * 32.0
-    const duneWave = (Math.sin(x * 0.012 + z * 0.006) * 0.65 + detailNoise(x * 0.014, z * 0.014) * 0.35) * 14.0
-    const duneRipple = microNoise(x * 0.028, z * 0.028) * 2.2
-    naturalElevation = mesaShape + duneWave + duneRipple
-  } else if (biomeId === 'tundra') {
-    // Majestic snow-capped alpine mountain massifs, glacial cirques and rolling foothills
-    // Smooth continuous ridges prevent sharp low-poly pyramids
-    const primaryMassif = (smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 0.72 + terrainNoise(x * 0.0032, z * 0.0032) * 0.28) * 52.0
-    const secondaryRidge = smoothRidge(detailNoise(x * 0.0075, z * 0.0075)) * 16.0
-    const glacialValley = microNoise(x * 0.018, z * 0.018) * 3.8 - 12.0
-    naturalElevation = primaryMassif + secondaryRidge + glacialValley
-  } else if (biomeId === 'autumn') {
-    // Autumn alpine passes: sweeping mountain crests, stratified foothills and rolling golden valleys
-    const alpineMassif = (smoothRidge(terrainNoise(x * 0.0034, z * 0.0034)) * 0.65 + terrainNoise(x * 0.0038, z * 0.0038) * 0.35) * 44.0
-    const ridgePasses = smoothRidge(detailNoise(x * 0.0085, z * 0.0085)) * 14.0
-    const valleyFoothills = microNoise(x * 0.022, z * 0.022) * 3.4
-    naturalElevation = alpineMassif + ridgePasses + valleyFoothills - 6.0
+  if (frac > 0.82) {
+    // 160m smooth Hermite blend zone between adjacent biomes along Z axis
+    const blendT = (frac - 0.82) / 0.18
+    const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
+    const elev1 = getRawBiomeElevation(x, z, biomeKeys[idx])
+    const elev2 = getRawBiomeElevation(x, z, biomeKeys[nextIdx])
+    naturalElevation = elev1 * (1 - sBlend) + elev2 * sBlend
+    const mult1 = BIOMES[biomeKeys[idx]].hillHeightMultiplier
+    const mult2 = BIOMES[biomeKeys[nextIdx]].hillHeightMultiplier
+    mult = mult1 * (1 - sBlend) + mult2 * sBlend
   } else {
-    // Lush rolling green countryside, broad rounded hills and forested mountain valleys
-    const rollingCountryside = terrainNoise(x * 0.0038, z * 0.0038) * 28.0
-    const forestKnolls = detailNoise(x * 0.0095, z * 0.0095) * 9.5
-    const gentleHills = microNoise(x * 0.025, z * 0.025) * 2.8
-    naturalElevation = rollingCountryside + forestKnolls + gentleHills
+    naturalElevation = getRawBiomeElevation(x, z, biomeKeys[idx])
+    mult = BIOMES[biomeKeys[idx]].hillHeightMultiplier
   }
 
   // Distance scaling: Gradual elevation gain into distant mountain horizons
-  // Prevents cliffs right beside the road while building grand mountain valleys in the distance
   const mountainRamp = Math.min(2.5, 0.15 + Math.pow(distPastShoulder / 95.0, 1.35) * 1.8)
   const valleyWallLift = Math.pow(Math.min(1.0, distPastShoulder / 520.0), 1.6) * 55.0
 

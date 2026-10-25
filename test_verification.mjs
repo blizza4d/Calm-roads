@@ -4,7 +4,7 @@ console.log('=== CALM ROADS TEST SUITE STARTING ===\n');
 
 // 1. Procedural Horizon Streaming Simulation (300 km/h continuous driving)
 console.log('TEST 1: High-Speed Horizon Streaming at 300 km/h (83.33 m/s)');
-const NUM_CHUNKS = 19;
+const NUM_CHUNKS = 23;
 const CHUNK_LEN = 200;
 const CHUNKS_BEHIND = 3;
 

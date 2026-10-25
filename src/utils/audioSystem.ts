@@ -55,8 +55,14 @@ class AudioEcosystem {
   private m3LowSource: AudioBufferSourceNode | null = null
   private m3LowGain: GainNode | null = null
 
+  private m3MidSource: AudioBufferSourceNode | null = null
+  private m3MidGain: GainNode | null = null
+
   private m3HighLoopSource: AudioBufferSourceNode | null = null
   private m3HighLoopGain: GainNode | null = null
+
+  private m3DecelSource: AudioBufferSourceNode | null = null
+  private m3DecelGain: GainNode | null = null
 
   private m3BrakingSource: AudioBufferSourceNode | null = null
   private m3BrakingGain: GainNode | null = null
@@ -67,18 +73,6 @@ class AudioEcosystem {
   private rallySource: AudioBufferSourceNode | null = null
   private rallyGain: GainNode | null = null
 
-  // 2. BMW M3 Throaty Exhaust Roar Channel (Low-end V8 rumble & roar with Wave-Shaper Saturation)
-  private exhaustRoarGain: GainNode | null = null
-  private exhaustFilter: BiquadFilterNode | null = null
-  private exhaustResonator: BiquadFilterNode | null = null
-  private exhaustWaveShaper: WaveShaperNode | null = null
-  private exhaustOsc1: OscillatorNode | null = null
-  private exhaustOsc2: OscillatorNode | null = null
-  private exhaustSubOsc: OscillatorNode | null = null
-  private exhaustRaspOsc: OscillatorNode | null = null
-  private whineOsc: OscillatorNode | null = null
-  private whineGain: GainNode | null = null
-  private whineFilter: BiquadFilterNode | null = null
   private lastDecelPopTime = 0
   private prevThrottleVal = 0
 
@@ -169,73 +163,8 @@ class AudioEcosystem {
     // Load authentic multi-layer BMW M3 GTR audio asset library & real recordings
     this.loadM3AudioLibrary()
 
-    // 1. Throaty V8 Exhaust Roar Channel (BMW M3 GTR P60B40 Racing V8 with Wave-Shaper Saturation)
-    this.exhaustRoarGain = this.ctx.createGain()
-    this.exhaustRoarGain.gain.value = 0.0001
-    this.exhaustFilter = this.ctx.createBiquadFilter()
-    this.exhaustFilter.type = 'lowpass'
-    this.exhaustFilter.frequency.value = 260
-    this.exhaustFilter.Q.value = 2.4
-
-    // Exhaust acoustic pipe resonance (twin 3-inch tuned exhaust pipes)
-    this.exhaustResonator = this.ctx.createBiquadFilter()
-    this.exhaustResonator.type = 'peaking'
-    this.exhaustResonator.frequency.value = 420
-    this.exhaustResonator.Q.value = 2.4
-    this.exhaustResonator.gain.value = 5.5
-
-    // Wave-Shaper saturation node: creates rich analog combustion harmonics and guttural bark
-    this.exhaustWaveShaper = this.ctx.createWaveShaper()
-    this.exhaustWaveShaper.curve = this.makeDistortionCurve(4.2) as any
-    this.exhaustWaveShaper.oversample = 'none'
-
-    this.exhaustOsc1 = this.ctx.createOscillator()
-    this.exhaustOsc1.type = 'sawtooth'
-    this.exhaustOsc1.frequency.value = 56
-
-    this.exhaustOsc2 = this.ctx.createOscillator()
-    this.exhaustOsc2.type = 'triangle'
-    this.exhaustOsc2.frequency.value = 112
-
-    this.exhaustSubOsc = this.ctx.createOscillator()
-    this.exhaustSubOsc.type = 'sine'
-    this.exhaustSubOsc.frequency.value = 28
-
-    this.exhaustRaspOsc = this.ctx.createOscillator()
-    this.exhaustRaspOsc.type = 'sawtooth'
-    this.exhaustRaspOsc.frequency.value = 168
-
-    // Connect combustion oscillators -> WaveShaper -> Lowpass Filter -> Resonator -> Roar Gain -> SFX Master
-    this.exhaustOsc1.connect(this.exhaustWaveShaper)
-    this.exhaustOsc2.connect(this.exhaustWaveShaper)
-    this.exhaustSubOsc.connect(this.exhaustWaveShaper)
-    this.exhaustRaspOsc.connect(this.exhaustWaveShaper)
-    this.exhaustWaveShaper.connect(this.exhaustFilter)
-    this.exhaustFilter.connect(this.exhaustResonator)
-    this.exhaustResonator.connect(this.exhaustRoarGain)
-    this.exhaustRoarGain.connect(this.sfxMaster)
-
-    this.exhaustOsc1.start()
-    this.exhaustOsc2.start()
-    this.exhaustSubOsc.start()
-    this.exhaustRaspOsc.start()
-
-    // 1.1 Straight-Cut Dog-Box Transmission Whine (M3 GTR Screamer Layer)
-    this.whineGain = this.ctx.createGain()
-    this.whineGain.gain.value = 0.0001
-    this.whineFilter = this.ctx.createBiquadFilter()
-    this.whineFilter.type = 'bandpass'
-    this.whineFilter.frequency.value = 1600
-    this.whineFilter.Q.value = 4.5
-
-    this.whineOsc = this.ctx.createOscillator()
-    this.whineOsc.type = 'sawtooth'
-    this.whineOsc.frequency.value = 1400
-
-    this.whineOsc.connect(this.whineFilter)
-    this.whineFilter.connect(this.whineGain)
-    this.whineGain.connect(this.sfxMaster)
-    this.whineOsc.start()
+    // 1. Dynamic V8 Engine Audio is 100% Sample-Based (loaded asynchronously in setupM3AudioLayers)
+    // Eliminates all synthetic oscillator buzz/whine for true automotive audio fidelity.
 
     // 2. Procedural Engine Channel (Camper, Hatchback, Hovercraft)
     this.engineGain = this.ctx.createGain()
@@ -364,16 +293,6 @@ class AudioEcosystem {
     }
   }
 
-  private makeDistortionCurve(k = 4.2): Float32Array {
-    const n_samples = 512
-    const curve = new Float32Array(n_samples)
-    for (let i = 0; i < n_samples; ++i) {
-      const x = (i * 2) / n_samples - 1
-      curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x))
-    }
-    return curve
-  }
-
   // Asynchronously decode and instantiate the structured BMW M3 GTR audio library and authentic recordings
   private async loadM3AudioLibrary() {
     if (this.m3AudioLibraryLoaded || this.m3AudioLibraryLoading || !this.ctx) return
@@ -465,10 +384,22 @@ class AudioEcosystem {
       this.m3LowGain = ch.gain
     }
 
+    if (!this.m3MidSource && this.m3MidBuffer) {
+      const ch = createLoopChannel(this.m3MidBuffer)
+      this.m3MidSource = ch.source
+      this.m3MidGain = ch.gain
+    }
+
     if (!this.m3HighLoopSource && this.m3HighLoopBuffer) {
       const ch = createLoopChannel(this.m3HighLoopBuffer)
       this.m3HighLoopSource = ch.source
       this.m3HighLoopGain = ch.gain
+    }
+
+    if (!this.m3DecelSource && this.m3DecelBuffer) {
+      const ch = createLoopChannel(this.m3DecelBuffer)
+      this.m3DecelSource = ch.source
+      this.m3DecelGain = ch.gain
     }
 
     if (!this.m3BrakingSource && this.m3BrakingBuffer) {
@@ -601,10 +532,12 @@ class AudioEcosystem {
 
     if (vehicleModel === 'bmw_m3') {
       // 0.045s sequential ignition cut: momentary exhaust volume ducking
-      if (this.m3LowGain && this.m3HighLoopGain) {
+      if (this.m3LowGain && this.m3MidGain && this.m3HighLoopGain) {
         this.m3LowGain.gain.setValueAtTime(0.06, now)
+        this.m3MidGain.gain.setValueAtTime(0.06, now)
         this.m3HighLoopGain.gain.setValueAtTime(0.06, now)
         this.m3LowGain.gain.setTargetAtTime(0.55, now + 0.045, 0.03)
+        this.m3MidGain.gain.setTargetAtTime(0.55, now + 0.045, 0.03)
         this.m3HighLoopGain.gain.setTargetAtTime(0.55, now + 0.045, 0.03)
       }
 
@@ -704,11 +637,11 @@ class AudioEcosystem {
       // Mute all combustion audio when hover mode is active
       this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.08)
+      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.08)
+      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.08)
-      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.08)
-      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.engineGain?.gain.setTargetAtTime(0.0001, now, 0.08)
       this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.08)
@@ -718,72 +651,66 @@ class AudioEcosystem {
       this.engineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
-      const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 850) / (8200 - 850)))
+      const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 850) / (8500 - 850)))
       const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 275))
       const throttleVal = Math.max(0, Math.min(1, throttle))
-      const isDecel = isDecelerating || (throttleVal < 0.12 && speedKmh > 12 && rpm > 2000)
+      const isDecel = isDecelerating || (throttleVal < 0.12 && speedKmh > 12 && rpm > 1800)
 
-      // 1. Stationary / Low-Speed Mechanical V8 Idle Layer (850 RPM)
+      // 1. Stationary / Low-Speed Mechanical V8 Idle Layer (850 - 1,800 RPM)
       if (this.m3IdleGain && this.m3IdleSource) {
-        const targetIdle = Math.max(0, 1 - (rpm - 850) / 950) * (1 - throttleVal * 0.75) * 0.72
-        this.m3IdleGain.gain.setTargetAtTime(targetIdle, now, 0.06)
-        this.m3IdleSource.playbackRate.setTargetAtTime(0.96 + Math.sin(now * 4) * 0.03, now, 0.1)
+        const targetIdle = Math.max(0, 1 - (rpm - 850) / 950) * (1 - throttleVal * 0.75) * 0.75
+        this.m3IdleGain.gain.setTargetAtTime(targetIdle, now, 0.05)
+        this.m3IdleSource.playbackRate.setTargetAtTime(0.95 + (rpm - 850) / 1000 * 0.12, now, 0.05)
       }
 
-      // 2. Low-Mid Throttle Roll-On & Induction Layer (1,200 - 5,500 RPM)
+      // 2. Low-RPM Induction & Combustion Layer (1,100 - 4,400 RPM)
       if (this.m3LowGain && this.m3LowSource) {
-        const lowRpmCurve = Math.sin(Math.min(Math.PI, Math.max(0, (rpm - 1000) / 4600) * Math.PI))
-        const targetLow = lowRpmCurve * (0.2 + throttleVal * 0.65) * (isDecel ? 0.35 : 1.0) * 0.78
-        this.m3LowGain.gain.setTargetAtTime(targetLow, now, 0.05)
-        this.m3LowSource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.35, now, 0.05)
+        const lowRpmCurve = Math.sin(Math.min(Math.PI, Math.max(0, (rpm - 1100) / 3300) * Math.PI))
+        const targetLow = lowRpmCurve * (0.2 + throttleVal * 0.65) * (isDecel ? 0.35 : 1.0) * 0.8
+        this.m3LowGain.gain.setTargetAtTime(targetLow, now, 0.04)
+        this.m3LowSource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.35, now, 0.04)
       }
 
-      // 3. High-RPM Screaming Race-V8 Layer (4,800 - 8,200 RPM)
+      // 3. Mid-RPM Powerband Roar (3,200 - 6,600 RPM)
+      if (this.m3MidGain && this.m3MidSource) {
+        const midRpmCurve = Math.sin(Math.min(Math.PI, Math.max(0, (rpm - 3200) / 3400) * Math.PI))
+        const targetMid = midRpmCurve * (0.25 + throttleVal * 0.75) * (isDecel ? 0.30 : 1.0) * 0.85
+        this.m3MidGain.gain.setTargetAtTime(targetMid, now, 0.04)
+        this.m3MidSource.playbackRate.setTargetAtTime(0.90 + (rpm - 3200) / 3400 * 0.28, now, 0.04)
+      }
+
+      // 4. High-RPM Screaming Race-V8 Layer (5,200 - 8,500 RPM)
       if (this.m3HighLoopGain && this.m3HighLoopSource) {
-        const highRpmCurve = Math.max(0, (rpm - 4800) / 3400)
-        const targetHigh = highRpmCurve * (0.22 + throttleVal * 0.78) * (isDecel ? 0.25 : 1.0) * 0.88
+        const highRpmCurve = Math.max(0, (rpm - 5200) / 3300)
+        const targetHigh = highRpmCurve * (0.25 + throttleVal * 0.75) * (isDecel ? 0.25 : 1.0) * 0.92
         this.m3HighLoopGain.gain.setTargetAtTime(targetHigh, now, 0.04)
-        this.m3HighLoopSource.playbackRate.setTargetAtTime(0.90 + (rpm - 5000) / 3200 * 0.25, now, 0.04)
+        this.m3HighLoopSource.playbackRate.setTargetAtTime(0.92 + (rpm - 5200) / 3300 * 0.25, now, 0.04)
       }
 
-      // 4. Authentic Goodwood Hillclimb BMW M3 GT2 Recording Layer
+      // 5. Authentic Goodwood M3 GT2 Recording Layer (Race V8 scream above 3,500 RPM)
       if (this.m3RealGtGain && this.m3RealGtSource) {
-        const realGtCurve = Math.max(0, (rpm - 3400) / 4800)
-        const targetGt = realGtCurve * (throttleVal * 0.62 + speedNorm * 0.20) * (isDecel ? 0.15 : 1.0) * 0.75
+        const realGtCurve = Math.max(0, (rpm - 3500) / 5000)
+        const targetGt = realGtCurve * (throttleVal * 0.65 + speedNorm * 0.20) * (isDecel ? 0.15 : 1.0) * 0.8
         this.m3RealGtGain.gain.setTargetAtTime(targetGt, now, 0.04)
-        this.m3RealGtSource.playbackRate.setTargetAtTime(0.88 + rpmNorm * 0.28, now, 0.05)
+        this.m3RealGtSource.playbackRate.setTargetAtTime(0.88 + rpmNorm * 0.28, now, 0.04)
       }
 
-      // 5. Deceleration & Engine Braking Compression Layer
-      if (this.m3BrakingGain && this.m3BrakingSource) {
+      // 6. Deceleration & Engine Overrun Layer
+      if (this.m3DecelGain && this.m3DecelSource) {
         const targetDecel = isDecel
-          ? Math.min(0.82, (1 - throttleVal) * Math.min(1, (rpm - 1500) / 2800) * Math.min(1, speedKmh / 22) * 0.85)
+          ? Math.min(0.85, (1 - throttleVal) * Math.min(1, (rpm - 1600) / 3000) * Math.min(1, speedKmh / 22) * 0.75)
           : 0.0001
-        this.m3BrakingGain.gain.setTargetAtTime(targetDecel, now, 0.06)
-        this.m3BrakingSource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.22, now, 0.06)
+        this.m3DecelGain.gain.setTargetAtTime(targetDecel, now, 0.05)
+        this.m3DecelSource.playbackRate.setTargetAtTime(0.88 + rpmNorm * 0.24, now, 0.05)
       }
 
-      // 6. Straight-Cut Dog-Box Transmission Mechanical Gear Whine
-      if (this.whineOsc && this.whineGain && this.whineFilter) {
-        const dogBoxFreq = 900 + (speedKmh / 275) * 2100 + (rpm / 8500) * 600
-        this.whineOsc.frequency.setTargetAtTime(dogBoxFreq, now, 0.04)
-        this.whineFilter.frequency.setTargetAtTime(dogBoxFreq, now, 0.04)
-        const targetWhine = Math.min(0.24, (speedKmh / 160) * 0.14 + throttleVal * 0.10)
-        this.whineGain.gain.setTargetAtTime(targetWhine, now, 0.04)
-      }
-
-      // 7. Subtle WaveShaper Exhaust Resonance (Provides visceral low-frequency chassis vibration)
-      if (this.exhaustRoarGain && this.exhaustOsc1 && this.exhaustOsc2 && this.exhaustSubOsc && this.exhaustRaspOsc && this.exhaustFilter) {
-        const v8PulseFreq = Math.max(42, (rpm / 60) * 4)
-        this.exhaustOsc1.frequency.setTargetAtTime(v8PulseFreq, now, 0.03)
-        this.exhaustOsc2.frequency.setTargetAtTime(v8PulseFreq * 2, now, 0.03)
-        this.exhaustSubOsc.frequency.setTargetAtTime(v8PulseFreq * 0.5, now, 0.03)
-        this.exhaustRaspOsc.frequency.setTargetAtTime(v8PulseFreq * 3, now, 0.03)
-
-        const filterCutoff = 220 + throttleVal * 1200 + (rpm / 8500) * 650
-        this.exhaustFilter.frequency.setTargetAtTime(filterCutoff, now, 0.04)
-        const targetSubRoar = 0.12 + throttleVal * 0.25 + (speedKmh / 260) * 0.08
-        this.exhaustRoarGain.gain.setTargetAtTime(targetSubRoar, now, 0.04)
+      // 7. Engine Braking Compression Resistance
+      if (this.m3BrakingGain && this.m3BrakingSource) {
+        const targetBraking = isDecel
+          ? Math.min(0.80, (1 - throttleVal) * Math.min(1, (rpm - 2000) / 2800) * Math.min(1, speedKmh / 20) * 0.70)
+          : 0.0001
+        this.m3BrakingGain.gain.setTargetAtTime(targetBraking, now, 0.05)
+        this.m3BrakingSource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.22, now, 0.05)
       }
     }
     // ------------------------------------------------------------------------
@@ -792,11 +719,13 @@ class AudioEcosystem {
     else if (isCamper) {
       this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.1)
-      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
-      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
@@ -819,11 +748,11 @@ class AudioEcosystem {
     else if (isHatch) {
       this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.1)
+      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.1)
       this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.1)
-      this.exhaustRoarGain?.gain.setTargetAtTime(0.0001, now, 0.1)
-      this.whineGain?.gain.setTargetAtTime(0.0001, now, 0.1)
 
       // Authentic Audi Sport Quattro Group B rally engine recording
       if (this.rallyGain && this.rallySource) {
