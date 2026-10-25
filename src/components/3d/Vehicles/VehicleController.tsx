@@ -9,7 +9,7 @@ import {
   getRoadElevation,
   isRoadSurface,
   getActiveBiomeAt,
-  getTerrainHeight,
+  getSurfaceHeight,
   getTerrainSlopeForVehicle,
 } from '../../../utils/roadMath'
 import { audioSystem } from '../../../utils/audioSystem'
@@ -459,18 +459,22 @@ export default function VehicleController() {
     const cosYaw = Math.cos(yawAngle.current)
     const sinYaw = Math.sin(yawAngle.current)
 
-    _wheelCorners.forEach(([lx, lz], idx) => {
-      const wx = pos.current.x + lx * cosYaw + lz * sinYaw
-      const wz = pos.current.z - lx * sinYaw + lz * cosYaw
-      const wy = getTerrainHeight(wx, wz, activeBiomeConfig.id)
-      const compression = wy - (pos.current.y - targetRideHeight)
-      const clampedComp = Math.max(-0.18, Math.min(0.2, compression))
-      wheelSuspensions.current[idx] = THREE.MathUtils.lerp(
-        wheelSuspensions.current[idx],
-        clampedComp,
-        frameDelta * 18
-      )
-    })
+    if (isHoverMode) {
+      wheelSuspensions.current = [0, 0, 0, 0]
+    } else {
+      _wheelCorners.forEach(([lx, lz], idx) => {
+        const wx = pos.current.x + lx * cosYaw + lz * sinYaw
+        const wz = pos.current.z - lx * sinYaw + lz * cosYaw
+        const wy = getSurfaceHeight(wx, wz, activeBiomeConfig.id)
+        const compression = wy - (pos.current.y - targetRideHeight)
+        const clampedComp = Math.max(-0.06, Math.min(0.06, compression))
+        wheelSuspensions.current[idx] = THREE.MathUtils.lerp(
+          wheelSuspensions.current[idx],
+          clampedComp,
+          frameDelta * 18
+        )
+      })
+    }
 
     // Dynamic Pitch & Body Roll (Inertia + Suspension + Centrifugal Roll)
     const accelInertia = (currentThrottle.current - targetBrake) * 0.035

@@ -77,6 +77,21 @@ function HeadlightBeams({
 // 1. High-Fidelity Sports Car / BMW M3 GTR '05 (GLTF Model)
 // ----------------------------------------------------
 
+const REST_WHEEL_POSITIONS = {
+  fl: new THREE.Vector3(-0.84256, 0.35802, -1.15532),
+  fr: new THREE.Vector3(0.82869, 0.36065, -1.15446),
+  rl: new THREE.Vector3(-0.82134, 0.35802, 1.49499),
+  rr: new THREE.Vector3(0.82439, 0.35802, 1.49632),
+  steering: new THREE.Vector3(-0.34596, 0.79887, -0.34566),
+}
+
+const BASE_WHEEL_QUAT = new THREE.Quaternion(-0.7071068, 0, 0, 0.7071068)
+const BASE_STEER_QUAT = new THREE.Quaternion(-0.819152, 0, 0, 0.573576)
+
+const _vUp = new THREE.Vector3(0, 1, 0)
+const _vRight = new THREE.Vector3(1, 0, 0)
+const _vForward = new THREE.Vector3(0, 0, 1)
+
 export function BmwM3GtrModel({
   paintColor,
   metallic,
@@ -131,12 +146,20 @@ export function BmwM3GtrModel({
 
   const taillightMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
-      color: isBraking ? new THREE.Color('#ff0000') : new THREE.Color('#7f1d1d'),
-      emissive: isBraking ? new THREE.Color('#ef4444') : new THREE.Color('#330000'),
-      emissiveIntensity: isBraking ? 3.0 : 0.5,
+      color: new THREE.Color('#7f1d1d'),
+      emissive: new THREE.Color('#330000'),
+      emissiveIntensity: 0.5,
       roughness: 0.15,
     })
-  }, [isBraking])
+  }, [])
+
+  // React to brake changes dynamically without re-traversing or rebuilding scene
+  useEffect(() => {
+    taillightMaterial.color.set(isBraking ? '#ff0000' : '#7f1d1d')
+    taillightMaterial.emissive.set(isBraking ? '#ef4444' : '#330000')
+    taillightMaterial.emissiveIntensity = isBraking ? 3.0 : 0.5
+    taillightMaterial.needsUpdate = true
+  }, [isBraking, taillightMaterial])
 
   // Store references to articulated nodes
   const nodesRef = useRef<{
@@ -145,19 +168,28 @@ export function BmwM3GtrModel({
     wheelRl: THREE.Object3D | null
     wheelRr: THREE.Object3D | null
     steeringWheel: THREE.Object3D | null
-    initialY: { fl: number; fr: number; rl: number; rr: number }
   }>({
     wheelFl: null,
     wheelFr: null,
     wheelRl: null,
     wheelRr: null,
     steeringWheel: null,
-    initialY: { fl: 0.358, fr: 0.361, rl: 0.358, rr: 0.358 },
   })
 
-  // Traverse and apply high-quality PBR materials and bind node references
+  // Traverse and apply high-quality PBR materials and bind node references (never re-run on braking)
   useEffect(() => {
+    nodesRef.current = {
+      wheelFl: null,
+      wheelFr: null,
+      wheelRl: null,
+      wheelRr: null,
+      steeringWheel: null,
+    }
+
     clonedScene.traverse((child) => {
+      // Normalize local transforms and scale on all nodes
+      child.scale.set(1, 1, 1)
+
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         child.receiveShadow = true
@@ -182,75 +214,111 @@ export function BmwM3GtrModel({
 
       if (child.name === 'wheel_fl') {
         nodesRef.current.wheelFl = child
-        nodesRef.current.initialY.fl = child.position.y
+        child.position.copy(REST_WHEEL_POSITIONS.fl)
+        child.quaternion.copy(BASE_WHEEL_QUAT)
       } else if (child.name === 'wheel_fr') {
         nodesRef.current.wheelFr = child
-        nodesRef.current.initialY.fr = child.position.y
+        child.position.copy(REST_WHEEL_POSITIONS.fr)
+        child.quaternion.copy(BASE_WHEEL_QUAT)
       } else if (child.name === 'wheel_rl') {
         nodesRef.current.wheelRl = child
-        nodesRef.current.initialY.rl = child.position.y
+        child.position.copy(REST_WHEEL_POSITIONS.rl)
+        child.quaternion.copy(BASE_WHEEL_QUAT)
       } else if (child.name === 'wheel_rr') {
         nodesRef.current.wheelRr = child
-        nodesRef.current.initialY.rr = child.position.y
+        child.position.copy(REST_WHEEL_POSITIONS.rr)
+        child.quaternion.copy(BASE_WHEEL_QUAT)
       } else if (child.name === 'steering_wheel') {
         nodesRef.current.steeringWheel = child
+        child.position.copy(REST_WHEEL_POSITIONS.steering)
+        child.quaternion.copy(BASE_STEER_QUAT)
       }
     })
   }, [clonedScene, bodyPaintMaterial, glassMaterial, carbonFiberMaterial, taillightMaterial])
 
-  // Articulate wheels, steering, and suspension travel each frame
+  // Articulate wheels, steering, and suspension travel each frame with strict anchoring
   useFrame(() => {
-    const { wheelFl, wheelFr, wheelRl, wheelRr, steeringWheel, initialY } = nodesRef.current
-
-    // Base initial orientation for wheels (-90 deg around world X)
-    const baseQuat = new THREE.Quaternion(-0.7071068, 0, 0, 0.7071068)
+    const { wheelFl, wheelFr, wheelRl, wheelRr, steeringWheel } = nodesRef.current
 
     // Antigravity hover fold angle (tilt wheels inward 45 deg)
     const hoverFold = isHoverMode ? 0.78 : 0.0
 
+    // Strict suspension travel clamp for sports car (max travel ±0.06m)
+    const suspFl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[0] || 0))
+    const suspFr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[1] || 0))
+    const suspRl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[2] || 0))
+    const suspRr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[3] || 0))
+
     // Front-Left Wheel (steering + spin + suspension + hover)
     if (wheelFl) {
-      const qSteer = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), steeringAngle)
-      const spinAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(qSteer)
+      wheelFl.position.set(
+        REST_WHEEL_POSITIONS.fl.x,
+        REST_WHEEL_POSITIONS.fl.y + suspFl,
+        REST_WHEEL_POSITIONS.fl.z
+      )
+      wheelFl.scale.set(1, 1, 1)
+
+      const qSteer = new THREE.Quaternion().setFromAxisAngle(_vUp, steeringAngle)
+      const spinAxis = _vRight.clone().applyQuaternion(qSteer)
       const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -hoverFold)
-      wheelFl.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(baseQuat)
-      wheelFl.position.y = initialY.fl + (wheelSuspensions[0] || 0)
+      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, -hoverFold)
+      wheelFl.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(BASE_WHEEL_QUAT)
     }
 
     // Front-Right Wheel
     if (wheelFr) {
-      const qSteer = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), steeringAngle)
-      const spinAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(qSteer)
+      wheelFr.position.set(
+        REST_WHEEL_POSITIONS.fr.x,
+        REST_WHEEL_POSITIONS.fr.y + suspFr,
+        REST_WHEEL_POSITIONS.fr.z
+      )
+      wheelFr.scale.set(1, 1, 1)
+
+      const qSteer = new THREE.Quaternion().setFromAxisAngle(_vUp, steeringAngle)
+      const spinAxis = _vRight.clone().applyQuaternion(qSteer)
       const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), hoverFold)
-      wheelFr.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(baseQuat)
-      wheelFr.position.y = initialY.fr + (wheelSuspensions[1] || 0)
+      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, hoverFold)
+      wheelFr.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(BASE_WHEEL_QUAT)
     }
 
     // Rear-Left Wheel (spin + suspension + hover)
     if (wheelRl) {
-      const spinAxis = new THREE.Vector3(1, 0, 0)
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -hoverFold)
-      wheelRl.quaternion.copy(qHover).multiply(qSpin).multiply(baseQuat)
-      wheelRl.position.y = initialY.rl + (wheelSuspensions[2] || 0)
+      wheelRl.position.set(
+        REST_WHEEL_POSITIONS.rl.x,
+        REST_WHEEL_POSITIONS.rl.y + suspRl,
+        REST_WHEEL_POSITIONS.rl.z
+      )
+      wheelRl.scale.set(1, 1, 1)
+
+      const qSpin = new THREE.Quaternion().setFromAxisAngle(_vRight, wheelRotation)
+      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, -hoverFold)
+      wheelRl.quaternion.copy(qHover).multiply(qSpin).multiply(BASE_WHEEL_QUAT)
     }
 
     // Rear-Right Wheel
     if (wheelRr) {
-      const spinAxis = new THREE.Vector3(1, 0, 0)
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), hoverFold)
-      wheelRr.quaternion.copy(qHover).multiply(qSpin).multiply(baseQuat)
-      wheelRr.position.y = initialY.rr + (wheelSuspensions[3] || 0)
+      wheelRr.position.set(
+        REST_WHEEL_POSITIONS.rr.x,
+        REST_WHEEL_POSITIONS.rr.y + suspRr,
+        REST_WHEEL_POSITIONS.rr.z
+      )
+      wheelRr.scale.set(1, 1, 1)
+
+      const qSpin = new THREE.Quaternion().setFromAxisAngle(_vRight, wheelRotation)
+      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, hoverFold)
+      wheelRr.quaternion.copy(qHover).multiply(qSpin).multiply(BASE_WHEEL_QUAT)
     }
 
     // Cockpit Steering Wheel Column
     if (steeringWheel) {
-      const baseSteerQuat = new THREE.Quaternion(-0.819152, 0, 0, 0.573576)
-      const qTurn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -steeringAngle * 2.8)
-      steeringWheel.quaternion.copy(baseSteerQuat).multiply(qTurn)
+      steeringWheel.position.set(
+        REST_WHEEL_POSITIONS.steering.x,
+        REST_WHEEL_POSITIONS.steering.y,
+        REST_WHEEL_POSITIONS.steering.z
+      )
+      steeringWheel.scale.set(1, 1, 1)
+      const qTurn = new THREE.Quaternion().setFromAxisAngle(_vForward, -steeringAngle * 2.8)
+      steeringWheel.quaternion.copy(BASE_STEER_QUAT).multiply(qTurn)
     }
   })
 

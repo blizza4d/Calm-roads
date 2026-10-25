@@ -241,22 +241,22 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
       const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.048
+      const cy = getRoadElevation(worldZ) + 0.085
       const { nx, nz } = getRoadTangent(worldZ)
 
-      // Crown camber in the road center (+0.02m) for realistic highway drainage profile
+      // Crown camber in the road center (+0.025m) for realistic highway drainage profile
       // Left edge
-      positions.push(cx - nx * halfW, cy - 0.02, localZ - nz * halfW)
+      positions.push(cx - nx * halfW, cy - 0.015, localZ - nz * halfW)
       normals.push(-nx * 0.1, 0.98, -nz * 0.1)
       uvs.push(0, i * 0.8)
 
       // Center crown
-      positions.push(cx, cy, localZ)
+      positions.push(cx, cy + 0.025, localZ)
       normals.push(0, 1, 0)
       uvs.push(0.5, i * 0.8)
 
       // Right edge
-      positions.push(cx + nx * halfW, cy - 0.02, localZ + nz * halfW)
+      positions.push(cx + nx * halfW, cy - 0.015, localZ + nz * halfW)
       normals.push(nx * 0.1, 0.98, nz * 0.1)
       uvs.push(1, i * 0.8)
 
@@ -298,16 +298,16 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
       const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.022
+      const cy = getRoadElevation(worldZ) + 0.065
       const { nx, nz } = getRoadTangent(worldZ)
 
       // Left shoulder (inner to outer)
-      positions.push(cx - nx * innerW, cy - 0.015, localZ - nz * innerW)
-      positions.push(cx - nx * outerW, cy - 0.04, localZ - nz * outerW)
+      positions.push(cx - nx * innerW, cy, localZ - nz * innerW)
+      positions.push(cx - nx * outerW, cy - 0.05, localZ - nz * outerW)
 
       // Right shoulder (inner to outer)
-      positions.push(cx + nx * innerW, cy - 0.015, localZ + nz * innerW)
-      positions.push(cx + nx * outerW, cy - 0.04, localZ + nz * outerW)
+      positions.push(cx + nx * innerW, cy, localZ + nz * innerW)
+      positions.push(cx + nx * outerW, cy - 0.05, localZ + nz * outerW)
 
       for (let j = 0; j < 4; j++) normals.push(0, 1, 0)
 
@@ -356,9 +356,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const wzEnd = chunkZ + localZEnd
 
       const cxStart = getRoadCenter(wzStart)
-      const cyStart = getRoadElevation(wzStart) + 0.068
+      const cyStart = getRoadElevation(wzStart) + 0.115
       const cxEnd = getRoadCenter(wzEnd)
-      const cyEnd = getRoadElevation(wzEnd) + 0.068
+      const cyEnd = getRoadElevation(wzEnd) + 0.115
 
       const tanStart = getRoadTangent(wzStart)
       const tanEnd = getRoadTangent(wzEnd)
@@ -388,7 +388,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const localZ = CHUNK_LEN / 2 - (i / edgeSegments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
       const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.068
+      const cy = getRoadElevation(worldZ) + 0.078
       const { nx, nz } = getRoadTangent(worldZ)
 
       // Left solid white edge
@@ -807,35 +807,41 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
-      <mesh geometry={roadGeo} receiveShadow>
+      <mesh geometry={roadGeo} receiveShadow renderOrder={2}>
         <meshStandardMaterial
           map={asphaltTex}
           bumpMap={asphaltBumpTex}
           bumpScale={0.018}
           color="#ffffff"
-          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.42 : 0.65}
+          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.55 : 0.65}
           metalness={isRaining ? 0.45 : 0.08}
           envMapIntensity={isRaining ? 1.6 : 0.8}
+          polygonOffset
+          polygonOffsetFactor={-2}
+          polygonOffsetUnits={-2}
         />
       </mesh>
 
       {/* 3. Roadside Gravel Shoulder Strips */}
-      <mesh geometry={shoulderGeo} receiveShadow>
+      <mesh geometry={shoulderGeo} receiveShadow renderOrder={1}>
         <meshStandardMaterial
           color={biomeConfig.shoulderColor}
           roughness={0.92}
           metalness={0.06}
+          polygonOffset
+          polygonOffsetFactor={-1}
+          polygonOffsetUnits={-1}
         />
       </mesh>
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
-      <mesh geometry={markingsGeo} renderOrder={2}>
+      <mesh geometry={markingsGeo} renderOrder={3}>
         <meshStandardMaterial
           vertexColors
           roughness={0.3}
           polygonOffset
-          polygonOffsetFactor={-3}
-          polygonOffsetUnits={-3}
+          polygonOffsetFactor={-4}
+          polygonOffsetUnits={-4}
           depthTest
           depthWrite={false}
           side={THREE.DoubleSide}
