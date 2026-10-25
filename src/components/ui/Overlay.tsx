@@ -28,6 +28,7 @@ import {
   Radio,
   Gamepad2,
   Activity,
+  Settings,
 } from 'lucide-react'
 import {
   useGameStore,
@@ -717,6 +718,184 @@ function ControlsModal({ onClose }: { onClose: () => void }) {
 }
 
 // ----------------------------------------------------------------
+// ----------------------------------------------------------------
+// 6.0 Quick Settings & Tools Modal
+// ----------------------------------------------------------------
+function SettingsToolsModal({
+  onClose,
+  showTouchControls,
+  setShowTouchControls,
+}: {
+  onClose: () => void
+  showTouchControls: boolean
+  setShowTouchControls: (v: boolean) => void
+}) {
+  const {
+    showDiagnostics,
+    toggleDiagnostics,
+    toggleZenMode,
+    isFullscreen,
+    toggleFullscreen,
+    togglePhotoMode,
+    speedUnit,
+    toggleSpeedUnit,
+    graphicsQuality,
+    setGraphicsQuality,
+    setActivePanel,
+  } = useGameStore()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md pointer-events-auto">
+      <div className="backdrop-blur-xl bg-neutral-900/95 border border-white/20 max-w-md w-full p-6 rounded-3xl shadow-2xl text-white relative">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+              <Settings size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-bold tracking-wide">Settings & Tools</h2>
+              <p className="text-[11px] text-white/50 font-mono">Quick controls, HUD preferences & display</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="space-y-4 py-4">
+          {/* Quick Tools Grid */}
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* Photo Mode */}
+            <button
+              onClick={() => {
+                togglePhotoMode()
+                onClose()
+              }}
+              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+            >
+              <Camera size={18} className="text-emerald-400" />
+              <div>
+                <div className="text-xs font-bold">Photo Mode</div>
+                <div className="text-[10px] text-white/40 font-mono">Key: [P]</div>
+              </div>
+            </button>
+
+            {/* Zen Mode */}
+            <button
+              onClick={() => {
+                toggleZenMode()
+                onClose()
+              }}
+              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+            >
+              <EyeOff size={18} className="text-indigo-400" />
+              <div>
+                <div className="text-xs font-bold">Zen Mode</div>
+                <div className="text-[10px] text-white/40 font-mono">Key: [Z]</div>
+              </div>
+            </button>
+
+            {/* F3 HUD */}
+            <button
+              onClick={toggleDiagnostics}
+              className={`p-3 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                showDiagnostics
+                  ? "bg-emerald-600/30 border-emerald-400 text-white"
+                  : "bg-white/5 hover:bg-white/10 border-white/10 text-white"
+              }`}
+            >
+              <Activity size={18} className={showDiagnostics ? "text-emerald-300" : "text-white/60"} />
+              <div>
+                <div className="text-xs font-bold">Diagnostics HUD</div>
+                <div className="text-[10px] text-white/40 font-mono">Key: [F3]</div>
+              </div>
+            </button>
+
+            {/* Touch Pedals */}
+            <button
+              onClick={() => setShowTouchControls(!showTouchControls)}
+              className={`p-3 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                showTouchControls
+                  ? "bg-emerald-600/30 border-emerald-400 text-white"
+                  : "bg-white/5 hover:bg-white/10 border-white/10 text-white"
+              }`}
+            >
+              <Gamepad2 size={18} className={showTouchControls ? "text-emerald-300" : "text-white/60"} />
+              <div>
+                <div className="text-xs font-bold">Touch Pedals</div>
+                <div className="text-[10px] text-white/40 font-mono">{showTouchControls ? "Visible" : "Hidden"}</div>
+              </div>
+            </button>
+
+            {/* Driver Manual */}
+            <button
+              onClick={() => setActivePanel("controls")}
+              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+            >
+              <HelpCircle size={18} className="text-amber-400" />
+              <div>
+                <div className="text-xs font-bold">Driver Manual</div>
+                <div className="text-[10px] text-white/40 font-mono">Controls Guide</div>
+              </div>
+            </button>
+
+            {/* Fullscreen */}
+            <button
+              onClick={toggleFullscreen}
+              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+            >
+              {isFullscreen ? <Minimize size={18} className="text-cyan-400" /> : <Maximize size={18} className="text-cyan-400" />}
+              <div>
+                <div className="text-xs font-bold">{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</div>
+                <div className="text-[10px] text-white/40 font-mono">Key: [F]</div>
+              </div>
+            </button>
+          </div>
+
+          {/* Preferences Section */}
+          <div className="pt-2 border-t border-white/10 space-y-3">
+            {/* Speed Unit */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/70 font-medium">Speedometer Unit</span>
+              <button
+                onClick={toggleSpeedUnit}
+                className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-mono font-bold text-emerald-400 cursor-pointer"
+              >
+                {speedUnit.toUpperCase()}
+              </button>
+            </div>
+
+            {/* Graphics Quality */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/70 font-medium">Graphics Quality</span>
+              <div className="flex gap-1">
+                {(["low", "medium", "high"] as const).map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setGraphicsQuality(q)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-mono uppercase font-bold cursor-pointer transition-all ${
+                      graphicsQuality === q
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white/5 hover:bg-white/10 text-white/50"
+                    }`}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // 6.1 Real-Time Diagnostics & Telemetry HUD [F3]
 // ----------------------------------------------------------------
 function DiagnosticsHUD() {
@@ -849,7 +1028,6 @@ export default function Overlay() {
     togglePhotoMode,
     zenMode,
     toggleZenMode,
-    isFullscreen,
     toggleFullscreen,
     cycleWeather,
     cycleVehicleModel,
@@ -949,29 +1127,29 @@ export default function Overlay() {
           </div>
         </div>
 
-        {/* Action Toolbar */}
+        {/* Action Toolbar - Streamlined & Clutter-Free */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Antigravity / Hover Mode Switch */}
           <button
             onClick={toggleHoverMode}
             className={`px-3.5 py-2 rounded-2xl text-xs font-mono font-bold tracking-wider transition-all cursor-pointer flex items-center gap-1.5 backdrop-blur-md ${
               isHoverMode
-                ? 'bg-indigo-600/90 text-white border border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.5)]'
-                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+                ? "bg-indigo-600/90 text-white border border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.5)]"
+                : "bg-black/40 hover:bg-black/60 text-white/80 border border-white/15"
             }`}
             title="Toggle Antigravity Hover Mode [H]"
           >
-            <Sparkles size={14} className={isHoverMode ? 'text-cyan-300' : 'text-white/60'} />
-            <span>HOVER {isHoverMode ? 'ON' : 'OFF'}</span>
+            <Sparkles size={14} className={isHoverMode ? "text-cyan-300" : "text-white/60"} />
+            <span>HOVER {isHoverMode ? "ON" : "OFF"}</span>
           </button>
 
           {/* Environment Modal Button */}
           <button
-            onClick={() => setActivePanel(activePanel === 'environment' ? 'none' : 'environment')}
+            onClick={() => setActivePanel(activePanel === "environment" ? "none" : "environment")}
             className={`backdrop-blur-md px-3 py-2 rounded-2xl flex items-center gap-1.5 text-xs font-bold cursor-pointer transition-all ${
-              activePanel === 'environment'
-                ? 'bg-emerald-600 text-white border border-emerald-400 shadow-md'
-                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+              activePanel === "environment"
+                ? "bg-emerald-600 text-white border border-emerald-400 shadow-md"
+                : "bg-black/40 hover:bg-black/60 text-white/80 border border-white/15"
             }`}
           >
             <CloudSun size={15} className="text-emerald-400" />
@@ -980,15 +1158,15 @@ export default function Overlay() {
 
           {/* Vehicle Customizer Button */}
           <button
-            onClick={() => setActivePanel(activePanel === 'garage' ? 'none' : 'garage')}
+            onClick={() => setActivePanel(activePanel === "garage" ? "none" : "garage")}
             className={`backdrop-blur-md px-3 py-2 rounded-2xl flex items-center gap-1.5 text-xs font-bold cursor-pointer transition-all ${
-              activePanel === 'garage'
-                ? 'bg-emerald-600 text-white border border-emerald-400 shadow-md'
-                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+              activePanel === "garage"
+                ? "bg-emerald-600 text-white border border-emerald-400 shadow-md"
+                : "bg-black/40 hover:bg-black/60 text-white/80 border border-white/15"
             }`}
           >
             <Palette size={15} className="text-emerald-400" />
-            <span className="capitalize">{vehicleModel === 'bmw_m3' ? 'BMW M3' : vehicleModel}</span>
+            <span className="capitalize">{vehicleModel === "bmw_m3" ? "BMW M3" : vehicleModel}</span>
           </button>
 
           {/* Camera Perspective Toggle */}
@@ -1016,8 +1194,8 @@ export default function Overlay() {
               onClick={toggleMusic}
               className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                 isMusicPlaying
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white/10 text-white hover:bg-white/20'
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "bg-white/10 text-white hover:bg-white/20"
               }`}
               title="Toggle Music [M]"
             >
@@ -1053,66 +1231,26 @@ export default function Overlay() {
             onClick={toggleAutoDrive}
             className={`backdrop-blur-md px-3 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer ${
               autoDrive
-                ? 'bg-emerald-600 text-white border border-emerald-400 shadow-md'
-                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+                ? "bg-emerald-600 text-white border border-emerald-400 shadow-md"
+                : "bg-black/40 hover:bg-black/60 text-white/80 border border-white/15"
             }`}
             title="Toggle Auto-Drive Cruise"
           >
-            CRUISE {autoDrive ? 'ON' : 'OFF'}
+            CRUISE {autoDrive ? "ON" : "OFF"}
           </button>
 
-          {/* Real-time Telemetry & Diagnostics Toggle */}
+          {/* Settings & Tools Menu Button */}
           <button
-            onClick={toggleDiagnostics}
-            className={`backdrop-blur-md px-3 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              showDiagnostics
-                ? 'bg-emerald-600 text-white border border-emerald-400 shadow-md'
-                : 'bg-black/40 hover:bg-black/60 text-white/80 border border-white/15'
+            onClick={() => setActivePanel(activePanel === "settings" ? "none" : "settings")}
+            className={`backdrop-blur-md px-3 py-2 rounded-2xl flex items-center gap-1.5 text-xs font-bold cursor-pointer transition-all border ${
+              activePanel === "settings"
+                ? "bg-emerald-600 text-white border-emerald-400 shadow-md"
+                : "bg-black/40 hover:bg-black/60 text-white/80 border-white/15"
             }`}
-            title="Toggle Real-Time Dev & Terrain Telemetry HUD [F3]"
+            title="Settings & Tools Menu"
           >
-            <Activity size={14} className={showDiagnostics ? 'text-white' : 'text-emerald-400'} />
-            <span>F3 HUD</span>
-          </button>
-
-          {/* Touch Controls Toggle */}
-          <button
-            onClick={() => setShowTouchControls(!showTouchControls)}
-            className={`backdrop-blur-md w-9 h-9 rounded-2xl flex items-center justify-center cursor-pointer transition-all border ${
-              showTouchControls
-                ? 'bg-emerald-600 text-white border-emerald-400'
-                : 'bg-black/40 hover:bg-black/60 text-white/70 border-white/15'
-            }`}
-            title="Toggle On-Screen Touch Controls"
-          >
-            <Gamepad2 size={15} />
-          </button>
-
-          {/* Zen Mode Button */}
-          <button
-            onClick={toggleZenMode}
-            className="backdrop-blur-md bg-black/40 hover:bg-black/60 text-white/70 hover:text-white border border-white/15 w-9 h-9 rounded-2xl flex items-center justify-center cursor-pointer transition-all"
-            title="Zen Mode (Hide HUD) [Z]"
-          >
-            <EyeOff size={15} />
-          </button>
-
-          {/* Driver Manual Button */}
-          <button
-            onClick={() => setActivePanel(activePanel === 'controls' ? 'none' : 'controls')}
-            className="backdrop-blur-md bg-black/40 hover:bg-black/60 text-white/70 hover:text-white border border-white/15 w-9 h-9 rounded-2xl flex items-center justify-center cursor-pointer transition-all"
-            title="Controls Guide"
-          >
-            <HelpCircle size={15} />
-          </button>
-
-          {/* Fullscreen Button */}
-          <button
-            onClick={toggleFullscreen}
-            className="backdrop-blur-md bg-black/40 hover:bg-black/60 text-white/70 hover:text-white border border-white/15 w-9 h-9 rounded-2xl flex items-center justify-center cursor-pointer transition-all"
-            title="Toggle Fullscreen [F]"
-          >
-            {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
+            <Settings size={15} className={activePanel === "settings" ? "text-white" : "text-emerald-400"} />
+            <span>Tools</span>
           </button>
         </div>
       </div>
@@ -1130,6 +1268,7 @@ export default function Overlay() {
       {activePanel === 'environment' && <EnvironmentModal onClose={() => setActivePanel('none')} />}
       {activePanel === 'garage' && <GarageModal onClose={() => setActivePanel('none')} />}
       {activePanel === 'controls' && <ControlsModal onClose={() => setActivePanel('none')} />}
+      {activePanel === 'settings' && <SettingsToolsModal onClose={() => setActivePanel('none')} showTouchControls={showTouchControls} setShowTouchControls={setShowTouchControls} />}
     </div>
   )
 }

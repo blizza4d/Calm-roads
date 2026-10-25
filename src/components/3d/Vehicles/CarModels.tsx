@@ -72,8 +72,131 @@ function HeadlightBeams({
 }
 
 // ----------------------------------------------------
-// 1. Realistic BMW M3 GTR '05 (Sculpted GT Widebody)
+// 1. Realistic BMW M3 GTR '05 (Sculpted GT Widebody Monocoque)
 // ----------------------------------------------------
+
+// Continuous Lofted Monocoque Body Geometry
+function createLoftedM3BodyGeometry() {
+  const geom = new THREE.BufferGeometry()
+  const stations = [
+    { z: -2.28, hw: 0.82, yBot: 0.16, yBelt: 0.38, yTop: 0.46, flare: 1.0 }, // Front splitter lip
+    { z: -2.15, hw: 0.85, yBot: 0.18, yBelt: 0.44, yTop: 0.56, flare: 1.0 }, // Front bumper
+    { z: -1.80, hw: 0.86, yBot: 0.20, yBelt: 0.48, yTop: 0.62, flare: 1.02 }, // Front nose / lights
+    { z: -1.35, hw: 0.94, yBot: 0.22, yBelt: 0.52, yTop: 0.66, flare: 1.10 }, // Front flared wheel arch
+    { z: -0.90, hw: 0.86, yBot: 0.20, yBelt: 0.49, yTop: 0.65, flare: 1.03 }, // Front fender vent
+    { z: -0.45, hw: 0.83, yBot: 0.20, yBelt: 0.48, yTop: 0.64, flare: 1.0 },  // Coke-bottle waist A-pillar
+    { z:  0.00, hw: 0.82, yBot: 0.20, yBelt: 0.48, yTop: 0.64, flare: 1.0 },  // Mid cabin waist
+    { z:  0.55, hw: 0.85, yBot: 0.20, yBelt: 0.50, yTop: 0.66, flare: 1.02 }, // Rear quarter flank
+    { z:  1.35, hw: 0.96, yBot: 0.22, yBelt: 0.53, yTop: 0.72, flare: 1.12 }, // Rear muscular widebody haunch
+    { z:  1.75, hw: 0.91, yBot: 0.20, yBelt: 0.51, yTop: 0.74, flare: 1.05 }, // Rear trunk transition
+    { z:  2.10, hw: 0.87, yBot: 0.22, yBelt: 0.48, yTop: 0.70, flare: 1.0 },  // Rear taillight fascia
+    { z:  2.24, hw: 0.83, yBot: 0.24, yBelt: 0.44, yTop: 0.64, flare: 1.0 },  // Rear bumper diffuser lip
+  ]
+
+  const positions: number[] = []
+  const indices: number[] = []
+  const uvs: number[] = []
+  const N = 12
+  const M = stations.length
+
+  for (let i = 0; i < M; i++) {
+    const s = stations[i]
+    const hw = s.hw
+    const flareHw = hw * s.flare
+    const yB = s.yBot
+    const yBelt = s.yBelt
+    const yT = s.yTop
+    const yMid = (yB + yBelt) * 0.5
+    const z = s.z
+
+    const ring = [
+      [0, yT, z],                       // 0: Top center
+      [hw * 0.72, yT - 0.02, z],        // 1: Top right shoulder
+      [hw * 0.96, yBelt, z],            // 2: Upper beltline right
+      [flareHw, yMid, z],               // 3: Wheel arch / flare apex right
+      [hw * 0.92, yB, z],               // 4: Lower sill right
+      [hw * 0.50, yB - 0.04, z],        // 5: Underbody right
+      [0, yB - 0.04, z],                // 6: Underbody center
+      [-hw * 0.50, yB - 0.04, z],       // 7: Underbody left
+      [-hw * 0.92, yB, z],              // 8: Lower sill left
+      [-flareHw, yMid, z],              // 9: Wheel arch / flare apex left
+      [-hw * 0.96, yBelt, z],           // 10: Upper beltline left
+      [-hw * 0.72, yT - 0.02, z],       // 11: Top left shoulder
+    ]
+
+    for (let j = 0; j < N; j++) {
+      positions.push(ring[j][0], ring[j][1], ring[j][2])
+      uvs.push(j / (N - 1), i / (M - 1))
+    }
+  }
+
+  for (let i = 0; i < M - 1; i++) {
+    for (let j = 0; j < N; j++) {
+      const nextJ = (j + 1) % N
+      const v00 = i * N + j
+      const v01 = i * N + nextJ
+      const v10 = (i + 1) * N + j
+      const v11 = (i + 1) * N + nextJ
+
+      // Outward-facing normals
+      indices.push(v00, v10, v01)
+      indices.push(v01, v10, v11)
+    }
+  }
+
+  // Front Cap
+  const frontCenterIdx = positions.length / 3
+  positions.push(0, (stations[0].yBot + stations[0].yTop) * 0.5, stations[0].z)
+  uvs.push(0.5, 0.5)
+  for (let j = 0; j < N; j++) {
+    const nextJ = (j + 1) % N
+    indices.push(frontCenterIdx, nextJ, j)
+  }
+
+  // Rear Cap
+  const rearCenterIdx = positions.length / 3
+  positions.push(0, (stations[M - 1].yBot + stations[M - 1].yTop) * 0.5, stations[M - 1].z)
+  uvs.push(0.5, 0.5)
+  const lastBase = (M - 1) * N
+  for (let j = 0; j < N; j++) {
+    const nextJ = (j + 1) % N
+    indices.push(rearCenterIdx, lastBase + j, lastBase + nextJ)
+  }
+
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geom.setIndex(indices)
+  geom.computeVertexNormals()
+  return geom
+}
+
+// 3D Cambered NACA Airfoil Geometry for GT Rear Wing
+function createNacaAirfoilWingGeometry() {
+  const shape = new THREE.Shape()
+  shape.moveTo(-0.18, 0.0)
+  shape.bezierCurveTo(-0.18, 0.02, -0.14, 0.035, -0.06, 0.032)
+  shape.bezierCurveTo(0.04, 0.028, 0.12, 0.015, 0.18, 0.005)
+  // Gurney flap at trailing edge
+  shape.lineTo(0.18, 0.022)
+  shape.lineTo(0.174, 0.022)
+  shape.lineTo(0.174, -0.002)
+  // Concave underside
+  shape.bezierCurveTo(0.10, -0.008, 0.02, -0.005, -0.08, -0.012)
+  shape.bezierCurveTo(-0.14, -0.014, -0.18, -0.01, -0.18, 0.0)
+
+  const extrudeSettings = {
+    steps: 1,
+    depth: 1.84,
+    bevelEnabled: true,
+    bevelThickness: 0.015,
+    bevelSize: 0.01,
+    bevelSegments: 2,
+  }
+  const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings)
+  geom.center()
+  return geom
+}
+
 export function BmwM3GtrModel({
   paintColor,
   metallic,
@@ -85,6 +208,10 @@ export function BmwM3GtrModel({
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
+  // Memoized 3D Geometries
+  const loftedBodyGeo = useMemo(() => createLoftedM3BodyGeometry(), [])
+  const airfoilWingGeo = useMemo(() => createNacaAirfoilWingGeometry(), [])
+
   // PBR Automotive Materials with Authentic Clearcoat & IBL Specular Highlights
   const bodyPaint = (
     <meshPhysicalMaterial
@@ -216,7 +343,7 @@ export function BmwM3GtrModel({
     />
   )
 
-  // Realistic Wheel Assembly with Deep Dish BBS Rim, Cross-Drilled Rotors, and Blue Brembos
+  // Realistic BBS Wheel Assembly
   const renderWheelOrRepulsor = (isFront: boolean, isLeft: boolean) => {
     if (isHoverMode) {
       return (
@@ -238,48 +365,43 @@ export function BmwM3GtrModel({
 
     return (
       <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
-        {/* Stationary Performance Brake Caliper (stays fixed upright on hub knuckle, does not spin with wheel) */}
+        {/* Stationary Brembo Brake Caliper */}
         <mesh position={[-outerDir * 0.025, 0.14, 0]}>
           <boxGeometry args={[0.065, 0.12, 0.09]} />
           {bremboBlue}
         </mesh>
 
         <group rotation={[wheelRotation, 0, 0]}>
-          {/* 1. Low-Profile Performance Radial Tire with Rounded Sidewalls */}
-          {/* Main Tread Crown (Solid rubber cylinder along axle X) */}
+          {/* Performance Radial Tire */}
           <mesh rotation={[0, 0, Math.PI / 2]}>
             <cylinderGeometry args={[0.36, 0.36, 0.24, 32]} />
             {tireRubber}
           </mesh>
-          {/* Outer Rounded Sidewall (Torus with normal aligned along axle X) */}
           <mesh rotation={[0, Math.PI / 2, 0]} position={[outerDir * 0.08, 0, 0]}>
             <torusGeometry args={[0.315, 0.045, 16, 32]} />
             {tireRubber}
           </mesh>
-          {/* Inner Rounded Sidewall (Torus with normal aligned along axle X) */}
           <mesh rotation={[0, Math.PI / 2, 0]} position={[-outerDir * 0.08, 0, 0]}>
             <torusGeometry args={[0.315, 0.045, 16, 32]} />
             {tireRubber}
           </mesh>
 
-          {/* 2. Deep-Dish Polished Chrome Stepped Rim Barrel (Solid cylinders, no missing back faces) */}
-          {/* Outer Polished Chrome Stepped Lip */}
+          {/* Deep-Dish Polished Chrome Rim Barrel */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.095, 0, 0]}>
             <cylinderGeometry args={[0.29, 0.29, 0.05, 32]} />
             {polishedChrome}
           </mesh>
-          {/* Inner Rim Barrel */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.01, 0, 0]}>
             <cylinderGeometry args={[0.27, 0.27, 0.20, 32]} />
             {polishedChrome}
           </mesh>
 
-          {/* 3. Concave BBS Motorsport Wheel Center Face */}
+          {/* Concave BBS Center Face */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.075, 0, 0]}>
             <cylinderGeometry args={[0.24, 0.24, 0.02, 32]} />
             <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.15} />
           </mesh>
-          {/* 16-Spoke BBS Cross-Laced Mesh Pattern (Rotating in the YZ wheel face around axle X) */}
+          {/* 16-Spoke BBS Cross-Laced Mesh */}
           {[0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5].map((deg, idx) => (
             <mesh
               key={idx}
@@ -290,7 +412,6 @@ export function BmwM3GtrModel({
               <meshStandardMaterial color="#e2e8f0" metalness={0.94} roughness={0.12} />
             </mesh>
           ))}
-          {/* Interlaced Secondary Y-Spoke Accents */}
           {[11.25, 33.75, 56.25, 78.75, 101.25, 123.75, 146.25, 168.75].map((deg, idx) => (
             <mesh
               key={`y_${idx}`}
@@ -302,23 +423,21 @@ export function BmwM3GtrModel({
             </mesh>
           ))}
 
-          {/* 4. Center Hub Nut with M-Colors */}
+          {/* Center Hub Nut & Roundel Ring */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[outerDir * 0.095, 0, 0]}>
             <cylinderGeometry args={[0.052, 0.052, 0.024, 16]} />
             {bremboBlue}
           </mesh>
-          {/* Center BMW Roundel Ring */}
           <mesh rotation={[0, Math.PI / 2, 0]} position={[outerDir * 0.108, 0, 0]}>
             <torusGeometry args={[0.048, 0.006, 8, 16]} />
             {polishedChrome}
           </mesh>
 
-          {/* 5. Cross-Drilled Ventilated Cast-Iron Brake Rotor (Rotates with wheel hub) */}
+          {/* Cross-Drilled Ventilated Rotor */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.025, 0, 0]}>
             <cylinderGeometry args={[0.23, 0.23, 0.024, 32]} />
             {brakeRotor}
           </mesh>
-          {/* Rotor Center Aluminum Top Hat */}
           <mesh rotation={[0, 0, Math.PI / 2]} position={[-outerDir * 0.015, 0, 0]}>
             <cylinderGeometry args={[0.11, 0.11, 0.03, 24]} />
             <meshStandardMaterial color="#475569" metalness={0.95} roughness={0.25} />
@@ -330,66 +449,12 @@ export function BmwM3GtrModel({
 
   return (
     <group position={[0, -0.38, 0]}>
-      {/* 1. Sculpted 3-Box Lower Monocoque (Front Nose, Waistline Sills, Rear Muscular Haunches) */}
-      {/* Front Nose & Engine Bay Core */}
-      <mesh position={[0, 0.42, -1.55]} castShadow>
-        <boxGeometry args={[1.70, 0.36, 1.34]} />
-        {bodyPaint}
-      </mesh>
-      {/* Front Bumper Beveled Aerodynamic Corner Wraps */}
-      <mesh position={[-0.80, 0.38, -2.12]} rotation={[0, -0.38, 0]} castShadow>
-        <boxGeometry args={[0.22, 0.32, 0.28]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[0.80, 0.38, -2.12]} rotation={[0, 0.38, 0]} castShadow>
-        <boxGeometry args={[0.22, 0.32, 0.28]} />
+      {/* 1. Continuous Sculpted GT Widebody Monocoque */}
+      <mesh geometry={loftedBodyGeo} castShadow receiveShadow>
         {bodyPaint}
       </mesh>
 
-      {/* Mid Waistline Cabin Sill Structure (Subtle Hourglass Taper) */}
-      <mesh position={[0, 0.42, 0]} castShadow>
-        <boxGeometry args={[1.72, 0.36, 1.76]} />
-        {bodyPaint}
-      </mesh>
-
-      {/* Muscular Rear Quarter Body & Trunk Structure (Widened GT Haunches) */}
-      <mesh position={[0, 0.44, 1.50]} castShadow>
-        <boxGeometry args={[1.86, 0.36, 1.32]} />
-        {bodyPaint}
-      </mesh>
-      {/* Rear Bumper Beveled Aerodynamic Corner Wraps */}
-      <mesh position={[-0.82, 0.40, 2.10]} rotation={[0, 0.35, 0]} castShadow>
-        <boxGeometry args={[0.22, 0.32, 0.26]} />
-        {bodyPaint}
-      </mesh>
-      <mesh position={[0.82, 0.40, 2.10]} rotation={[0, -0.35, 0]} castShadow>
-        <boxGeometry args={[0.22, 0.32, 0.26]} />
-        {bodyPaint}
-      </mesh>
-
-      {/* 2. Semicircular 3D Flared Widebody Wheel Arches (Front & Rear) */}
-      {/* Front Left Flared Arch */}
-      <mesh position={[-0.92, 0.36, -1.35]} rotation={[0, Math.PI / 2, 0]} castShadow>
-        <torusGeometry args={[0.39, 0.072, 12, 24, Math.PI]} />
-        {bodyPaint}
-      </mesh>
-      {/* Front Right Flared Arch */}
-      <mesh position={[0.92, 0.36, -1.35]} rotation={[0, Math.PI / 2, 0]} castShadow>
-        <torusGeometry args={[0.39, 0.072, 12, 24, Math.PI]} />
-        {bodyPaint}
-      </mesh>
-      {/* Rear Left Muscular Haunch Flare */}
-      <mesh position={[-0.94, 0.36, 1.35]} rotation={[0, Math.PI / 2, 0]} castShadow>
-        <torusGeometry args={[0.41, 0.082, 12, 24, Math.PI]} />
-        {bodyPaint}
-      </mesh>
-      {/* Rear Right Muscular Haunch Flare */}
-      <mesh position={[0.94, 0.36, 1.35]} rotation={[0, Math.PI / 2, 0]} castShadow>
-        <torusGeometry args={[0.41, 0.082, 12, 24, Math.PI]} />
-        {bodyPaint}
-      </mesh>
-
-      {/* Inner Wheel Well Cavity Liners (Dark Matte Tub Recesses) */}
+      {/* Inner Wheel Well Cavity Liners */}
       <mesh position={[-0.88, 0.38, -1.35]} rotation={[0, 0, Math.PI / 2]}>
         <cylinderGeometry args={[0.38, 0.38, 0.14, 16]} />
         {matteTrim}
@@ -407,30 +472,42 @@ export function BmwM3GtrModel({
         {matteTrim}
       </mesh>
 
-      {/* 3. Vented GTR Hood Surface with Sloping Angle */}
+      {/* 2. Vented GTR Hood with Power Dome & Dual Extraction Louvers */}
       <mesh position={[0, 0.58, -1.32]} rotation={[0.08, 0, 0]} castShadow>
         <boxGeometry args={[1.64, 0.08, 1.48]} />
         {bodyPaint}
       </mesh>
+      {/* Hood Power Dome Center Bulge */}
+      <mesh position={[0, 0.685, -1.28]} rotation={[0.08, 0, 0]} castShadow>
+        <boxGeometry args={[0.52, 0.045, 1.28]} />
+        {bodyPaint}
+      </mesh>
+      {/* Dual Angled Carbon Cooling Louvers */}
+      <mesh position={[-0.38, 0.68, -1.22]} rotation={[0.08, 0, 0.08]}>
+        <boxGeometry args={[0.26, 0.02, 0.54]} />
+        {carbonFiber}
+      </mesh>
+      <mesh position={[0.38, 0.68, -1.22]} rotation={[0.08, 0, -0.08]}>
+        <boxGeometry args={[0.26, 0.02, 0.54]} />
+        {carbonFiber}
+      </mesh>
 
-      {/* 4. Trunk Decklid Surface with Integrated Ducktail Spoiler Lip */}
+      {/* 3. Trunk Decklid Surface & Aerodynamic Ducktail Lip */}
       <mesh position={[0, 0.70, 1.74]} castShadow>
         <boxGeometry args={[1.56, 0.08, 0.74]} />
         {bodyPaint}
       </mesh>
-      {/* Integrated Aerodynamic Ducktail Lip */}
       <mesh position={[0, 0.745, 2.10]} rotation={[0.12, 0, 0]} castShadow>
         <boxGeometry args={[1.54, 0.035, 0.08]} />
         {carbonFiber}
       </mesh>
 
-      {/* 5. Tumblehome Coupe Greenhouse Cabin & Raked Glass */}
-      {/* Tapered Greenhouse Core Structure */}
+      {/* 4. Tumblehome Coupe Greenhouse Cabin & Raked Glass */}
       <mesh position={[0, 0.86, 0.08]} castShadow>
         <boxGeometry args={[1.36, 0.46, 1.84]} />
         {bodyPaint}
       </mesh>
-      {/* Sloping A-Pillars Framing Windshield */}
+      {/* Sloping A-Pillars */}
       <mesh position={[-0.66, 0.90, -0.62]} rotation={[0.55, 0, 0.14]} castShadow>
         <boxGeometry args={[0.06, 0.62, 0.06]} />
         {bodyPaint}
@@ -455,17 +532,17 @@ export function BmwM3GtrModel({
         {carbonFiber}
       </mesh>
 
-      {/* Raked Windshield (Front) with Ceramic Frit Border */}
+      {/* Raked Windshield */}
       <mesh position={[0, 0.90, -0.62]} rotation={[0.56, 0, 0]}>
         <boxGeometry args={[1.32, 0.64, 0.035]} />
         {darkGlass}
       </mesh>
-      {/* Sloping Fastback Rear Window with Heating Defroster Lines */}
+      {/* Fastback Rear Window */}
       <mesh position={[0, 0.91, 0.86]} rotation={[-0.50, 0, 0]}>
         <boxGeometry args={[1.28, 0.62, 0.035]} />
         {darkGlass}
       </mesh>
-      {/* Side Windows with Hofmeister Kink Silhouette (Tumbled Inward by 14°) */}
+      {/* Side Windows with Inward Tumblehome (14°) */}
       <mesh position={[0.66, 0.90, 0.08]} rotation={[0, 0, -0.12]}>
         <boxGeometry args={[0.02, 0.40, 1.48]} />
         {darkGlass}
@@ -474,7 +551,7 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.02, 0.40, 1.48]} />
         {darkGlass}
       </mesh>
-      {/* Polished Chrome Window Upper Drip Moldings */}
+      {/* Window Drip Moldings */}
       <mesh position={[0.66, 1.12, 0.08]}>
         <boxGeometry args={[0.012, 0.018, 1.58]} />
         {polishedChrome}
@@ -484,8 +561,7 @@ export function BmwM3GtrModel({
         {polishedChrome}
       </mesh>
 
-      {/* 2. Iconic M3 GTR Blue Racing Livery (Hood, Carbon Roof, and Trunk Decklid) */}
-      {/* Hood Twin Stripes */}
+      {/* 5. Iconic M3 GTR Blue Racing Livery */}
       <mesh position={[-0.18, 0.63, -1.32]} rotation={[0.08, 0, 0]} castShadow>
         <boxGeometry args={[0.15, 0.012, 1.46]} />
         {iconicGtrBlue}
@@ -494,7 +570,6 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.15, 0.012, 1.46]} />
         {iconicGtrBlue}
       </mesh>
-      {/* Roof Twin Stripes */}
       <mesh position={[-0.18, 1.148, 0.08]} castShadow>
         <boxGeometry args={[0.15, 0.012, 1.60]} />
         {iconicGtrBlue}
@@ -503,7 +578,6 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.15, 0.012, 1.60]} />
         {iconicGtrBlue}
       </mesh>
-      {/* Trunk Twin Stripes */}
       <mesh position={[-0.18, 0.742, 1.74]} castShadow>
         <boxGeometry args={[0.15, 0.012, 0.72]} />
         {iconicGtrBlue}
@@ -512,7 +586,7 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.15, 0.012, 0.72]} />
         {iconicGtrBlue}
       </mesh>
-      {/* Dynamic Geometric Side Livery Accents along Door & Rear Haunch */}
+      {/* Side Livery Accents */}
       <mesh position={[-0.89, 0.44, 0.2]} rotation={[0, 0, 0.18]}>
         <boxGeometry args={[0.015, 0.20, 1.6]} />
         {iconicGtrBlue}
@@ -530,23 +604,7 @@ export function BmwM3GtrModel({
         {iconicGtrBlue}
       </mesh>
 
-      {/* 3. Hood Power Dome & Dual Angled Carbon Louvers */}
-      {/* Hood Power Dome Center Bulge */}
-      <mesh position={[0, 0.685, -1.28]} rotation={[0.08, 0, 0]} castShadow>
-        <boxGeometry args={[0.52, 0.045, 1.28]} />
-        {bodyPaint}
-      </mesh>
-      {/* Dual Angled Carbon Fiber Cooling Extraction Louvers */}
-      <mesh position={[-0.38, 0.68, -1.22]} rotation={[0.08, 0, 0.08]}>
-        <boxGeometry args={[0.26, 0.02, 0.54]} />
-        {carbonFiber}
-      </mesh>
-      <mesh position={[0.38, 0.68, -1.22]} rotation={[0.08, 0, -0.08]}>
-        <boxGeometry args={[0.26, 0.02, 0.54]} />
-        {carbonFiber}
-      </mesh>
-
-      {/* 5. Authentic E46 GTR Front Fender Side Gills & Chrome M Strakes */}
+      {/* 6. Front Fender Side Gills & Chrome M Strakes */}
       <group position={[-0.89, 0.52, -0.92]}>
         <mesh>
           <boxGeometry args={[0.025, 0.12, 0.26]} />
@@ -576,7 +634,7 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* 6. Aerodynamic Carbon Side Skirts & Authentic ALMS M3 GTR Side-Exit Exhausts */}
+      {/* 7. Carbon Side Skirts & ALMS Side-Exit Exhaust */}
       <mesh position={[-0.87, 0.19, 0]}>
         <boxGeometry args={[0.08, 0.05, 2.20]} />
         {carbonFiber}
@@ -585,7 +643,6 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.08, 0.05, 2.20]} />
         {carbonFiber}
       </mesh>
-      {/* Side-Exit Exhaust Port (Passenger Side Rocker Sill) */}
       <group position={[-0.88, 0.18, 0.62]}>
         <mesh rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.038, 0.038, 0.06, 16]} />
@@ -595,7 +652,6 @@ export function BmwM3GtrModel({
           <cylinderGeometry args={[0.039, 0.039, 0.01, 16]} />
           {burntTipBlue}
         </mesh>
-        {/* Exhaust interior heat glow on braking / overrun */}
         <mesh position={[-0.02, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
           <circleGeometry args={[0.034, 16]} />
           <meshBasicMaterial
@@ -607,18 +663,15 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* 8. Race Cockpit Interior: Dashboard, Momo Steering Wheel, Recaro Bucket Seats & Roll Cage */}
-      {/* Matte Alcantara Dashboard Top */}
+      {/* 8. Race Cockpit Interior */}
       <mesh position={[0, 0.76, -0.42]} rotation={[0.1, 0, 0]}>
         <boxGeometry args={[1.34, 0.12, 0.38]} />
         {alcantara}
       </mesh>
-      {/* Driver Instrument Binnacle */}
       <mesh position={[-0.34, 0.83, -0.38]}>
         <boxGeometry args={[0.30, 0.12, 0.14]} />
         {matteTrim}
       </mesh>
-      {/* Glowing Digital Motec Race Display & Sequential Shift Lights */}
       <mesh position={[-0.34, 0.84, -0.30]} rotation={[-0.2, 0, 0]}>
         <boxGeometry args={[0.20, 0.07, 0.01]} />
         {gaugeCluster}
@@ -627,7 +680,7 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.16, 0.014, 0.01]} />
         {shiftLightRed}
       </mesh>
-      {/* Momo 3-Spoke Alcantara Racing Steering Wheel */}
+      {/* Momo Steering Wheel */}
       <group position={[-0.34, 0.78, -0.22]} rotation={[0.32, 0, steeringAngle * 1.5]}>
         <mesh>
           <torusGeometry args={[0.15, 0.02, 12, 24]} />
@@ -642,7 +695,7 @@ export function BmwM3GtrModel({
           {carbonFiber}
         </mesh>
       </group>
-      {/* Dog-Box Sequential Shifter Lever */}
+      {/* Shifter Lever */}
       <mesh position={[0, 0.58, -0.05]} rotation={[-0.2, 0, 0]}>
         <cylinderGeometry args={[0.012, 0.012, 0.22, 12]} />
         {polishedChrome}
@@ -651,7 +704,7 @@ export function BmwM3GtrModel({
         <sphereGeometry args={[0.028, 12, 12]} />
         {matteTrim}
       </mesh>
-      {/* Recaro GT Carbon Bucket Seats with Blue Racing Harness */}
+      {/* Recaro Bucket Seats */}
       <group position={[-0.34, 0.58, 0.16]} rotation={[-0.15, 0, 0]}>
         <mesh position={[0, 0.28, 0]}>
           <boxGeometry args={[0.42, 0.60, 0.12]} />
@@ -661,7 +714,6 @@ export function BmwM3GtrModel({
           <boxGeometry args={[0.40, 0.12, 0.38]} />
           {alcantara}
         </mesh>
-        {/* Harness Straps */}
         <mesh position={[-0.10, 0.28, 0.07]}>
           <boxGeometry args={[0.05, 0.56, 0.01]} />
           {iconicGtrBlue}
@@ -680,7 +732,6 @@ export function BmwM3GtrModel({
           <boxGeometry args={[0.40, 0.12, 0.38]} />
           {alcantara}
         </mesh>
-        {/* Harness Straps */}
         <mesh position={[-0.10, 0.28, 0.07]}>
           <boxGeometry args={[0.05, 0.56, 0.01]} />
           {iconicGtrBlue}
@@ -690,7 +741,7 @@ export function BmwM3GtrModel({
           {iconicGtrBlue}
         </mesh>
       </group>
-      {/* Welded Titanium Tubular Safety Roll Cage */}
+      {/* Titanium Roll Cage */}
       <mesh position={[0, 0.94, 0.45]}>
         <torusGeometry args={[0.58, 0.02, 8, 16, Math.PI]} />
         {rollCage}
@@ -708,7 +759,7 @@ export function BmwM3GtrModel({
         {rollCage}
       </mesh>
 
-      {/* Aerodynamic M3 Teardrop Side Mirrors */}
+      {/* Side Mirrors */}
       <group position={[-0.78, 0.88, -0.45]}>
         <mesh rotation={[0, 0, 0.1]}>
           <boxGeometry args={[0.15, 0.08, 0.20]} />
@@ -730,18 +781,11 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* 9. Aggressive Front Bumper, Splitter with Support Struts & Kidney Grilles */}
-      {/* Front Bumper Fascia */}
-      <mesh position={[0, 0.38, -2.16]} castShadow>
-        <boxGeometry args={[1.76, 0.36, 0.18]} />
-        {bodyPaint}
-      </mesh>
-      {/* Front Carbon Splitter Blade with Aero Endplates */}
+      {/* 9. Front Splitter Blade with Chrome Tension Tie-Rods */}
       <mesh position={[0, 0.16, -2.26]} castShadow>
         <boxGeometry args={[1.82, 0.035, 0.36]} />
         {carbonFiber}
       </mesh>
-      {/* Dual Splitter Support Tension Struts */}
       <mesh position={[-0.32, 0.28, -2.25]} rotation={[0.42, 0, 0]}>
         <cylinderGeometry args={[0.007, 0.007, 0.22, 8]} />
         {polishedChrome}
@@ -750,7 +794,7 @@ export function BmwM3GtrModel({
         <cylinderGeometry args={[0.007, 0.007, 0.22, 8]} />
         {polishedChrome}
       </mesh>
-      {/* Lower Central Radiator Air Dam & Heat Exchanger Core */}
+      {/* Lower Central Radiator Air Dam */}
       <mesh position={[0, 0.26, -2.20]}>
         <boxGeometry args={[0.82, 0.15, 0.04]} />
         {matteTrim}
@@ -759,7 +803,6 @@ export function BmwM3GtrModel({
         <boxGeometry args={[0.78, 0.13, 0.015]} />
         <meshStandardMaterial color="#334155" metalness={0.88} roughness={0.35} />
       </mesh>
-      {/* Dual Lower Brake Cooling Ducts */}
       <mesh position={[-0.64, 0.24, -2.18]}>
         <boxGeometry args={[0.22, 0.10, 0.03]} />
         {matteTrim}
@@ -769,7 +812,7 @@ export function BmwM3GtrModel({
         {matteTrim}
       </mesh>
 
-      {/* Iconic E46 Twin Kidney Grilles with Polished Chrome Frame & Black Slats */}
+      {/* Iconic E46 Twin Kidney Grilles */}
       <group position={[-0.20, 0.48, -2.21]}>
         <mesh>
           <boxGeometry args={[0.24, 0.16, 0.035]} />
@@ -802,13 +845,13 @@ export function BmwM3GtrModel({
           </mesh>
         ))}
       </group>
-      {/* Front BMW Roundel Hood Emblem */}
+      {/* BMW Hood Roundel */}
       <mesh position={[0, 0.63, -2.18]} rotation={[0.35, 0, 0]}>
         <cylinderGeometry args={[0.042, 0.042, 0.015, 16]} />
         {bremboBlue}
       </mesh>
 
-      {/* Headlight Assemblies (Bi-Xenon Projectors & BMW Angel Eye Halos) */}
+      {/* Bi-Xenon Projectors & Angel Eye Halos */}
       <group position={[-0.62, 0.48, -2.18]}>
         <mesh>
           <boxGeometry args={[0.34, 0.15, 0.035]} />
@@ -854,8 +897,7 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* 7. Trunk Badges & License Plate */}
-      {/* BMW Roundel Trunk Emblem */}
+      {/* 10. Trunk Badges & German License Plate */}
       <mesh position={[0, 0.64, 2.18]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.05, 0.05, 0.015, 18]} />
         {bremboBlue}
@@ -864,48 +906,40 @@ export function BmwM3GtrModel({
         <torusGeometry args={[0.05, 0.008, 8, 18]} />
         {polishedChrome}
       </mesh>
-      {/* Chrome "M3 GTR" Trunk Badge */}
       <mesh position={[0.48, 0.63, 2.18]}>
         <boxGeometry args={[0.18, 0.04, 0.015]} />
         {polishedChrome}
       </mesh>
-      {/* Recessed License Plate Cavity */}
       <mesh position={[0, 0.44, 2.18]}>
         <boxGeometry args={[0.56, 0.18, 0.04]} />
         {matteTrim}
       </mesh>
-      {/* Calm Roads German-Style Number Plate ("CR • 05 GTR") */}
       <group position={[0, 0.44, 2.205]}>
         <mesh>
           <boxGeometry args={[0.52, 0.14, 0.01]} />
           <meshStandardMaterial color="#f8fafc" roughness={0.2} />
         </mesh>
-        {/* Blue EU Band on Left */}
         <mesh position={[-0.23, 0, 0.006]}>
           <boxGeometry args={[0.055, 0.13, 0.005]} />
           <meshStandardMaterial color="#1d4ed8" roughness={0.3} />
         </mesh>
-        {/* Embossed Dark Plate Text Bar */}
         <mesh position={[0.02, 0, 0.006]}>
           <boxGeometry args={[0.38, 0.07, 0.005]} />
           <meshStandardMaterial color="#18181b" roughness={0.8} />
         </mesh>
       </group>
 
-      {/* 8. Authentic E46 L-Shaped Split Taillights */}
-      {/* Outer Taillight Units (Fender Cluster) */}
+      {/* 11. Authentic E46 L-Shaped Split Taillights */}
+      {/* Outer Fender Units */}
       <group position={[-0.72, 0.55, 2.16]}>
-        {/* Upper Ruby Red Brake/Running Chamber */}
         <mesh position={[0, 0.04, 0]}>
           <boxGeometry args={[0.26, 0.08, 0.04]} />
           {taillightRed}
         </mesh>
-        {/* Lower Amber Indicator Chamber */}
         <mesh position={[0, -0.04, 0]}>
           <boxGeometry args={[0.26, 0.07, 0.04]} />
           {taillightAmber}
         </mesh>
-        {/* Crystal Smoked Lens Cover */}
         <mesh position={[0, 0, 0.022]}>
           <boxGeometry args={[0.27, 0.16, 0.01]} />
           {taillightLens}
@@ -925,14 +959,12 @@ export function BmwM3GtrModel({
           {taillightLens}
         </mesh>
       </group>
-
-      {/* Inner Taillight Units (Trunk Decklid Cluster) */}
+      {/* Inner Trunk Units */}
       <group position={[-0.42, 0.55, 2.17]}>
         <mesh position={[0, 0.04, 0]}>
           <boxGeometry args={[0.22, 0.08, 0.03]} />
           {taillightRed}
         </mesh>
-        {/* White Reverse Lamp Strip */}
         <mesh position={[0, -0.04, 0]}>
           <boxGeometry args={[0.22, 0.07, 0.03]} />
           {taillightReverse}
@@ -957,85 +989,65 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* 9. Rear Aerodynamics: High-Downforce Swan-Neck Carbon GT Wing */}
-      {/* Curved Swan-Neck Milled Titanium Wing Pylons (Mounting to Wing Top Surface) */}
+      {/* 12. Swan-Neck Titanium GT Rear Wing & 3D NACA Cambered Airfoil */}
       <group position={[-0.48, 0.94, 1.94]}>
-        {/* Main Base Upright */}
         <mesh position={[0, 0, 0]} rotation={[0.22, 0, 0]} castShadow>
           <boxGeometry args={[0.032, 0.46, 0.11]} />
           {exhaustTitanium}
         </mesh>
-        {/* Forward Swan-Neck Cantilever Hook */}
         <mesh position={[0, 0.22, 0.06]} rotation={[-0.24, 0, 0]} castShadow>
           <boxGeometry args={[0.032, 0.08, 0.16]} />
           {exhaustTitanium}
         </mesh>
       </group>
       <group position={[0.48, 0.94, 1.94]}>
-        {/* Main Base Upright */}
         <mesh position={[0, 0, 0]} rotation={[0.22, 0, 0]} castShadow>
           <boxGeometry args={[0.032, 0.46, 0.11]} />
           {exhaustTitanium}
         </mesh>
-        {/* Forward Swan-Neck Cantilever Hook */}
         <mesh position={[0, 0.22, 0.06]} rotation={[-0.24, 0, 0]} castShadow>
           <boxGeometry args={[0.032, 0.08, 0.16]} />
           {exhaustTitanium}
         </mesh>
       </group>
 
-      {/* 3D Cambered Airfoil Wing Blade with Downforce Angle of Attack */}
-      <mesh position={[0, 1.18, 2.02]} rotation={[-0.08, 0, 0]} castShadow>
-        <boxGeometry args={[1.82, 0.036, 0.34]} />
-        {carbonFiber}
-      </mesh>
-      {/* Rounded Leading Edge Airfoil Profile */}
-      <mesh position={[0, 1.19, 1.86]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.016, 0.016, 1.82, 16]} />
-        {carbonFiber}
-      </mesh>
-      {/* Trailing Edge Carbon Fiber Gurney Flap */}
-      <mesh position={[0, 1.205, 2.19]}>
-        <boxGeometry args={[1.80, 0.024, 0.014]} />
+      {/* 3D Cambered NACA Airfoil Blade */}
+      <mesh
+        geometry={airfoilWingGeo}
+        position={[0, 1.18, 2.02]}
+        rotation={[-0.08, Math.PI / 2, 0]}
+        castShadow
+      >
         {carbonFiber}
       </mesh>
       {/* Aerodynamic Carbon Wing Endplates */}
-      <mesh position={[-0.91, 1.18, 2.02]}>
+      <mesh position={[-0.92, 1.18, 2.02]}>
         <boxGeometry args={[0.018, 0.22, 0.40]} />
         {carbonFiber}
       </mesh>
-      <mesh position={[0.91, 1.18, 2.02]}>
+      <mesh position={[0.92, 1.18, 2.02]}>
         <boxGeometry args={[0.018, 0.22, 0.40]} />
         {carbonFiber}
       </mesh>
 
-      {/* 10. Rear Bumper, Carbon Diffuser & Staggered Quad Titanium Exhaust */}
-      <mesh position={[0, 0.40, 2.15]} castShadow>
-        <boxGeometry args={[1.84, 0.28, 0.16]} />
-        {bodyPaint}
-      </mesh>
-      {/* High-Downforce Carbon Fiber Rear Diffuser (14° Aerodynamic Ground-Effect Upslope) */}
+      {/* 13. Carbon Rear Diffuser, Strakes & Staggered Quad Titanium Exhaust */}
       <mesh position={[0, 0.20, 2.18]} rotation={[0.16, 0, 0]}>
         <boxGeometry args={[1.58, 0.12, 0.32]} />
         {carbonFiber}
       </mesh>
-      {/* 4 Vertical Diffuser Airflow Guide Strakes */}
       {[-0.54, -0.18, 0.18, 0.54].map((dx, i) => (
         <mesh key={i} position={[dx, 0.18, 2.22]} rotation={[0.16, 0, 0]}>
           <boxGeometry args={[0.022, 0.16, 0.28]} />
           {carbonFiber}
         </mesh>
       ))}
-      {/* FIA-Style Center Rear Rain/Fog Light */}
       <mesh position={[0, 0.24, 2.28]}>
         <boxGeometry args={[0.08, 0.045, 0.02]} />
         {taillightRed}
       </mesh>
 
-      {/* Staggered Quad Titanium Exhaust System */}
-      {/* Left Pair */}
+      {/* Left Quad Exhaust */}
       <group position={[-0.38, 0.22, 2.24]}>
-        {/* Outer Tip (larger) */}
         <mesh position={[-0.08, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.055, 0.055, 0.16, 18]} />
           {exhaustTitanium}
@@ -1057,8 +1069,6 @@ export function BmwM3GtrModel({
             opacity={isBraking ? 0.85 : 0.06}
           />
         </mesh>
-
-        {/* Inner Tip (slightly recessed) */}
         <mesh position={[0.06, -0.01, -0.02]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.052, 0.052, 0.15, 18]} />
           {exhaustTitanium}
@@ -1082,9 +1092,8 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* Right Pair */}
+      {/* Right Quad Exhaust */}
       <group position={[0.38, 0.22, 2.24]}>
-        {/* Inner Tip (slightly recessed) */}
         <mesh position={[-0.06, -0.01, -0.02]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.052, 0.052, 0.15, 18]} />
           {exhaustTitanium}
@@ -1106,8 +1115,6 @@ export function BmwM3GtrModel({
             opacity={isBraking ? 0.85 : 0.06}
           />
         </mesh>
-
-        {/* Outer Tip */}
         <mesh position={[0.08, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.055, 0.055, 0.16, 18]} />
           {exhaustTitanium}
@@ -1131,7 +1138,7 @@ export function BmwM3GtrModel({
         </mesh>
       </group>
 
-      {/* Dynamic Forward Headlights */}
+      {/* Dynamic Forward Headlight Projectors */}
       {headlightsOn && <HeadlightBeams x={0.64} y={0.5} z={-2.25} color="#fffbeb" intensity={72} />}
 
       {/* 4 Corners with Independent Suspension Tracking */}

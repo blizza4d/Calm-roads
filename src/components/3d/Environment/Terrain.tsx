@@ -126,6 +126,10 @@ const grassTuftGeo = (() => {
 // 7. Utility Poles
 const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 6.4, 8).translate(0, 3.2, 0)
 
+// 8. Highway Reflector Delineator Posts (Guide Posts / Leitpfosten)
+const delineatorPostGeo = new THREE.BoxGeometry(0.12, 1.05, 0.08).translate(0, 0.525, 0)
+const delineatorReflectorGeo = new THREE.BoxGeometry(0.08, 0.18, 0.085).translate(0, 0.88, 0)
+
 // Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
 const _dummy = new THREE.Object3D()
 
@@ -493,6 +497,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const rocks: { pos: [number, number, number]; scale: [number, number, number]; rot: [number, number, number] }[] = []
     const grassTufts: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const poles: { pos: [number, number, number] }[] = []
+    const delineators: { pos: [number, number, number]; rotY: number }[] = []
 
     const isDesert = biomeConfig.id === 'desert'
     const isTundra = biomeConfig.id === 'tundra'
@@ -638,7 +643,25 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       })
     }
 
-    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles }
+    // Roadside Reflector Delineator Posts (Guide Posts along both shoulders)
+    const numDelineators = 8
+    const delineatorSpacing = CHUNK_LEN / numDelineators
+    for (let d = 0; d < numDelineators; d++) {
+      const delinZ = -CHUNK_LEN / 2 + d * delineatorSpacing + delineatorSpacing * 0.5
+      const worldZ = chunkZ + delinZ
+      const roadCx = getRoadCenter(worldZ)
+      const roadY = getRoadElevation(worldZ)
+      const sides = [-1, 1]
+      sides.forEach((side) => {
+        const delinX = roadCx + side * (ROAD_WIDTH / 2 + 1.15)
+        delineators.push({
+          pos: [delinX, roadY, delinZ],
+          rotY: side === -1 ? 0.06 : -0.06,
+        })
+      })
+    }
+
+    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators }
   }, [chunkZ, biomeConfig.id])
 
   // Instanced Meshes for Vegetation & Scenery Props
@@ -651,6 +674,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const rockRef = useRef<THREE.InstancedMesh>(null)
   const grassRef = useRef<THREE.InstancedMesh>(null)
   const poleRef = useRef<THREE.InstancedMesh>(null)
+  const delineatorPostRef = useRef<THREE.InstancedMesh>(null)
+  const delineatorReflectorRef = useRef<THREE.InstancedMesh>(null)
 
   // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
   useLayoutEffect(() => {
@@ -740,6 +765,20 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         poleRef.current?.setMatrixAt(i, _dummy.matrix)
       })
       poleRef.current.instanceMatrix.needsUpdate = true
+    }
+
+    // 8. Roadside Reflector Delineator Posts
+    if (delineatorPostRef.current && delineatorReflectorRef.current) {
+      sceneryData.delineators.forEach((d, i) => {
+        _dummy.position.set(d.pos[0], d.pos[1], d.pos[2])
+        _dummy.scale.set(1, 1, 1)
+        _dummy.rotation.set(0, d.rotY, 0)
+        _dummy.updateMatrix()
+        delineatorPostRef.current?.setMatrixAt(i, _dummy.matrix)
+        delineatorReflectorRef.current?.setMatrixAt(i, _dummy.matrix)
+      })
+      delineatorPostRef.current.instanceMatrix.needsUpdate = true
+      delineatorReflectorRef.current.instanceMatrix.needsUpdate = true
     }
   }, [sceneryData])
 
@@ -920,6 +959,34 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         frustumCulled={false}
       >
         <meshStandardMaterial color="#362316" roughness={0.95} />
+      </instancedMesh>
+
+      {/* 13. Roadside Reflector Delineator Posts (Guide Posts) */}
+      <instancedMesh
+        ref={delineatorPostRef}
+        args={[delineatorPostGeo, undefined, 32]}
+        count={sceneryData.delineators.length}
+        castShadow
+        receiveShadow
+        frustumCulled={false}
+      >
+        <meshStandardMaterial color="#f8fafc" roughness={0.45} />
+      </instancedMesh>
+
+      {/* 14. Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
+      <instancedMesh
+        ref={delineatorReflectorRef}
+        args={[delineatorReflectorGeo, undefined, 32]}
+        count={sceneryData.delineators.length}
+        frustumCulled={false}
+      >
+        <meshStandardMaterial
+          color="#ffffff"
+          emissive="#f59e0b"
+          emissiveIntensity={1.8}
+          roughness={0.12}
+          toneMapped={false}
+        />
       </instancedMesh>
     </group>
   )

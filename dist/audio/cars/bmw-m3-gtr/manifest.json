@@ -1,0 +1,122 @@
+{
+  "carId": "bmw-m3-gtr",
+  "name": "BMW M3 GTR E46 P60B40 Racing V8",
+  "engineType": "4.0L 90° Naturally Aspirated Racing V8 (Flat-Plane / Cross-Plane High Revving)",
+  "transmission": "Hewland 6-Speed Sequential Dog-Box with Straight-Cut Spur Gears",
+  "redlineRpm": 8200,
+  "idleRpm": 850,
+  "audioFormat": "PCM 16-bit 44.1kHz Stereo WAV",
+  "license": "CC-BY-4.0 / Calm Roads Audio Project",
+  "clips": {
+    "idle_loop": {
+      "file": "idle_loop.wav",
+      "purpose": "Stationary idle combustion rumble (850 RPM)",
+      "loop": true,
+      "loopStartSec": 0,
+      "loopEndSec": 2.9,
+      "baseRpm": 850,
+      "rpmRange": [
+        750,
+        1200
+      ]
+    },
+    "low_rpm_acceleration": {
+      "file": "low_rpm_acceleration.wav",
+      "purpose": "Low-speed throttle roll-on with intake suction and primary V8 heartbeat",
+      "loop": false,
+      "baseRpm": 2200,
+      "rpmRange": [
+        1200,
+        3500
+      ]
+    },
+    "mid_rpm_acceleration": {
+      "file": "mid_rpm_acceleration.wav",
+      "purpose": "Midrange throttle ramp with tuned header pipe resonance",
+      "loop": false,
+      "baseRpm": 4500,
+      "rpmRange": [
+        3400,
+        5800
+      ]
+    },
+    "high_rpm_acceleration": {
+      "file": "high_rpm_acceleration.wav",
+      "purpose": "High-RPM screaming race-V8 harmonics with straight-cut dog-box whine",
+      "loop": false,
+      "baseRpm": 7000,
+      "rpmRange": [
+        5600,
+        8200
+      ]
+    },
+    "full_throttle_racing": {
+      "file": "full_throttle_racing.wav",
+      "purpose": "Aggressive wide-open throttle racing run with peak manifold saturation",
+      "loop": false,
+      "baseRpm": 7500,
+      "rpmRange": [
+        6000,
+        8400
+      ]
+    },
+    "high_rpm_loop": {
+      "file": "high_rpm_loop.wav",
+      "purpose": "Sustained top-speed redline howl (7,800 - 8,200 RPM)",
+      "loop": true,
+      "loopStartSec": 0,
+      "loopEndSec": 2.7,
+      "baseRpm": 7800,
+      "rpmRange": [
+        7200,
+        8400
+      ]
+    },
+    "deceleration": {
+      "file": "deceleration.wav",
+      "purpose": "Throttle lift-off compression braking and exhaust burble",
+      "loop": false,
+      "baseRpm": 4500,
+      "rpmRange": [
+        2200,
+        6800
+      ]
+    },
+    "engine_braking": {
+      "file": "engine_braking.wav",
+      "purpose": "Sustained reverse torque engine braking",
+      "loop": true,
+      "loopStartSec": 0,
+      "loopEndSec": 2.25,
+      "baseRpm": 4500,
+      "rpmRange": [
+        2500,
+        6000
+      ]
+    },
+    "exhaust_overrun": {
+      "file": "exhaust_overrun.wav",
+      "purpose": "Unburnt fuel popping and crackling on rapid throttle lift",
+      "loop": false,
+      "trigger": "throttle_release_fast"
+    },
+    "gear_up": {
+      "file": "gear_up.wav",
+      "purpose": "Sequential dog-box ignition cut & engagement clunk",
+      "loop": false,
+      "trigger": "upshift"
+    },
+    "gear_down": {
+      "file": "gear_down.wav",
+      "purpose": "Heel-and-toe rev-matched throttle blip & downshift clunk",
+      "loop": false,
+      "trigger": "downshift"
+    },
+    "startup": {
+      "file": "startup.wav",
+      "purpose": "High-torque starter motor crank and V8 ignition flare",
+      "loop": false,
+      "trigger": "engine_start"
+    }
+  }
+}
