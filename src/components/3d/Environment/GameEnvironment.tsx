@@ -1,6 +1,6 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Sky } from '@react-three/drei'
+import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -500,7 +500,7 @@ function ProceduralCloudLayer({
 
 export default function GameEnvironment() {
   const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
-  const { gl, scene, camera } = useThree()
+  const { scene, camera } = useThree()
 
   // Directional Light & Shadow target
   const dirLightRef = useRef<THREE.DirectionalLight>(null)
@@ -631,91 +631,6 @@ export default function GameEnvironment() {
     return 'day'
   }, [celestialData.isNight, timeOfDay])
 
-  // Persistent PMREM generator and active environment map texture
-  const pmremRef = useRef<THREE.PMREMGenerator | null>(null)
-  const currentEnvTextureRef = useRef<THREE.Texture | null>(null)
-
-  // Procedural PBR Irradiance Environment Map Generation
-  // Only runs when celestial phase transitions (Day, Sunset, Twilight, Night) - eliminates 60fps WebGL recompilation
-  useEffect(() => {
-    if (!pmremRef.current) {
-      pmremRef.current = new THREE.PMREMGenerator(gl)
-      pmremRef.current.compileEquirectangularShader()
-    }
-    const pmremGenerator = pmremRef.current
-
-    const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 128
-    const ctx = canvas.getContext('2d')
-
-    if (!ctx) return
-
-    // Equirectangular sky gradient matching the celestial phase
-    const grad = ctx.createLinearGradient(0, 0, 0, 128)
-    if (celestialPhase === 'night') {
-      grad.addColorStop(0.0, '#020617') // Deep cosmic zenith
-      grad.addColorStop(0.48, '#0f172a') // Horizon
-      grad.addColorStop(0.50, '#1e293b') // Moonlight horizon rim
-      grad.addColorStop(0.52, '#0f172a') // Ground horizon
-      grad.addColorStop(1.0, '#020617') // Ground nadir
-    } else if (celestialPhase === 'sunset') {
-      // Golden Hour Sunset
-      grad.addColorStop(0.0, '#38bdf8') // Blue zenith
-      grad.addColorStop(0.42, '#fde68a') // Warm sky
-      grad.addColorStop(0.50, '#fb923c') // Golden-amber horizon
-      grad.addColorStop(0.52, '#78350f') // Warm ground bounce
-      grad.addColorStop(1.0, '#292524') // Ground nadir
-    } else if (celestialPhase === 'sunrise') {
-      // Crisp Sunrise
-      grad.addColorStop(0.0, '#60a5fa')
-      grad.addColorStop(0.42, '#fbcfe8')
-      grad.addColorStop(0.50, '#f43f5e')
-      grad.addColorStop(0.53, '#4c1d95')
-      grad.addColorStop(1.0, '#1e1b4b')
-    } else {
-      // Crisp Daylight
-      grad.addColorStop(0.0, '#0284c7') // Sky blue zenith
-      grad.addColorStop(0.45, '#bae6fd') // Near horizon
-      grad.addColorStop(0.50, '#e0f2fe') // Bright horizon haze
-      grad.addColorStop(0.53, '#94a3b8') // Ground horizon
-      grad.addColorStop(1.0, '#334155') // Ground
-    }
-
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, 256, 128)
-
-    // Sun disc specular reflection source
-    if (celestialPhase !== 'night') {
-      const sunNormY = (celestialData.skySunPos[1] / 100) * 0.5 + 0.5
-      const sunPixelY = Math.max(10, Math.min(118, (1 - sunNormY) * 128))
-      const sunGrad = ctx.createRadialGradient(128, sunPixelY, 0, 128, sunPixelY, 28)
-      sunGrad.addColorStop(0, '#ffffff')
-      sunGrad.addColorStop(0.3, 'rgba(255, 250, 230, 0.85)')
-      sunGrad.addColorStop(1, 'rgba(255, 230, 180, 0)')
-      ctx.fillStyle = sunGrad
-      ctx.fillRect(100, sunPixelY - 28, 56, 56)
-    }
-
-    const texture = new THREE.CanvasTexture(canvas)
-    const envMap = pmremGenerator.fromEquirectangular(texture).texture
-    texture.dispose()
-
-    if (currentEnvTextureRef.current) {
-      currentEnvTextureRef.current.dispose()
-    }
-    currentEnvTextureRef.current = envMap
-    scene.environment = envMap
-  }, [gl, scene, celestialPhase])
-
-  // Cleanup PMREM generator on unmount
-  useEffect(() => {
-    return () => {
-      if (currentEnvTextureRef.current) currentEnvTextureRef.current.dispose()
-      if (pmremRef.current) pmremRef.current.dispose()
-    }
-  }, [])
-
   // Player-following directional light with smooth target tracking
   useFrame(() => {
     if (dirLightRef.current && lightTargetRef.current) {
@@ -827,6 +742,23 @@ export default function GameEnvironment() {
         isNight={celestialData.isNight}
       />
 
+      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces */}
+      <Suspense fallback={null}>
+        <Environment
+          preset={
+            celestialPhase === 'night'
+              ? 'night'
+              : celestialPhase === 'sunset'
+              ? 'sunset'
+              : celestialPhase === 'sunrise'
+              ? 'dawn'
+              : 'forest'
+          }
+          background={false}
+          environmentIntensity={graphicsQuality === 'low' ? 0.9 : 1.25}
+        />
+      </Suspense>
+
       {/* Directional Sun/Moon Light with Soft Shadows & Zero Surface Acne */}
       <directionalLight
         ref={dirLightRef}
@@ -837,8 +769,9 @@ export default function GameEnvironment() {
         shadow-mapSize={graphicsQuality === 'low' ? [1024, 1024] : [2048, 2048]}
         shadow-camera-near={0.5}
         shadow-camera-far={280}
-        shadow-bias={-0.00015}
-        shadow-normalBias={0.035}
+        shadow-bias={-0.00012}
+        shadow-normalBias={0.038}
+        shadow-radius={3.5}
       >
         <orthographicCamera attach="shadow-camera" args={[-70, 70, 70, -70, 0.5, 280]} />
       </directionalLight>

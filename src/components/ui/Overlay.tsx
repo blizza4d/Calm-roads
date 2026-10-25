@@ -302,8 +302,14 @@ function MasterMenuModal({
     {
       id: 'bmw_m3',
       name: "BMW M3 GTR '05",
-      tag: 'Flagship V8 GT',
+      tag: 'Flagship GT V8',
       desc: 'High-revving P60B40 racing V8 with widebody aerodynamics, race BBS wheels, and functional steering.',
+    },
+    {
+      id: 'supercar',
+      name: 'Modern Supercar',
+      tag: 'Italian V8',
+      desc: 'Mid-rear twin-turbo Italian V8 supercar with aerodynamic active aero flaps, carbon-ceramic brakes, and track-tuned suspension.',
     },
     {
       id: 'hovercraft',
@@ -954,7 +960,7 @@ function DiagnosticsHUD() {
         <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
           <div className="text-cyan-400 font-bold flex justify-between">
             <span>AUDIO ECOSYSTEM</span>
-            <span className="uppercase">{vehicleModel === 'bmw_m3' ? 'Sample-Based V8' : vehicleModel}</span>
+            <span className="uppercase">{vehicleModel === 'bmw_m3' || vehicleModel === 'supercar' ? 'Sample-Based V8' : vehicleModel}</span>
           </div>
           <div className="flex justify-between text-white/70">
             <span>RPM Crossfading:</span>

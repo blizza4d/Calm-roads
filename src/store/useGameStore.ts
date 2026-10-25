@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { BiomeType } from '../utils/roadMath'
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
-export type VehicleModelType = 'bmw_m3' | 'hovercraft' | 'camper' | 'hatchback'
+export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback'
 export type CameraPerspectiveType = 'chase' | 'dashboard' | 'drone' | 'bumper'
 export type BiomeSelection = 'dynamic' | BiomeType
 
@@ -117,7 +117,7 @@ interface GameState {
 }
 
 const WEATHERS: WeatherType[] = ['clear', 'rain', 'snow', 'mist']
-const VEHICLES: VehicleModelType[] = ['bmw_m3', 'hovercraft', 'camper', 'hatchback']
+const VEHICLES: VehicleModelType[] = ['bmw_m3', 'supercar', 'hovercraft', 'camper', 'hatchback']
 const CAMERAS: CameraPerspectiveType[] = ['chase', 'dashboard', 'drone', 'bumper']
 
 export const useGameStore = create<GameState>((set, get) => ({

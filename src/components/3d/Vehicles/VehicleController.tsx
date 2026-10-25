@@ -58,6 +58,27 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     downshiftRpm: 2400,
     engineBraking: 0.18,
   },
+  supercar: {
+    name: 'Modern Supercar',
+    massKg: 1420,
+    wheelRadius: 0.36,
+    maxSpeedMs: 78.5, // ~282 km/h
+    maxSpeedKmh: 282,
+    peakAccel: 7.2, // Twin-turbo V8 power curve
+    brakeDecel: 30,
+    dragCoeff: 0.30,
+    downforceCoeff: 0.50,
+    turnRate: 1.45,
+    tireGrip: 1.20,
+    roadDamping: 0.995,
+    offroadDamping: 0.985,
+    gearRatios: [52, 98, 155, 208, 252, 282],
+    idleRpm: 900,
+    redlineRpm: 8800,
+    upshiftRpm: 7500,
+    downshiftRpm: 2500,
+    engineBraking: 0.19,
+  },
   hovercraft: {
     name: 'Antigravity Hovercraft',
     massKg: 980,
@@ -126,10 +147,10 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
 const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
 const _wheelCorners: [number, number][] = [
-  [-0.84, -1.15], // Front-Left
-  [0.83, -1.15],  // Front-Right
-  [-0.82, 1.49],  // Rear-Left
-  [0.82, 1.49],   // Rear-Right
+  [-0.82, -1.35], // Front-Left
+  [0.82, -1.35],  // Front-Right
+  [-0.82, 1.35],  // Rear-Left
+  [0.82, 1.35],   // Rear-Right
 ]
 
 export default function VehicleController() {

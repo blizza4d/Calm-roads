@@ -74,7 +74,295 @@ function HeadlightBeams({
 }
 
 // ----------------------------------------------------
-// 1. High-Fidelity Sports Car / BMW M3 GTR '05 (GLTF Model)
+// 1. Authentic BMW M3 GTR '05 (ALMS / GT Widebody Monocoque)
+// ----------------------------------------------------
+
+function BmwGtrWheel({
+  wheelScene,
+  side, // 1 for left (-X), -1 for right (+X)
+  steeringAngle = 0,
+  wheelRotation = 0,
+  suspension = 0,
+  isHoverMode = false,
+  position,
+  rimColor,
+  metallic = 0.85,
+  roughness = 0.18,
+}: {
+  wheelScene: THREE.Group
+  side: 1 | -1
+  steeringAngle?: number
+  wheelRotation?: number
+  suspension?: number
+  isHoverMode?: boolean
+  position: [number, number, number]
+  rimColor?: string
+  metallic?: number
+  roughness?: number
+}) {
+  const cloned = useMemo(() => {
+    const root = wheelScene.clone(true)
+    root.position.set(-0.86, -8.76, 0)
+    return root
+  }, [wheelScene])
+
+  const rimMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(rimColor || '#e2e8f0'),
+      metalness: metallic ?? 0.88,
+      roughness: roughness ?? 0.18,
+      envMapIntensity: 2.2,
+    })
+  }, [rimColor, metallic, roughness])
+
+  const tireMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#222224'),
+      roughness: 0.90,
+      metalness: 0.05,
+    })
+  }, [])
+
+  const caliperMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#d97706'), // Brembo racing gold/amber
+      metalness: 0.85,
+      roughness: 0.22,
+    })
+  }, [])
+
+  useEffect(() => {
+    cloned.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+        const name = child.material?.name || ''
+        if (name.includes('WheelBase')) {
+          child.material = rimMat
+        } else if (name.includes('Tire')) {
+          child.material = tireMat
+        } else if (name.includes('Calliper')) {
+          child.material = caliperMat
+        }
+      }
+    })
+  }, [cloned, rimMat, tireMat, caliperMat])
+
+  const hoverFold = isHoverMode ? 0.78 : 0.0
+
+  return (
+    <group position={[position[0], position[1] + suspension, position[2]]}>
+      {/* Antigravity hover fold angle */}
+      <group rotation={[0, 0, side === 1 ? -hoverFold : hoverFold]}>
+        {/* Steering angle */}
+        <group rotation={[0, steeringAngle, 0]}>
+          {/* Wheel rotation around axle (X) */}
+          <group rotation={[wheelRotation, 0, 0]}>
+            {/* Outboard wheel rim face alignment */}
+            <group
+              rotation={[0, 0, side === 1 ? Math.PI / 2 : -Math.PI / 2]}
+              scale={0.01642}
+            >
+              <primitive object={cloned} />
+            </group>
+          </group>
+        </group>
+      </group>
+    </group>
+  )
+}
+
+export function BmwM3GtrModel({
+  paintColor,
+  metallic,
+  roughness,
+  steeringAngle,
+  wheelRotation,
+  isBraking,
+  headlightsOn,
+  isHoverMode,
+  wheelSuspensions = [0, 0, 0, 0],
+}: CarModelProps) {
+  const { scene: bodyScene } = useGLTF('/models/bmw_m3_gtr_e46.glb')
+  const { scene: wheelScene } = useGLTF('/models/tuner_wheel.glb')
+
+  const clonedBody = useMemo(() => {
+    return bodyScene.clone(true)
+  }, [bodyScene])
+
+  const bodyPaintMaterial = useMemo(() => {
+    return new THREE.MeshPhysicalMaterial({
+      color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
+      metalness: metallic ?? 0.85,
+      roughness: roughness ?? 0.16,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      reflectivity: 0.95,
+      envMapIntensity: 2.4,
+    })
+  }, [paintColor, metallic, roughness])
+
+  const glassMaterial = useMemo(() => {
+    return new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color('#0a1128'),
+      metalness: 0.1,
+      roughness: 0.04,
+      transmission: 0.88,
+      transparent: true,
+      opacity: 0.92,
+      reflectivity: 0.98,
+      envMapIntensity: 2.6,
+    })
+  }, [])
+
+  const carbonFiberMaterial = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#18181b'),
+      metalness: 0.65,
+      roughness: 0.35,
+    })
+  }, [])
+
+  const taillightMaterial = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#7f1d1d'),
+      emissive: new THREE.Color('#330000'),
+      emissiveIntensity: 0.5,
+      roughness: 0.15,
+    })
+  }, [])
+
+  const headlightMaterial = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#ffffff'),
+      emissive: headlightsOn ? new THREE.Color('#fffbeb') : new THREE.Color('#000000'),
+      emissiveIntensity: headlightsOn ? 3.0 : 0.0,
+      roughness: 0.1,
+    })
+  }, [headlightsOn])
+
+  useEffect(() => {
+    taillightMaterial.color.set(isBraking ? '#ff0000' : '#7f1d1d')
+    taillightMaterial.emissive.set(isBraking ? '#ef4444' : '#330000')
+    taillightMaterial.emissiveIntensity = isBraking ? 3.2 : 0.5
+    taillightMaterial.needsUpdate = true
+  }, [isBraking, taillightMaterial])
+
+  useEffect(() => {
+    clonedBody.traverse((child) => {
+      // Hide static merged tire mesh
+      if (child.name.includes('M_Tire_High')) {
+        child.visible = false
+        return
+      }
+
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+
+        const matName = child.material?.name || ''
+        if (matName.includes('Carpaint')) {
+          child.material = bodyPaintMaterial
+        } else if (matName.includes('Carbon')) {
+          child.material = carbonFiberMaterial
+        } else if (matName.includes('Glass')) {
+          child.material = glassMaterial
+        } else if (matName.includes('red_glass')) {
+          child.material = taillightMaterial
+        } else if (matName.includes('Lights')) {
+          child.material = headlightMaterial
+        }
+      }
+    })
+  }, [clonedBody, bodyPaintMaterial, carbonFiberMaterial, glassMaterial, taillightMaterial, headlightMaterial])
+
+  // Strict suspension travel clamp for sports car (max travel ±0.06m)
+  const suspFl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[0] || 0))
+  const suspFr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[1] || 0))
+  const suspRl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[2] || 0))
+  const suspRr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[3] || 0))
+
+  return (
+    <group position={[0, -0.358, 0]}>
+      {/* High-Fidelity BMW M3 GTR '05 Monocoque */}
+      <group position={[0, 0.148, 0]} rotation={[0, Math.PI, 0]} scale={98.0}>
+        <primitive object={clonedBody} />
+      </group>
+
+      {/* Front-Left Articulated BBS Race Wheel */}
+      <BmwGtrWheel
+        wheelScene={wheelScene}
+        side={1}
+        position={[-0.82, 0.358, -1.38]}
+        steeringAngle={steeringAngle}
+        wheelRotation={wheelRotation}
+        suspension={suspFl}
+        isHoverMode={isHoverMode}
+        rimColor="#cbd5e1"
+        metallic={metallic}
+        roughness={roughness}
+      />
+
+      {/* Front-Right Articulated BBS Race Wheel */}
+      <BmwGtrWheel
+        wheelScene={wheelScene}
+        side={-1}
+        position={[0.82, 0.358, -1.38]}
+        steeringAngle={steeringAngle}
+        wheelRotation={wheelRotation}
+        suspension={suspFr}
+        isHoverMode={isHoverMode}
+        rimColor="#cbd5e1"
+        metallic={metallic}
+        roughness={roughness}
+      />
+
+      {/* Rear-Left Articulated BBS Race Wheel */}
+      <BmwGtrWheel
+        wheelScene={wheelScene}
+        side={1}
+        position={[-0.82, 0.358, 1.28]}
+        steeringAngle={0}
+        wheelRotation={wheelRotation}
+        suspension={suspRl}
+        isHoverMode={isHoverMode}
+        rimColor="#cbd5e1"
+        metallic={metallic}
+        roughness={roughness}
+      />
+
+      {/* Rear-Right Articulated BBS Race Wheel */}
+      <BmwGtrWheel
+        wheelScene={wheelScene}
+        side={-1}
+        position={[0.82, 0.358, 1.28]}
+        steeringAngle={0}
+        wheelRotation={wheelRotation}
+        suspension={suspRr}
+        isHoverMode={isHoverMode}
+        rimColor="#cbd5e1"
+        metallic={metallic}
+        roughness={roughness}
+      />
+
+      {/* Dynamic Headlight Projectors */}
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.52} z={-2.2} color="#fffbeb" intensity={75} />}
+
+      {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
+      {isHoverMode && (
+        <>
+          <pointLight position={[-0.82, 0.25, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[0.82, 0.25, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[-0.82, 0.25, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[0.82, 0.25, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
+        </>
+      )}
+    </group>
+  )
+}
+
+// ----------------------------------------------------
+// 2. High-Performance Modern Supercar (Italian V8 Monocoque)
 // ----------------------------------------------------
 
 const REST_WHEEL_POSITIONS = {
@@ -92,7 +380,7 @@ const _vUp = new THREE.Vector3(0, 1, 0)
 const _vRight = new THREE.Vector3(1, 0, 0)
 const _vForward = new THREE.Vector3(0, 0, 1)
 
-export function BmwM3GtrModel({
+export function SupercarModel({
   paintColor,
   metallic,
   roughness,
@@ -103,7 +391,7 @@ export function BmwM3GtrModel({
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
-  const { scene } = useGLTF('/models/bmw_m3_gtr.glb')
+  const { scene } = useGLTF('/models/ferrari.glb')
 
   // Clone scene hierarchy to ensure independent transforms and instance safety
   const clonedScene = useMemo(() => {
@@ -343,7 +631,9 @@ export function BmwM3GtrModel({
   )
 }
 
-useGLTF.preload('/models/bmw_m3_gtr.glb')
+useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
+useGLTF.preload('/models/tuner_wheel.glb')
+useGLTF.preload('/models/ferrari.glb')
 
 // ----------------------------------------------------
 // 2. Realistic Cozy Camper Van (Vintage Type 2 Style)
@@ -857,6 +1147,8 @@ export function ActiveCarModel(props: CarModelProps) {
       return <HovercraftModel {...props} />
     case 'bmw_m3':
       return <BmwM3GtrModel {...props} />
+    case 'supercar':
+      return <SupercarModel {...props} />
     case 'camper':
       return <CamperVanModel {...props} />
     case 'hatchback':
@@ -865,3 +1157,7 @@ export function ActiveCarModel(props: CarModelProps) {
       return <BmwM3GtrModel {...props} />
   }
 }
+
+useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
+useGLTF.preload('/models/tuner_wheel.glb')
+useGLTF.preload('/models/ferrari.glb')
