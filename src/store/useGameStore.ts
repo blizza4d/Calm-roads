@@ -50,6 +50,7 @@ interface GameState {
   setRpm: (r: number) => void
   gear: string
   setGear: (g: string) => void
+  setTelemetry: (data: { speed?: number; rpm?: number; gear?: string; throttle?: number; brake?: number }) => void
   transmissionMode: 'auto' | 'manual'
   setTransmissionMode: (m: 'auto' | 'manual') => void
   distance: number // km
@@ -176,6 +177,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setRpm: (rpm) => set({ rpm }),
   gear: '1',
   setGear: (gear) => set({ gear }),
+  setTelemetry: (data) => set((s) => ({ ...s, ...data })),
   transmissionMode: 'auto',
   setTransmissionMode: (transmissionMode) => set({ transmissionMode }),
   distance: 0,

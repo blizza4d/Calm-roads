@@ -1,8 +1,18 @@
-// Complete Audio Ecosystem
-// Features: Authentic Screaming BMW M3 GTR Audio, Throaty V8 Exhaust Roar,
-// Overrun Exhaust Crackles & Pops, Turbo Spool & BOV for Hatchback,
-// Air-cooled Flat-4 Chug for Camper, Antigravity Repulsor Reactor,
-// Surface Friction (Asphalt vs Off-Road), and Lo-Fi Ambient Radio.
+/**
+ * CALM ROADS — REALISTIC VEHICLE AUDIO ENGINE
+ * 
+ * Architecture:
+ * - 100% sample-based multi-tier Web Audio API graph.
+ * - Decoupled continuous loop nodes for Engine States:
+ *   [Idle], [Low RPM], [Mid RPM], [High RPM], [Off-Throttle / Engine Braking].
+ * - Telemetry-driven pitch mapping (playbackRate = currentRPM / baseSampleRPM) with safety clamps.
+ * - Equal-power sinusoidal crossfading across RPM powerbands with 0.045s time constant.
+ * - Dynamic Load vs. Coasting bus management (On-Load acceleration vs. Off-Throttle engine braking).
+ * - High-RPM throttle lift-off exhaust overrun crackles & backfire pops.
+ * - Sequential dog-box ignition-cut gear shift transients.
+ * - Surface friction, tire squeal, aerodynamic wind rush, horn, and Lo-Fi ambient radio.
+ * - Exposes clean init(), update(), updateEngineSound(), and cleanup() methods for React useEffect lifecycle.
+ */
 
 export interface TrackInfo {
   id: number
@@ -19,124 +29,139 @@ export const LOFI_PLAYLIST: TrackInfo[] = [
   { id: 4, title: 'Desert Mirage', artist: 'Sahara Breeze', vibe: 'Warm Dunes & Ambient Guitars' },
 ]
 
-class AudioEcosystem {
+export type EngineAudioState = 'idle' | 'low_rpm' | 'mid_rpm' | 'high_rpm' | 'off_throttle'
+
+interface EngineLoopConfig {
+  name: EngineAudioState
+  urls: string[]
+  baseRpm: number
+  minPitch: number
+  maxPitch: number
+}
+
+// Master sample asset URL table: Checks dedicated public/sounds paths first, with fallbacks to public/audio/cars/
+const ENGINE_LOOP_CONFIGS: Record<EngineAudioState, EngineLoopConfig> = {
+  idle: {
+    name: 'idle',
+    urls: ['/sounds/engine_idle.wav', '/audio/cars/bmw-m3-gtr/idle_loop.wav'],
+    baseRpm: 900,
+    minPitch: 0.75,
+    maxPitch: 1.80,
+  },
+  low_rpm: {
+    name: 'low_rpm',
+    urls: ['/sounds/engine_low.wav', '/audio/cars/bmw-m3-gtr/low_rpm_acceleration.wav'],
+    baseRpm: 2200,
+    minPitch: 0.65,
+    maxPitch: 1.75,
+  },
+  mid_rpm: {
+    name: 'mid_rpm',
+    urls: ['/sounds/engine_mid.wav', '/audio/cars/bmw-m3-gtr/mid_rpm_acceleration.wav'],
+    baseRpm: 4600,
+    minPitch: 0.65,
+    maxPitch: 1.70,
+  },
+  high_rpm: {
+    name: 'high_rpm',
+    urls: ['/sounds/engine_high.wav', '/audio/cars/bmw-m3-gtr/high_rpm_loop.wav'],
+    baseRpm: 7000,
+    minPitch: 0.70,
+    maxPitch: 1.65,
+  },
+  off_throttle: {
+    name: 'off_throttle',
+    urls: ['/sounds/engine_off_throttle.wav', '/audio/cars/bmw-m3-gtr/deceleration.wav', '/audio/cars/bmw-m3-gtr/engine_braking.wav'],
+    baseRpm: 4000,
+    minPitch: 0.60,
+    maxPitch: 1.75,
+  },
+}
+
+interface ActiveLoopChannel {
+  source: AudioBufferSourceNode | null
+  gain: GainNode | null
+  buffer: AudioBuffer | null
+  config: EngineLoopConfig
+}
+
+export class RealisticVehicleAudioEngine {
   private ctx: AudioContext | null = null
   private isUnlocked = false
+  private isInitialized = false
 
-  // Master Channels
-  private musicGain: GainNode | null = null
+  // Master Gain Busses
+  private masterGain: GainNode | null = null
   private sfxMaster: GainNode | null = null
+  private musicGain: GainNode | null = null
+
+  // Engine Sub-Busses
+  private engineMaster: GainNode | null = null
+  private onLoadBus: GainNode | null = null
+  private offLoadBus: GainNode | null = null
+
+  // Loop Channels for the 5 Engine States
+  private loops: Record<EngineAudioState, ActiveLoopChannel> = {
+    idle: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.idle },
+    low_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.low_rpm },
+    mid_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.mid_rpm },
+    high_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.high_rpm },
+    off_throttle: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.off_throttle },
+  }
+
+  // Transient Audio Buffers (Overrun Pops, Sequential Shifts)
+  private overrunBuffer: AudioBuffer | null = null
+  private gearUpBuffer: AudioBuffer | null = null
+  private gearDownBuffer: AudioBuffer | null = null
+  private rallyBuffer: AudioBuffer | null = null
+  private rallySource: AudioBufferSourceNode | null = null
+  private rallyGain: GainNode | null = null
+
+  // Telemetry Tracking
+  private prevThrottle = 0
+  private lastExhaustPopTime = 0
   private musicTimer: number | null = null
   private isMusicPlaying = false
   private currentTrack = 0
   private musicVolume = 0.65
-  private sfxMasterVolume = 0.62
+  private sfxMasterVolume = 0.65
 
-  // 1. Multi-Layer Authentic BMW M3 GTR Audio Asset Library
-  private m3IdleBuffer: AudioBuffer | null = null
-  private m3LowBuffer: AudioBuffer | null = null
-  private m3MidBuffer: AudioBuffer | null = null
-  private m3HighBuffer: AudioBuffer | null = null
-  private m3HighLoopBuffer: AudioBuffer | null = null
-  private m3DecelBuffer: AudioBuffer | null = null
-  private m3BrakingBuffer: AudioBuffer | null = null
-  private m3OverrunBuffer: AudioBuffer | null = null
-  private m3GearUpBuffer: AudioBuffer | null = null
-  private m3GearDownBuffer: AudioBuffer | null = null
-  private m3RealGtBuffer: AudioBuffer | null = null
-  private rallyBuffer: AudioBuffer | null = null
-  private m3AudioLibraryLoaded = false
-  private m3AudioLibraryLoading = false
-
-  // Active Continuous Loop Sources & Gain Nodes
-  private m3IdleSource: AudioBufferSourceNode | null = null
-  private m3IdleGain: GainNode | null = null
-
-  private m3LowSource: AudioBufferSourceNode | null = null
-  private m3LowGain: GainNode | null = null
-
-  private m3MidSource: AudioBufferSourceNode | null = null
-  private m3MidGain: GainNode | null = null
-
-  private m3HighLoopSource: AudioBufferSourceNode | null = null
-  private m3HighLoopGain: GainNode | null = null
-
-  private m3DecelSource: AudioBufferSourceNode | null = null
-  private m3DecelGain: GainNode | null = null
-
-  private m3BrakingSource: AudioBufferSourceNode | null = null
-  private m3BrakingGain: GainNode | null = null
-
-  private m3RealGtSource: AudioBufferSourceNode | null = null
-  private m3RealGtGain: GainNode | null = null
-
-  private rallySource: AudioBufferSourceNode | null = null
-  private rallyGain: GainNode | null = null
-
-  private lastDecelPopTime = 0
-  private prevThrottleVal = 0
-
-  // 2. Camper Van Vintage Air-Cooled Boxer Flat-4
-  private camperGain: GainNode | null = null
-  private camperOsc1: OscillatorNode | null = null
-  private camperOsc2: OscillatorNode | null = null
-  private camperFilter: BiquadFilterNode | null = null
-
-  // 3. Turbocharger Spool & Blow-Off Valve (Hatchback)
-  private turboGain: GainNode | null = null
-  private turboOsc: OscillatorNode | null = null
-  private lastBovTime = 0
-
-  // 5. Surface Friction SFX
+  // Environmental SFX Channels
   private frictionGain: GainNode | null = null
   private frictionFilter: BiquadFilterNode | null = null
-
-  // 5.1 Lateral Slip Tire Squeal SFX
   private tireSquealGain: GainNode | null = null
   private tireSquealFilter: BiquadFilterNode | null = null
-
-  // 5.2 Aerodynamic High-Speed Wind Rush SFX
   private windRushGain: GainNode | null = null
   private windRushFilter: BiquadFilterNode | null = null
-
-  // 6. Hover Repulsor SFX
   private hoverGain: GainNode | null = null
   private hoverOsc: OscillatorNode | null = null
 
-  // 7. Weather Ambience SFX
-  private weatherGain: GainNode | null = null
-
-  // Lo-Fi Chord progressions
+  // Lo-Fi Synth Chord progressions
   private chordProgressions = [
-    // Track 0
     [
       [261.63, 329.63, 392.00, 493.88], // Cmaj7
       [220.00, 261.63, 329.63, 392.00], // Am7
       [174.61, 220.00, 261.63, 329.63], // Fmaj7
       [196.00, 246.94, 293.66, 349.23], // G7
     ],
-    // Track 1
     [
       [293.66, 349.23, 440.00, 523.25], // Dm7
       [196.00, 246.94, 293.66, 349.23], // G7
       [261.63, 329.63, 392.00, 493.88], // Cmaj7
       [220.00, 261.63, 329.63, 392.00], // Am7
     ],
-    // Track 2
     [
       [329.63, 392.00, 493.88, 587.33], // Em7
       [261.63, 329.63, 392.00, 493.88], // Cmaj7
       [220.00, 261.63, 329.63, 392.00], // Am7
       [246.94, 293.66, 349.23, 440.00], // Bm7
     ],
-    // Track 3
     [
       [220.00, 261.63, 329.63, 392.00], // Am7
       [174.61, 220.00, 261.63, 329.63], // Fmaj7
       [261.63, 329.63, 392.00, 523.25], // Cmaj7
       [164.81, 196.00, 246.94, 293.66], // Em7
     ],
-    // Track 4
     [
       [349.23, 440.00, 523.25, 659.25], // Fmaj7
       [329.63, 392.00, 493.88, 587.33], // Em7
@@ -145,673 +170,401 @@ class AudioEcosystem {
     ],
   ]
 
-  public init() {
-    if (this.ctx) return
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    this.ctx = new AudioCtx()
+  // --------------------------------------------------------------------------
+  // 1. AudioContext & Buffer Management
+  // --------------------------------------------------------------------------
 
-    // Master Music Channel
-    this.musicGain = this.ctx.createGain()
-    this.musicGain.gain.value = this.musicVolume
-    this.musicGain.connect(this.ctx.destination)
+  public get unlocked(): boolean {
+    return this.isUnlocked
+  }
 
-    // Master SFX Channel
-    this.sfxMaster = this.ctx.createGain()
-    this.sfxMaster.gain.value = this.sfxMasterVolume
-    this.sfxMaster.connect(this.ctx.destination)
+  /**
+   * Initialize the Web Audio API context and assemble the audio routing graph.
+   * Can be called with an existing context or will instantiate a new AudioContext.
+   */
+  public async init(externalCtx?: AudioContext): Promise<void> {
+    if (this.isInitialized && this.ctx) return
 
-    // Load authentic multi-layer BMW M3 GTR audio asset library & real recordings
-    this.loadM3AudioLibrary()
-
-    // 1. Dynamic V8 Engine Audio is 100% Sample-Based (loaded asynchronously in setupM3AudioLayers)
-    // Eliminates all synthetic oscillator buzz/whine for true automotive audio fidelity.
-
-    // 2. Camper Van Air-Cooled Flat-4 Engine Channel
-    this.camperGain = this.ctx.createGain()
-    this.camperGain.gain.value = 0.0001
-    this.camperFilter = this.ctx.createBiquadFilter()
-    this.camperFilter.type = 'lowpass'
-    this.camperFilter.frequency.value = 380
-
-    this.camperOsc1 = this.ctx.createOscillator()
-    this.camperOsc1.type = 'triangle'
-    this.camperOsc1.frequency.value = 42
-
-    this.camperOsc2 = this.ctx.createOscillator()
-    this.camperOsc2.type = 'sine'
-    this.camperOsc2.frequency.value = 84
-
-    this.camperOsc1.connect(this.camperFilter)
-    this.camperOsc2.connect(this.camperFilter)
-    this.camperFilter.connect(this.camperGain)
-    this.camperGain.connect(this.sfxMaster)
-
-    this.camperOsc1.start()
-    this.camperOsc2.start()
-
-    // 3. Turbo Whine Channel (Rally Hatchback)
-    this.turboGain = this.ctx.createGain()
-    this.turboGain.gain.value = 0.0001
-    this.turboOsc = this.ctx.createOscillator()
-    this.turboOsc.type = 'sine'
-    this.turboOsc.frequency.value = 950
-    this.turboOsc.connect(this.turboGain)
-    this.turboGain.connect(this.sfxMaster)
-    this.turboOsc.start()
-
-    // 4. Surface Friction Noise + Tire Squeal + Aerodynamic Wind Rush
     try {
-      const bufferSize = this.ctx.sampleRate * 2
-      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
-      const data = noiseBuffer.getChannelData(0)
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1
+      if (externalCtx) {
+        this.ctx = externalCtx
+      } else if (!this.ctx) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        this.ctx = new AudioCtx()
       }
 
-      // A. Road surface friction
-      const noiseSource = this.ctx.createBufferSource()
-      noiseSource.buffer = noiseBuffer
-      noiseSource.loop = true
+      const ctx = this.ctx
 
-      this.frictionFilter = this.ctx.createBiquadFilter()
-      this.frictionFilter.type = 'bandpass'
-      this.frictionFilter.frequency.value = 800
-      this.frictionFilter.Q.value = 1.0
+      // Master Output Buses
+      this.masterGain = ctx.createGain()
+      this.masterGain.gain.setValueAtTime(1.0, ctx.currentTime)
+      this.masterGain.connect(ctx.destination)
 
-      this.frictionGain = this.ctx.createGain()
-      this.frictionGain.gain.value = 0.0
+      this.sfxMaster = ctx.createGain()
+      this.sfxMaster.gain.setValueAtTime(this.sfxMasterVolume, ctx.currentTime)
+      this.sfxMaster.connect(this.masterGain)
 
-      noiseSource.connect(this.frictionFilter)
-      this.frictionFilter.connect(this.frictionGain)
-      this.frictionGain.connect(this.sfxMaster)
-      noiseSource.start()
+      this.musicGain = ctx.createGain()
+      this.musicGain.gain.setValueAtTime(this.musicVolume, ctx.currentTime)
+      this.musicGain.connect(this.masterGain)
 
-      // B. Lateral slip tire squeal (drifting & high-G cornering)
-      const squealSource = this.ctx.createBufferSource()
-      squealSource.buffer = noiseBuffer
-      squealSource.loop = true
+      // Engine Sub-Busses
+      this.engineMaster = ctx.createGain()
+      this.engineMaster.gain.setValueAtTime(1.0, ctx.currentTime)
+      this.engineMaster.connect(this.sfxMaster)
 
-      this.tireSquealFilter = this.ctx.createBiquadFilter()
-      this.tireSquealFilter.type = 'bandpass'
-      this.tireSquealFilter.frequency.value = 1100
-      this.tireSquealFilter.Q.value = 4.2
+      // On-Load Acceleration Bus (Low, Mid, High RPM)
+      this.onLoadBus = ctx.createGain()
+      this.onLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
+      this.onLoadBus.connect(this.engineMaster)
 
-      this.tireSquealGain = this.ctx.createGain()
-      this.tireSquealGain.gain.value = 0.0001
+      // Off-Throttle Deceleration Bus (Engine Braking / Compression Overrun)
+      this.offLoadBus = ctx.createGain()
+      this.offLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
+      this.offLoadBus.connect(this.engineMaster)
 
-      squealSource.connect(this.tireSquealFilter)
-      this.tireSquealFilter.connect(this.tireSquealGain)
-      this.tireSquealGain.connect(this.sfxMaster)
-      squealSource.start()
+      // Initialize environmental noise generators (friction, wind, tire squeal)
+      this.initEnvironmentalSFX(ctx)
 
-      // C. Aerodynamic high-speed wind rush
-      const windSource = this.ctx.createBufferSource()
-      windSource.buffer = noiseBuffer
-      windSource.loop = true
+      this.isInitialized = true
+      this.isUnlocked = ctx.state === 'running'
 
-      this.windRushFilter = this.ctx.createBiquadFilter()
-      this.windRushFilter.type = 'lowpass'
-      this.windRushFilter.frequency.value = 420
+      // Fetch and decode engine loop audio assets asynchronously
+      await this.loadAudioAssets(ctx)
 
-      this.windRushGain = this.ctx.createGain()
-      this.windRushGain.gain.value = 0.0001
-
-      windSource.connect(this.windRushFilter)
-      this.windRushFilter.connect(this.windRushGain)
-      this.windRushGain.connect(this.sfxMaster)
-      windSource.start()
-    } catch {}
-
-    // 5. Hover Repulsor Hum (Sine + Frequency modulation)
-    this.hoverGain = this.ctx.createGain()
-    this.hoverGain.gain.value = 0.0
-    this.hoverOsc = this.ctx.createOscillator()
-    this.hoverOsc.type = 'sine'
-    this.hoverOsc.frequency.value = 180
-
-    this.hoverOsc.connect(this.hoverGain)
-    this.hoverGain.connect(this.sfxMaster)
-    this.hoverOsc.start()
-
-    // 6. Weather Ambience
-    this.weatherGain = this.ctx.createGain()
-    this.weatherGain.gain.value = 0.0
-    this.weatherGain.connect(this.sfxMaster)
-
-    this.isUnlocked = true
+      // Instantiate continuous looping source nodes
+      this.setupEngineLoopNodes(ctx)
+    } catch (err) {
+      console.warn('[VehicleAudioEngine] Initialization warning:', err)
+    }
   }
 
-  public unlock() {
-    if (!this.ctx) this.init()
+  /**
+   * Resumes the AudioContext upon user gesture (pointerdown/keydown)
+   */
+  public unlock(): void {
+    if (!this.ctx) {
+      this.init()
+    }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {})
-    }
-    if (!this.m3AudioLibraryLoaded && !this.m3AudioLibraryLoading) {
-      this.loadM3AudioLibrary()
-    } else if (this.m3AudioLibraryLoaded && !this.m3IdleSource) {
-      this.setupM3AudioLayers()
+      this.ctx.resume().then(() => {
+        this.isUnlocked = true
+      }).catch(() => {})
     }
   }
 
-  // Asynchronously decode and instantiate the structured BMW M3 GTR audio library and authentic recordings
-  private async loadM3AudioLibrary() {
-    if (this.m3AudioLibraryLoaded || this.m3AudioLibraryLoading || !this.ctx) return
-    this.m3AudioLibraryLoading = true
-
-    const loadBuffer = async (url: string) => {
+  /**
+   * Fetch and decode an audio buffer across primary and fallback URL paths
+   */
+  private async fetchAndDecode(ctx: AudioContext, urls: string[]): Promise<AudioBuffer | null> {
+    for (const url of urls) {
       try {
         const response = await fetch(url)
-        if (!response.ok) return null
-        const arrayBuffer = await response.arrayBuffer()
-        return await this.ctx!.decodeAudioData(arrayBuffer)
-      } catch (err) {
-        console.warn(`Audio buffer decode warning for ${url}:`, err)
-        return null
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer()
+          return await ctx.decodeAudioData(arrayBuffer)
+        }
+      } catch {
+        // Continue to fallback URL
       }
     }
-
-    try {
-      const [idle, low, mid, high, highLoop, decel, braking, overrun, gearUp, gearDown, realGt, rally] =
-        await Promise.all([
-          loadBuffer('/audio/cars/bmw-m3-gtr/idle_loop.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/low_rpm_acceleration.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/mid_rpm_acceleration.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/high_rpm_acceleration.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/high_rpm_loop.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/deceleration.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/engine_braking.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/exhaust_overrun.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/gear_up.wav'),
-          loadBuffer('/audio/cars/bmw-m3-gtr/gear_down.wav'),
-          loadBuffer('/audio/raw/bmw_m3_gt2_2010.ogg'),
-          loadBuffer('/audio/raw/audi_quattro_rally.ogg'),
-        ])
-
-      this.m3IdleBuffer = idle
-      this.m3LowBuffer = low
-      this.m3MidBuffer = mid
-      this.m3HighBuffer = high
-      this.m3HighLoopBuffer = highLoop
-      this.m3DecelBuffer = decel
-      this.m3BrakingBuffer = braking
-      this.m3OverrunBuffer = overrun
-      this.m3GearUpBuffer = gearUp
-      this.m3GearDownBuffer = gearDown
-      this.m3RealGtBuffer = realGt
-      this.rallyBuffer = rally
-
-      this.m3AudioLibraryLoaded = true
-      this.setupM3AudioLayers()
-    } catch (err) {
-      console.warn('M3 Audio Library loading error:', err)
-    } finally {
-      this.m3AudioLibraryLoading = false
-    }
+    return null
   }
 
-  private setupM3AudioLayers() {
-    if (!this.ctx || !this.sfxMaster) return
+  /**
+   * Load all 5 engine states and transient audio buffers
+   */
+  private async loadAudioAssets(ctx: AudioContext): Promise<void> {
+    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
 
-    const createLoopChannel = (buffer: AudioBuffer | null) => {
-      if (!this.ctx || !this.sfxMaster || !buffer) return { source: null, gain: null }
-      const gain = this.ctx.createGain()
-      gain.gain.value = 0.0001
-      gain.connect(this.sfxMaster)
+    const bufferPromises = states.map(async (state) => {
+      const buffer = await this.fetchAndDecode(ctx, this.loops[state].config.urls)
+      this.loops[state].buffer = buffer
+      return { state, buffer }
+    })
 
-      const source = this.ctx.createBufferSource()
-      source.buffer = buffer
+    const transientPromises = Promise.all([
+      this.fetchAndDecode(ctx, ['/sounds/exhaust_pop.wav', '/audio/cars/bmw-m3-gtr/exhaust_overrun.wav']),
+      this.fetchAndDecode(ctx, ['/sounds/gear_shift.wav', '/audio/cars/bmw-m3-gtr/gear_up.wav']),
+      this.fetchAndDecode(ctx, ['/sounds/gear_downshift.wav', '/audio/cars/bmw-m3-gtr/gear_down.wav']),
+      this.fetchAndDecode(ctx, ['/audio/raw/audi_quattro_rally.ogg']),
+    ])
+
+    await Promise.all([...bufferPromises, transientPromises])
+
+    const [overrun, gearUp, gearDown, rally] = await transientPromises
+    this.overrunBuffer = overrun
+    this.gearUpBuffer = gearUp
+    this.gearDownBuffer = gearDown
+    this.rallyBuffer = rally
+  }
+
+  // --------------------------------------------------------------------------
+  // 2. The Audio Graph: Looping Nodes & Sub-Buses
+  // --------------------------------------------------------------------------
+
+  /**
+   * Creates the 5 looping AudioBufferSourceNodes and wires them to their GainNodes.
+   */
+  private setupEngineLoopNodes(ctx: AudioContext): void {
+    if (!this.engineMaster || !this.onLoadBus || !this.offLoadBus) return
+
+    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
+
+    states.forEach((state) => {
+      const channel = this.loops[state]
+      if (!channel.buffer || channel.source) return
+
+      // Create dedicated GainNode for RPM crossfading
+      const gainNode = ctx.createGain()
+      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime)
+
+      // Route GainNode into appropriate bus:
+      // - Idle connects directly to engine master bus (or ducks under load)
+      // - Low, Mid, High connect into onLoadBus for instant throttle response
+      // - Off-Throttle connects into offLoadBus for engine braking
+      if (state === 'idle') {
+        gainNode.connect(this.engineMaster!)
+      } else if (state === 'off_throttle') {
+        gainNode.connect(this.offLoadBus!)
+      } else {
+        gainNode.connect(this.onLoadBus!)
+      }
+
+      channel.gain = gainNode
+
+      // Create dedicated AudioBufferSourceNode set to loop = true
+      const source = ctx.createBufferSource()
+      source.buffer = channel.buffer
       source.loop = true
-      source.playbackRate.value = 1.0
-      source.connect(gain)
+      source.playbackRate.setValueAtTime(1.0, ctx.currentTime)
+      source.connect(gainNode)
 
       try {
         source.start(0)
-      } catch (e) {
-        console.warn('Source loop start warning:', e)
+      } catch (err) {
+        console.warn(`[VehicleAudioEngine] Loop start warning for ${state}:`, err)
       }
-      return { source, gain }
-    }
 
-    if (!this.m3IdleSource && this.m3IdleBuffer) {
-      const ch = createLoopChannel(this.m3IdleBuffer)
-      this.m3IdleSource = ch.source
-      this.m3IdleGain = ch.gain
-    }
+      channel.source = source
+    })
 
-    if (!this.m3LowSource && this.m3LowBuffer) {
-      const ch = createLoopChannel(this.m3LowBuffer)
-      this.m3LowSource = ch.source
-      this.m3LowGain = ch.gain
-    }
+    // Setup rally hatchback loop channel if loaded
+    if (this.rallyBuffer && !this.rallySource && this.sfxMaster) {
+      const rallyGain = ctx.createGain()
+      rallyGain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      rallyGain.connect(this.sfxMaster)
 
-    if (!this.m3MidSource && this.m3MidBuffer) {
-      const ch = createLoopChannel(this.m3MidBuffer)
-      this.m3MidSource = ch.source
-      this.m3MidGain = ch.gain
-    }
+      const rallySrc = ctx.createBufferSource()
+      rallySrc.buffer = this.rallyBuffer
+      rallySrc.loop = true
+      rallySrc.connect(rallyGain)
+      try {
+        rallySrc.start(0)
+      } catch {}
 
-    if (!this.m3HighLoopSource && this.m3HighLoopBuffer) {
-      const ch = createLoopChannel(this.m3HighLoopBuffer)
-      this.m3HighLoopSource = ch.source
-      this.m3HighLoopGain = ch.gain
-    }
-
-    if (!this.m3DecelSource && this.m3DecelBuffer) {
-      const ch = createLoopChannel(this.m3DecelBuffer)
-      this.m3DecelSource = ch.source
-      this.m3DecelGain = ch.gain
-    }
-
-    if (!this.m3BrakingSource && this.m3BrakingBuffer) {
-      const ch = createLoopChannel(this.m3BrakingBuffer)
-      this.m3BrakingSource = ch.source
-      this.m3BrakingGain = ch.gain
-    }
-
-    if (!this.m3RealGtSource && this.m3RealGtBuffer) {
-      const ch = createLoopChannel(this.m3RealGtBuffer)
-      this.m3RealGtSource = ch.source
-      this.m3RealGtGain = ch.gain
-    }
-
-    if (!this.rallySource && this.rallyBuffer) {
-      const ch = createLoopChannel(this.rallyBuffer)
-      this.rallySource = ch.source
-      this.rallyGain = ch.gain
+      this.rallySource = rallySrc
+      this.rallyGain = rallyGain
     }
   }
 
-  // Explosive Overrun Exhaust Crackles & Backfire Pops
-  public triggerExhaustPop(intensity = 1.0) {
-    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
-    const now = this.ctx.currentTime
-    if (now - this.lastDecelPopTime < 0.12) return
-    this.lastDecelPopTime = now
+  // --------------------------------------------------------------------------
+  // 3 & 4. Telemetry Mapping (Pitch & Dynamic Crossfading)
+  // --------------------------------------------------------------------------
 
-    // Play authentic recorded exhaust overrun one-shot if loaded
-    if (this.m3OverrunBuffer) {
-      const popCount = intensity > 0.65 ? (Math.random() > 0.45 ? 2 : 1) : 1
-      for (let p = 0; p < popCount; p++) {
-        const popDelay = p * (0.038 + Math.random() * 0.042)
-        const popTime = now + popDelay
-        const source = this.ctx.createBufferSource()
-        source.buffer = this.m3OverrunBuffer
-        source.playbackRate.value = 0.94 + Math.random() * 0.16
-        const gain = this.ctx.createGain()
-        gain.gain.setValueAtTime(0.72 * intensity * (p === 0 ? 1.0 : 0.65), popTime)
-        source.connect(gain)
-        gain.connect(this.sfxMaster)
-        source.start(popTime)
-      }
-      return
-    }
-
-    // Number of crackles in burst (1 to 3) fallback
-    const pops = 1 + Math.floor(Math.random() * 2.2)
-    for (let p = 0; p < pops; p++) {
-      const delay = p * (0.035 + Math.random() * 0.045)
-      const popTime = now + delay
-
-      const bufferSize = Math.floor(this.ctx.sampleRate * 0.055)
-      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
-      const data = noiseBuffer.getChannelData(0)
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.22))
-      }
-      const noiseSource = this.ctx.createBufferSource()
-      noiseSource.buffer = noiseBuffer
-
-      const filter = this.ctx.createBiquadFilter()
-      filter.type = 'bandpass'
-      filter.frequency.setValueAtTime(320 + Math.random() * 420, popTime)
-      filter.Q.setValueAtTime(3.2, popTime)
-
-      const popGain = this.ctx.createGain()
-      popGain.gain.setValueAtTime(0.0001, popTime)
-      popGain.gain.linearRampToValueAtTime(0.48 * intensity, popTime + 0.004)
-      popGain.gain.exponentialRampToValueAtTime(0.0001, popTime + 0.05)
-
-      // Heavy sub-bass thud (unburnt fuel igniting in exhaust manifold)
-      const subOsc = this.ctx.createOscillator()
-      subOsc.type = 'sine'
-      subOsc.frequency.setValueAtTime(95 + Math.random() * 25, popTime)
-      subOsc.frequency.exponentialRampToValueAtTime(32, popTime + 0.055)
-
-      const subGain = this.ctx.createGain()
-      subGain.gain.setValueAtTime(0.38 * intensity, popTime)
-      subGain.gain.exponentialRampToValueAtTime(0.0001, popTime + 0.055)
-
-      noiseSource.connect(filter)
-      filter.connect(popGain)
-      popGain.connect(this.sfxMaster)
-
-      subOsc.connect(subGain)
-      subGain.connect(this.sfxMaster)
-
-      noiseSource.start(popTime)
-      noiseSource.stop(popTime + 0.06)
-      subOsc.start(popTime)
-      subOsc.stop(popTime + 0.06)
-    }
-  }
-
-  // Turbo Blow-Off Valve (BOV) Whoosh
-  public triggerBovWhoosh() {
-    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
-    const now = this.ctx.currentTime
-    if (now - this.lastBovTime < 0.6) return
-    this.lastBovTime = now
-
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.26)
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
-    const data = noiseBuffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1)
-    }
-    const noiseSource = this.ctx.createBufferSource()
-    noiseSource.buffer = noiseBuffer
-
-    const filter = this.ctx.createBiquadFilter()
-    filter.type = 'bandpass'
-    filter.frequency.setValueAtTime(2400, now)
-    filter.frequency.exponentialRampToValueAtTime(850, now + 0.24)
-    filter.Q.setValueAtTime(3.8, now)
-
-    const bovGain = this.ctx.createGain()
-    bovGain.gain.setValueAtTime(0.0001, now)
-    bovGain.gain.linearRampToValueAtTime(0.24, now + 0.03)
-    bovGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25)
-
-    noiseSource.connect(filter)
-    filter.connect(bovGain)
-    bovGain.connect(this.sfxMaster)
-
-    noiseSource.start(now)
-    noiseSource.stop(now + 0.26)
-  }
-
-  // Mechanical Gear Shift Transient
-  public triggerGearShift(vehicleModel = 'bmw_m3', isDownshift = false) {
-    if (!this.ctx || !this.isUnlocked || !this.sfxMaster) return
+  /**
+   * Primary frame update function: maps vehicle RPM, throttle, and speed directly
+   * to loop playbackRate, dynamic equal-power crossfading, and on-load vs coasting buses.
+   *
+   * @param rpm - Engine revolutions per minute (e.g., 850 - 8500)
+   * @param throttle - Accelerator input (0.0 to 1.0 or boolean)
+   * @param speed - Vehicle speed in km/h
+   */
+  public updateEngineSound(rpm: number, throttle: number | boolean, speed = 0): void {
+    if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
 
-    if (vehicleModel === 'bmw_m3' || vehicleModel === 'supercar') {
-      // 0.045s sequential ignition cut: momentary exhaust volume ducking
-      if (this.m3LowGain && this.m3MidGain && this.m3HighLoopGain) {
-        this.m3LowGain.gain.setValueAtTime(0.06, now)
-        this.m3MidGain.gain.setValueAtTime(0.06, now)
-        this.m3HighLoopGain.gain.setValueAtTime(0.06, now)
-        this.m3LowGain.gain.setTargetAtTime(0.55, now + 0.045, 0.045)
-        this.m3MidGain.gain.setTargetAtTime(0.55, now + 0.045, 0.045)
-        this.m3HighLoopGain.gain.setTargetAtTime(0.55, now + 0.045, 0.045)
-      }
+    // Normalize inputs
+    const curRpm = Math.max(700, Math.min(9500, rpm))
+    const throttleVal = typeof throttle === 'boolean' ? (throttle ? 1.0 : 0.0) : Math.max(0, Math.min(1, throttle))
+    const isPressed = throttleVal > 0.05
+    const speedKmh = Math.max(0, speed)
 
-      // Play authentic sequential dog-box shift one-shot
-      const shiftBuffer = isDownshift ? (this.m3GearDownBuffer || this.m3GearUpBuffer) : this.m3GearUpBuffer
-      if (shiftBuffer) {
-        const source = this.ctx.createBufferSource()
-        source.buffer = shiftBuffer
-        source.playbackRate.value = 0.98 + Math.random() * 0.04
-        const gain = this.ctx.createGain()
-        gain.gain.setValueAtTime(0.72, now)
-        source.connect(gain)
-        gain.connect(this.sfxMaster)
-        source.start(now)
+    // Detect rapid throttle release for high-RPM exhaust overrun crackle
+    const throttleDelta = this.prevThrottle - throttleVal
+    if (throttleDelta > 0.35 && curRpm > 3800) {
+      this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - 3800) / 4000))
+    }
+    this.prevThrottle = throttleVal
+
+    // ------------------------------------------------------------------------
+    // Pitch Mapping (playbackRate = currentRPM / baseSampleRPM)
+    // ------------------------------------------------------------------------
+    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
+
+    states.forEach((state) => {
+      const channel = this.loops[state]
+      if (channel.source) {
+        const rawPitch = curRpm / channel.config.baseRpm
+        const clampedPitch = Math.min(channel.config.maxPitch, Math.max(channel.config.minPitch, rawPitch))
+        channel.source.playbackRate.setTargetAtTime(clampedPitch, now, 0.045)
+      }
+    })
+
+    // ------------------------------------------------------------------------
+    // Dynamic Equal-Power Crossfading (The Secret to Realism)
+    // ------------------------------------------------------------------------
+    let gainIdle = 0
+    let gainLow = 0
+    let gainMid = 0
+    let gainHigh = 0
+
+    // Band 1: Idle to Low RPM (850 - 2400 RPM)
+    if (curRpm <= 1000) {
+      gainIdle = 1.0
+      gainLow = 0.0
+    } else if (curRpm < 2400) {
+      const t = (curRpm - 1000) / (2400 - 1000)
+      gainIdle = Math.cos(t * Math.PI * 0.5)
+      gainLow = Math.sin(t * Math.PI * 0.5)
+    }
+    // Band 2: Low to Mid RPM (2400 - 4600 RPM)
+    else if (curRpm < 4600) {
+      const t = (curRpm - 2400) / (4600 - 2400)
+      gainLow = Math.cos(t * Math.PI * 0.5)
+      gainMid = Math.sin(t * Math.PI * 0.5)
+    }
+    // Band 3: Mid to High RPM (4600 - 7200 RPM)
+    else if (curRpm < 7200) {
+      const t = (curRpm - 4600) / (7200 - 4600)
+      gainMid = Math.cos(t * Math.PI * 0.5)
+      gainHigh = Math.sin(t * Math.PI * 0.5)
+    }
+    // Band 4: High Screaming RPM (7200 - 9000+ RPM)
+    else {
+      gainHigh = 1.0
+    }
+
+    // Apply individual RPM gain targets to the respective GainNodes using setTargetAtTime
+    const timeConstant = 0.045 // Smooth 45ms time constant eliminates zipper clicks
+    this.loops.idle.gain?.gain.setTargetAtTime(gainIdle * (1 - throttleVal * 0.65), now, timeConstant)
+    this.loops.low_rpm.gain?.gain.setTargetAtTime(gainLow, now, timeConstant)
+    this.loops.mid_rpm.gain?.gain.setTargetAtTime(gainMid, now, timeConstant)
+    this.loops.high_rpm.gain?.gain.setTargetAtTime(gainHigh, now, timeConstant)
+
+    // ------------------------------------------------------------------------
+    // 5. Load vs. Coasting (Throttle State)
+    // ------------------------------------------------------------------------
+    if (this.onLoadBus && this.offLoadBus) {
+      if (isPressed) {
+        // Accelerator is PRESSED: Fade On-Load master bus UP proportional to throttle
+        const targetOnLoad = 0.40 + throttleVal * 0.60
+        this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, timeConstant)
+        // Off-throttle engine braking fades down
+        this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
       } else {
-        const clunkOsc = this.ctx.createOscillator()
-        clunkOsc.type = 'triangle'
-        clunkOsc.frequency.setValueAtTime(160, now)
-        clunkOsc.frequency.exponentialRampToValueAtTime(45, now + 0.045)
+        // Accelerator is RELEASED (coasting or braking at speed):
+        // Duck the On-Load combustion loops down to a subtle background whirr
+        this.onLoadBus.gain.setTargetAtTime(0.08, now, 0.06)
 
-        const clunkGain = this.ctx.createGain()
-        clunkGain.gain.setValueAtTime(0.28, now)
-        clunkGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05)
-
-        clunkOsc.connect(clunkGain)
-        clunkGain.connect(this.sfxMaster)
-        clunkOsc.start(now)
-        clunkOsc.stop(now + 0.055)
+        // Rapidly crossfade into the off-throttle engine braking / overrun loop
+        if (speedKmh > 5 && curRpm > 1400) {
+          const offThrottleIntensity = Math.min(
+            1.0,
+            ((curRpm - 1400) / 2800) * Math.min(1.0, speedKmh / 22)
+          )
+          this.offLoadBus.gain.setTargetAtTime(offThrottleIntensity * 0.85, now, timeConstant)
+          this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, timeConstant)
+        } else {
+          // At rest or gentle crawl, silence off-throttle loop to let clean idle breathe
+          this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
+        }
       }
-
-      this.triggerExhaustPop(isDownshift ? 0.85 : 0.55)
-    } else if (vehicleModel === 'hatchback') {
-      // Turbo blow-off valve (BOV) atmospheric dump
-      this.triggerBovWhoosh()
-    } else if (vehicleModel === 'camper') {
-      // Soft mechanical vintage linkage click
-      const clickOsc = this.ctx.createOscillator()
-      clickOsc.type = 'sine'
-      clickOsc.frequency.setValueAtTime(320, now)
-      clickOsc.frequency.exponentialRampToValueAtTime(80, now + 0.035)
-
-      const clickGain = this.ctx.createGain()
-      clickGain.gain.setValueAtTime(0.12, now)
-      clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04)
-
-      clickOsc.connect(clickGain)
-      clickGain.connect(this.sfxMaster)
-      clickOsc.start(now)
-      clickOsc.stop(now + 0.045)
     }
   }
 
-  // Real-Time Telemetry Driving Sound Updates
+  /**
+   * React update alias matching the requested API interface:
+   * update(rpm, throttle, speed)
+   */
+  public update(rpm: number, throttle: number | boolean, speed = 0): void {
+    this.updateEngineSound(rpm, throttle, speed)
+  }
+
+  /**
+   * Full environmental vehicle audio update method supporting hover mode,
+   * tire lateral slip squeal, road friction, and aerodynamics.
+   */
   public updateVehicleAudio(params: {
     speedKmh: number
     rpm: number
     throttle: number
-    isOffRoad: boolean
-    isHoverMode: boolean
+    isOffRoad?: boolean
+    isHoverMode?: boolean
     vehicleModel?: string
     isDecelerating?: boolean
     lateralSlip?: number
-  }) {
-    if (!this.ctx || !this.isUnlocked) return
+  }): void {
+    if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
 
     const {
       speedKmh,
       rpm,
       throttle,
-      isOffRoad,
-      isHoverMode,
+      isOffRoad = false,
+      isHoverMode = false,
       vehicleModel = 'bmw_m3',
-      isDecelerating = false,
       lateralSlip = 0,
     } = params
 
-    const isV8 = vehicleModel === 'bmw_m3' || vehicleModel === 'supercar'
-    const isSupercar = vehicleModel === 'supercar'
-    const isCamper = vehicleModel === 'camper'
-    const isHatch = vehicleModel === 'hatchback'
-
-    // Detect rapid throttle lift-off to trigger authentic overrun crackle or BOV whoosh
-    const throttleDrop = this.prevThrottleVal - throttle
-    if (throttleDrop > 0.35) {
-      if (isV8 && rpm > 3800) {
-        this.triggerExhaustPop(Math.min(1.0, 0.6 + (rpm - 3800) / 4000))
-      } else if (isHatch && rpm > 3200) {
-        this.triggerBovWhoosh()
-      }
-    }
-    this.prevThrottleVal = throttle
-
-    // ------------------------------------------------------------------------
-    // 1. High-Performance V8 (BMW M3 GTR '05 & Modern Supercar)
-    // 100% Sample-Based Web Audio Engine with Equal-Power Crossfading
-    // ------------------------------------------------------------------------
+    // 1. Hover mode: Mute combustion engines and spool repulsor hum
     if (isHoverMode) {
-      // Mute all combustion audio when hover mode is active
-      this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.camperGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-    } else if (isV8) {
-      // Mute non-V8 channels
-      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.camperGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.045)
+      this.engineMaster?.gain.setTargetAtTime(0.0001, now, 0.06)
+      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.06)
 
-      const rpmNorm = Math.min(1.0, Math.max(0, (rpm - 850) / (8500 - 850)))
-      const speedNorm = Math.min(1.0, Math.max(0, speedKmh / 275))
-      const throttleVal = Math.max(0, Math.min(1, throttle))
-      const isDecel = isDecelerating || (throttleVal < 0.12 && speedKmh > 12 && rpm > 1800)
-      const pitchMult = isSupercar ? 1.08 : 1.0 // Supercar higher rev acoustic signature
-
-      // 1. Stationary / Low-Speed Mechanical V8 Idle Layer (850 - 2,000 RPM)
-      if (this.m3IdleGain && this.m3IdleSource) {
-        const idleAngle = Math.min(Math.PI / 2, Math.max(0, (rpm - 850) / 1150) * (Math.PI / 2))
-        const targetIdle = Math.cos(idleAngle) * (1 - throttleVal * 0.72) * 0.78
-        this.m3IdleGain.gain.setTargetAtTime(targetIdle, now, 0.045)
-        this.m3IdleSource.playbackRate.setTargetAtTime((0.95 + ((rpm - 850) / 1000) * 0.12) * pitchMult, now, 0.045)
-      }
-
-      // 2. Low-RPM Induction & Combustion Layer (1,200 - 4,400 RPM)
-      if (this.m3LowGain && this.m3LowSource) {
-        const lowAngle = Math.min(Math.PI, Math.max(0, (rpm - 1200) / 3200) * Math.PI)
-        const targetLow = Math.sin(lowAngle) * (0.20 + throttleVal * 0.70) * (isDecel ? 0.35 : 1.0) * 0.85
-        this.m3LowGain.gain.setTargetAtTime(targetLow, now, 0.045)
-        this.m3LowSource.playbackRate.setTargetAtTime((0.85 + rpmNorm * 0.35) * pitchMult, now, 0.045)
-      }
-
-      // 3. Mid-RPM Powerband Roar (3,200 - 6,800 RPM)
-      if (this.m3MidGain && this.m3MidSource) {
-        const midAngle = Math.min(Math.PI, Math.max(0, (rpm - 3200) / 3600) * Math.PI)
-        const targetMid = Math.sin(midAngle) * (0.24 + throttleVal * 0.76) * (isDecel ? 0.30 : 1.0) * 0.88
-        this.m3MidGain.gain.setTargetAtTime(targetMid, now, 0.045)
-        this.m3MidSource.playbackRate.setTargetAtTime((0.90 + ((rpm - 3200) / 3600) * 0.28) * pitchMult, now, 0.045)
-      }
-
-      // 4. High-RPM Screaming Race-V8 Layer (5,200 - 8,500 RPM)
-      if (this.m3HighLoopGain && this.m3HighLoopSource) {
-        const highAngle = Math.min(Math.PI / 2, Math.max(0, (rpm - 5200) / 3000) * (Math.PI / 2))
-        const targetHigh = Math.sin(highAngle) * (0.25 + throttleVal * 0.75) * (isDecel ? 0.25 : 1.0) * 0.95
-        this.m3HighLoopGain.gain.setTargetAtTime(targetHigh, now, 0.045)
-        this.m3HighLoopSource.playbackRate.setTargetAtTime((0.92 + ((rpm - 5200) / 3300) * 0.25) * pitchMult, now, 0.045)
-      }
-
-      // 5. Authentic Goodwood M3 GT2 Recording Layer (Race V8 scream above 3,500 RPM)
-      if (this.m3RealGtGain && this.m3RealGtSource) {
-        const gtAngle = Math.min(Math.PI / 2, Math.max(0, (rpm - 3500) / 4800) * (Math.PI / 2))
-        const targetGt = Math.sin(gtAngle) * (throttleVal * 0.65 + speedNorm * 0.25) * (isDecel ? 0.15 : 1.0) * 0.82
-        this.m3RealGtGain.gain.setTargetAtTime(targetGt, now, 0.045)
-        this.m3RealGtSource.playbackRate.setTargetAtTime((0.88 + rpmNorm * 0.28) * pitchMult, now, 0.045)
-      }
-
-      // 6. Deceleration & Engine Overrun Layer
-      if (this.m3DecelGain && this.m3DecelSource) {
-        const targetDecel = isDecel
-          ? Math.min(0.85, (1 - throttleVal) * Math.min(1, (rpm - 1600) / 3000) * Math.min(1, speedKmh / 22) * 0.80)
-          : 0.0001
-        this.m3DecelGain.gain.setTargetAtTime(targetDecel, now, 0.045)
-        this.m3DecelSource.playbackRate.setTargetAtTime((0.88 + rpmNorm * 0.24) * pitchMult, now, 0.045)
-      }
-
-      // 7. Engine Braking Compression Resistance
-      if (this.m3BrakingGain && this.m3BrakingSource) {
-        const targetBraking = isDecel
-          ? Math.min(0.80, (1 - throttleVal) * Math.min(1, (rpm - 2000) / 2800) * Math.min(1, speedKmh / 20) * 0.75)
-          : 0.0001
-        this.m3BrakingGain.gain.setTargetAtTime(targetBraking, now, 0.045)
-        this.m3BrakingSource.playbackRate.setTargetAtTime((0.85 + rpmNorm * 0.22) * pitchMult, now, 0.045)
-      }
-    }
-    // ------------------------------------------------------------------------
-    // 2. Cozy Camper Van: Air-Cooled Flat-4 Boxer Engine Chug
-    // ------------------------------------------------------------------------
-    else if (isCamper) {
-      this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.turboGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-
-      if (this.camperGain && this.camperOsc1 && this.camperOsc2 && this.camperFilter) {
-        const camperFreq = 28 + (rpm / 4500) * 45
-        this.camperOsc1.type = 'triangle'
-        this.camperOsc1.frequency.setTargetAtTime(camperFreq, now, 0.045)
-        this.camperOsc2.type = 'sine'
-        this.camperOsc2.frequency.setTargetAtTime(camperFreq * 2, now, 0.045)
-
-        this.camperFilter.frequency.setTargetAtTime(280 + throttle * 420, now, 0.045)
-        const targetGain = 0.12 + throttle * 0.24 + (speedKmh / 130) * 0.08
-        this.camperGain.gain.setTargetAtTime(targetGain, now, 0.045)
-      }
-    }
-    // ------------------------------------------------------------------------
-    // 3. Vintage Rally Hatchback: Group B Turbo 5-Cylinder with Turbo Spool Whine
-    // ------------------------------------------------------------------------
-    else if (isHatch) {
-      this.m3IdleGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3LowGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3MidGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3HighLoopGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3DecelGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3BrakingGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.m3RealGtGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-      this.camperGain?.gain.setTargetAtTime(0.0001, now, 0.045)
-
-      // Authentic Audi Sport Quattro Group B rally engine recording
-      if (this.rallyGain && this.rallySource) {
-        const rpmNorm = (rpm - 1000) / 6500
-        this.rallySource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.35, now, 0.045)
-        const targetRallyVol = 0.18 + throttle * 0.62 + (speedKmh / 180) * 0.18
-        this.rallyGain.gain.setTargetAtTime(targetRallyVol, now, 0.045)
-      }
-
-      // Turbocharger Spool Whine (whistles up to 2600 Hz under boost)
-      if (this.turboGain && this.turboOsc) {
-        const spoolFreq = 800 + throttle * 1600 + (rpm / 7500) * 600
-        this.turboOsc.frequency.setTargetAtTime(spoolFreq, now, 0.045)
-        const targetTurboVol = throttle * 0.22 + (speedKmh / 180) * 0.10
-        this.turboGain.gain.setTargetAtTime(targetTurboVol, now, 0.045)
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // 4. Surface Tire Friction (higher on offroad/grass)
-    // ------------------------------------------------------------------------
-    if (this.frictionGain && this.frictionFilter) {
-      if (isHoverMode || speedKmh < 3) {
-        this.frictionGain.gain.setTargetAtTime(0.0001, now, 0.1)
-      } else {
-        const speedNorm = Math.min(1, speedKmh / 160)
-        const targetFriction = isOffRoad ? speedNorm * 0.14 : speedNorm * 0.05
-        this.frictionGain.gain.setTargetAtTime(targetFriction, now, 0.05)
-        this.frictionFilter.frequency.setTargetAtTime(isOffRoad ? 500 : 1200, now, 0.1)
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // 5. Hovercraft Repulsor Reactor Hum
-    // ------------------------------------------------------------------------
-    if (this.hoverGain && this.hoverOsc) {
-      if (isHoverMode) {
+      if (this.hoverGain && this.hoverOsc) {
         const hoverTarget = 0.14 + Math.min(0.14, (speedKmh / 180) * 0.12)
-        this.hoverGain.gain.setTargetAtTime(hoverTarget, now, 0.1)
+        this.hoverGain.gain.setTargetAtTime(hoverTarget, now, 0.08)
         const hoverFreq = 160 + (speedKmh / 200) * 95 + throttle * 45
         this.hoverOsc.frequency.setTargetAtTime(hoverFreq, now, 0.05)
+      }
+      return
+    }
+
+    // 2. Combustion Mode Active
+    this.hoverGain?.gain.setTargetAtTime(0.0001, now, 0.06)
+
+    // Handle Vintage Rally Hatchback recording
+    if (vehicleModel === 'hatchback' && this.rallyGain && this.rallySource) {
+      this.engineMaster?.gain.setTargetAtTime(0.0001, now, 0.05)
+      const rpmNorm = (rpm - 1000) / 6500
+      this.rallySource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.35, now, 0.045)
+      const targetRallyVol = 0.18 + throttle * 0.62 + (speedKmh / 180) * 0.18
+      this.rallyGain.gain.setTargetAtTime(targetRallyVol, now, 0.045)
+    } else {
+      // V8 Sports Car & Modern Supercar: Run primary sample-based audio engine
+      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.05)
+      this.engineMaster?.gain.setTargetAtTime(1.0, now, 0.05)
+      this.updateEngineSound(rpm, throttle, speedKmh)
+    }
+
+    // 3. Surface Friction Noise (asphalt vs off-road/grass)
+    if (this.frictionGain && this.frictionFilter) {
+      if (speedKmh < 3) {
+        this.frictionGain.gain.setTargetAtTime(0.0001, now, 0.08)
       } else {
-        this.hoverGain.gain.setTargetAtTime(0.0001, now, 0.1)
+        const speedNorm = Math.min(1.0, speedKmh / 160)
+        const targetFriction = isOffRoad ? speedNorm * 0.14 : speedNorm * 0.05
+        this.frictionGain.gain.setTargetAtTime(targetFriction, now, 0.05)
+        this.frictionFilter.frequency.setTargetAtTime(isOffRoad ? 500 : 1200, now, 0.08)
       }
     }
 
-    // ------------------------------------------------------------------------
-    // 6. Lateral Slip Tire Squeal (Drifting & High-G Cornering)
-    // ------------------------------------------------------------------------
+    // 4. Lateral Slip Tire Squeal (Drifting & High-G cornering)
     if (this.tireSquealGain && this.tireSquealFilter) {
-      if (isHoverMode || speedKmh < 15 || lateralSlip < 0.08) {
-        this.tireSquealGain.gain.setTargetAtTime(0.0001, now, 0.06)
+      if (speedKmh < 15 || lateralSlip < 0.08) {
+        this.tireSquealGain.gain.setTargetAtTime(0.0001, now, 0.05)
       } else {
         const slipIntensity = Math.min(1.0, (lateralSlip - 0.08) * 2.8)
         const speedFactor = Math.min(1.0, speedKmh / 50)
@@ -823,9 +576,7 @@ class AudioEcosystem {
       }
     }
 
-    // ------------------------------------------------------------------------
-    // 7. Aerodynamic High-Speed Wind Rush Noise
-    // ------------------------------------------------------------------------
+    // 5. Aerodynamic High-Speed Wind Rush
     if (this.windRushGain && this.windRushFilter) {
       const speedNorm = Math.min(1.2, speedKmh / 280)
       const targetWindGain = speedNorm * speedNorm * 0.28
@@ -836,79 +587,69 @@ class AudioEcosystem {
     }
   }
 
-  // ----------------------------------------------------
-  // Lo-Fi Music Player
-  // ----------------------------------------------------
-  private playChord(chord: number[], durationSec: number) {
-    if (!this.ctx || !this.musicGain) return
+  // --------------------------------------------------------------------------
+  // Transients & Sound Effects (Overrun Pops, Shift Cuts, Horn)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Explosive exhaust overrun crackle and backfire burst
+   */
+  public triggerExhaustPop(intensity = 1.0): void {
+    if (!this.ctx || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    if (now - this.lastExhaustPopTime < 0.12) return
+    this.lastExhaustPopTime = now
+
+    if (this.overrunBuffer) {
+      const popCount = intensity > 0.65 ? (Math.random() > 0.45 ? 2 : 1) : 1
+      for (let p = 0; p < popCount; p++) {
+        const popDelay = p * (0.038 + Math.random() * 0.042)
+        const popTime = now + popDelay
+        const source = this.ctx.createBufferSource()
+        source.buffer = this.overrunBuffer
+        source.playbackRate.value = 0.94 + Math.random() * 0.16
+        const gain = this.ctx.createGain()
+        gain.gain.setValueAtTime(0.72 * intensity * (p === 0 ? 1.0 : 0.65), popTime)
+        source.connect(gain)
+        gain.connect(this.sfxMaster)
+        source.start(popTime)
+      }
+    }
+  }
+
+  /**
+   * Sequential dog-box ignition cut ducking and mechanical shift one-shot
+   */
+  public triggerGearShift(vehicleModel = 'bmw_m3', isDownshift = false): void {
+    if (!this.ctx || !this.sfxMaster) return
     const now = this.ctx.currentTime
 
-    chord.forEach((freq, i) => {
-      if (!this.ctx || !this.musicGain) return
-      const osc = this.ctx.createOscillator()
-      const noteGain = this.ctx.createGain()
-
-      osc.type = i === 0 ? 'sine' : 'triangle'
-      osc.frequency.setValueAtTime(freq * (1 + (Math.random() - 0.5) * 0.004), now)
-
-      const attack = 0.08 + i * 0.03
-      noteGain.gain.setValueAtTime(0.0001, now)
-      noteGain.gain.linearRampToValueAtTime(0.12 / (i + 1), now + attack)
-      noteGain.gain.exponentialRampToValueAtTime(0.035 / (i + 1), now + durationSec * 0.7)
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec * 0.96)
-
-      osc.connect(noteGain)
-      noteGain.connect(this.musicGain)
-
-      osc.start(now + i * 0.02)
-      osc.stop(now + durationSec)
-    })
-  }
-
-  public setMusicVolume(val: number) {
-    this.musicVolume = Math.max(0, Math.min(1, val))
-    if (this.musicGain && this.ctx) {
-      this.musicGain.gain.setTargetAtTime(this.musicVolume, this.ctx.currentTime, 0.05)
-    }
-  }
-
-  public setSfxVolume(val: number) {
-    this.sfxMasterVolume = Math.max(0, Math.min(1, val))
-    if (this.sfxMaster && this.ctx) {
-      this.sfxMaster.gain.setTargetAtTime(this.sfxMasterVolume, this.ctx.currentTime, 0.05)
-    }
-  }
-
-  public startMusic(trackIdx = 0) {
-    this.unlock()
-    this.stopMusic()
-    this.isMusicPlaying = true
-    this.currentTrack = trackIdx % this.chordProgressions.length
-
-    const prog = this.chordProgressions[this.currentTrack]
-    let chordIdx = 0
-    const beatDuration = 3.8 // ~63 BPM
-
-    const loop = () => {
-      if (!this.isMusicPlaying) return
-      const chord = prog[chordIdx % prog.length]
-      this.playChord(chord, beatDuration * 0.95)
-      chordIdx++
-      this.musicTimer = window.setTimeout(loop, beatDuration * 1000)
+    // 0.045s sequential ignition cut: duck on-load acceleration volume momentarily
+    if (this.onLoadBus && vehicleModel !== 'camper') {
+      this.onLoadBus.gain.setValueAtTime(0.06, now)
+      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.045, 0.045)
     }
 
-    loop()
-  }
-
-  public stopMusic() {
-    this.isMusicPlaying = false
-    if (this.musicTimer) {
-      clearTimeout(this.musicTimer)
-      this.musicTimer = null
+    // Play recorded mechanical dog-ring engagement transient
+    const shiftBuffer = isDownshift ? (this.gearDownBuffer || this.gearUpBuffer) : this.gearUpBuffer
+    if (shiftBuffer) {
+      const source = this.ctx.createBufferSource()
+      source.buffer = shiftBuffer
+      source.playbackRate.value = 0.98 + Math.random() * 0.04
+      const gain = this.ctx.createGain()
+      gain.gain.setValueAtTime(0.72, now)
+      source.connect(gain)
+      gain.connect(this.sfxMaster)
+      source.start(now)
     }
+
+    this.triggerExhaustPop(isDownshift ? 0.85 : 0.55)
   }
 
-  public playHorn() {
+  /**
+   * Dual-tone vehicle horn
+   */
+  public playHorn(): void {
     this.unlock()
     if (!this.ctx) return
     const now = this.ctx.currentTime
@@ -935,30 +676,205 @@ class AudioEcosystem {
     osc2.stop(now + 0.4)
   }
 
+  // --------------------------------------------------------------------------
+  // Environmental Synthesis Setup
+  // --------------------------------------------------------------------------
+
+  private initEnvironmentalSFX(ctx: AudioContext): void {
+    try {
+      const bufferSize = ctx.sampleRate * 2
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+      const data = noiseBuffer.getChannelData(0)
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1
+      }
+
+      // A. Road surface friction
+      const noiseSource = ctx.createBufferSource()
+      noiseSource.buffer = noiseBuffer
+      noiseSource.loop = true
+
+      this.frictionFilter = ctx.createBiquadFilter()
+      this.frictionFilter.type = 'bandpass'
+      this.frictionFilter.frequency.value = 800
+      this.frictionFilter.Q.value = 1.0
+
+      this.frictionGain = ctx.createGain()
+      this.frictionGain.gain.value = 0.0
+
+      noiseSource.connect(this.frictionFilter)
+      this.frictionFilter.connect(this.frictionGain)
+      this.frictionGain.connect(this.sfxMaster!)
+      noiseSource.start()
+
+      // B. Lateral slip tire squeal
+      const squealSource = ctx.createBufferSource()
+      squealSource.buffer = noiseBuffer
+      squealSource.loop = true
+
+      this.tireSquealFilter = ctx.createBiquadFilter()
+      this.tireSquealFilter.type = 'bandpass'
+      this.tireSquealFilter.frequency.value = 1100
+      this.tireSquealFilter.Q.value = 4.2
+
+      this.tireSquealGain = ctx.createGain()
+      this.tireSquealGain.gain.value = 0.0001
+
+      squealSource.connect(this.tireSquealFilter)
+      this.tireSquealFilter.connect(this.tireSquealGain)
+      this.tireSquealGain.connect(this.sfxMaster!)
+      squealSource.start()
+
+      // C. High-speed wind rush
+      const windSource = ctx.createBufferSource()
+      windSource.buffer = noiseBuffer
+      windSource.loop = true
+
+      this.windRushFilter = ctx.createBiquadFilter()
+      this.windRushFilter.type = 'lowpass'
+      this.windRushFilter.frequency.value = 420
+
+      this.windRushGain = ctx.createGain()
+      this.windRushGain.gain.value = 0.0001
+
+      windSource.connect(this.windRushFilter)
+      this.windRushFilter.connect(this.windRushGain)
+      this.windRushGain.connect(this.sfxMaster!)
+      windSource.start()
+    } catch {}
+
+    // Antigravity repulsor hum
+    this.hoverGain = ctx.createGain()
+    this.hoverGain.gain.value = 0.0
+    this.hoverOsc = ctx.createOscillator()
+    this.hoverOsc.type = 'sine'
+    this.hoverOsc.frequency.value = 180
+    this.hoverOsc.connect(this.hoverGain)
+    this.hoverGain.connect(this.sfxMaster!)
+    this.hoverOsc.start()
+  }
+
+  // --------------------------------------------------------------------------
+  // Lo-Fi Ambient Radio Player
+  // --------------------------------------------------------------------------
+
+  private playChord(chord: number[], durationSec: number): void {
+    if (!this.ctx || !this.musicGain) return
+    const now = this.ctx.currentTime
+
+    chord.forEach((freq, i) => {
+      if (!this.ctx || !this.musicGain) return
+      const osc = this.ctx.createOscillator()
+      const noteGain = this.ctx.createGain()
+
+      osc.type = i === 0 ? 'sine' : 'triangle'
+      osc.frequency.setValueAtTime(freq * (1 + (Math.random() - 0.5) * 0.004), now)
+
+      const attack = 0.08 + i * 0.03
+      noteGain.gain.setValueAtTime(0.0001, now)
+      noteGain.gain.linearRampToValueAtTime(0.12 / (i + 1), now + attack)
+      noteGain.gain.exponentialRampToValueAtTime(0.035 / (i + 1), now + durationSec * 0.7)
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec * 0.96)
+
+      osc.connect(noteGain)
+      noteGain.connect(this.musicGain)
+
+      osc.start(now + i * 0.02)
+      osc.stop(now + durationSec)
+    })
+  }
+
+  public setMusicVolume(val: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, val))
+    if (this.musicGain && this.ctx) {
+      this.musicGain.gain.setTargetAtTime(this.musicVolume, this.ctx.currentTime, 0.05)
+    }
+  }
+
+  public setSfxVolume(val: number): void {
+    this.sfxMasterVolume = Math.max(0, Math.min(1, val))
+    if (this.sfxMaster && this.ctx) {
+      this.sfxMaster.gain.setTargetAtTime(this.sfxMasterVolume, this.ctx.currentTime, 0.05)
+    }
+  }
+
+  public startMusic(trackIdx = 0): void {
+    this.unlock()
+    this.stopMusic()
+    this.isMusicPlaying = true
+    this.currentTrack = trackIdx % this.chordProgressions.length
+
+    const prog = this.chordProgressions[this.currentTrack]
+    let chordIdx = 0
+    const beatDuration = 3.8
+
+    const loop = () => {
+      if (!this.isMusicPlaying) return
+      const chord = prog[chordIdx % prog.length]
+      this.playChord(chord, beatDuration * 0.95)
+      chordIdx++
+      this.musicTimer = window.setTimeout(loop, beatDuration * 1000)
+    }
+
+    loop()
+  }
+
+  public stopMusic(): void {
+    this.isMusicPlaying = false
+    if (this.musicTimer) {
+      clearTimeout(this.musicTimer)
+      this.musicTimer = null
+    }
+  }
+
   public getTrack(index: number): TrackInfo {
     return LOFI_PLAYLIST[index % LOFI_PLAYLIST.length]
   }
 
-  public getLoadedClipsInfo() {
-    return {
-      hasIdle: !!this.m3IdleBuffer,
-      hasLow: !!this.m3LowBuffer,
-      hasMid: !!this.m3MidBuffer,
-      hasHigh: !!this.m3HighBuffer,
-      hasHighLoop: !!this.m3HighLoopBuffer,
-      hasDecel: !!this.m3DecelBuffer,
-      hasBraking: !!this.m3BrakingBuffer,
-      hasOverrun: !!this.m3OverrunBuffer,
-      hasGearUp: !!this.m3GearUpBuffer,
-      hasGearDown: !!this.m3GearDownBuffer,
-      hasRealGt: !!this.m3RealGtBuffer,
-      hasRally: !!this.rallyBuffer,
+  // --------------------------------------------------------------------------
+  // React Lifecycle Cleanup
+  // --------------------------------------------------------------------------
+
+  /**
+   * Stops loop nodes and closes the audio graph to prevent memory leaks in useEffect.
+   */
+  public cleanup(): void {
+    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
+
+    states.forEach((state) => {
+      const channel = this.loops[state]
+      if (channel.source) {
+        try {
+          channel.source.stop()
+          channel.source.disconnect()
+        } catch {}
+        channel.source = null
+      }
+      if (channel.gain) {
+        try {
+          channel.gain.disconnect()
+        } catch {}
+        channel.gain = null
+      }
+    })
+
+    if (this.rallySource) {
+      try {
+        this.rallySource.stop()
+        this.rallySource.disconnect()
+      } catch {}
+      this.rallySource = null
     }
+
+    this.stopMusic()
+    this.isInitialized = false
   }
 }
 
-export const audioSystem = new AudioEcosystem()
+// Export singleton engine instance
+export const audioSystem = new RealisticVehicleAudioEngine()
 
+// Auto-unlock on initial user interaction to satisfy browser autoplay policies
 if (typeof window !== 'undefined') {
   const autoUnlock = () => {
     audioSystem.unlock()

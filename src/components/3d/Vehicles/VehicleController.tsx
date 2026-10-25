@@ -209,6 +209,14 @@ export default function VehicleController() {
   const shiftCutTimer = useRef(0)
   const smoothedRpm = useRef(config.idleRpm)
 
+  // Vehicle Audio Engine Lifecycle: Initialize Web Audio API and cleanup on unmount
+  useEffect(() => {
+    audioSystem.init()
+    return () => {
+      audioSystem.cleanup()
+    }
+  }, [])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return
@@ -635,8 +643,9 @@ export default function VehicleController() {
     const lateralSlip = Math.abs(lateralVel.current) / Math.max(2.5, Math.abs(forwardVel.current))
 
     // ------------------------------------------------------------------------
-    // 6. Real-Time Layered Audio Ecosystem
+    // 6. Real-Time Layered Audio Ecosystem & Dynamic Telemetry
     // ------------------------------------------------------------------------
+    audioSystem.updateEngineSound(finalRpm, curThrottleAbs, currentSpeedKmh)
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
       rpm: finalRpm,
