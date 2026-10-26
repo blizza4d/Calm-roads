@@ -11,7 +11,7 @@ import {
   getActiveBiomeAt,
   BiomeConfig,
 } from '../../../utils/roadMath'
-import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture } from '../../../utils/asphaltTexture'
+import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
@@ -81,14 +81,48 @@ const broadleafCanopyGeo = (() => {
 })()
 const broadleafTrunkGeo = new THREE.CylinderGeometry(0.2, 0.48, 4.2, 8).translate(0, 2.1, 0)
 
-// 3. Desert Saguaro Cactus: Multi-armed branching columnar cactus
+// 3. Desert Saguaro Cactus: Multi-armed branching columnar cactus with accordion pleats & dome caps
 const saguaroGeo = (() => {
-  const main = new THREE.CylinderGeometry(0.34, 0.38, 4.8, 10).translate(0, 2.4, 0)
-  const armL1 = new THREE.CylinderGeometry(0.2, 0.2, 0.8, 8).rotateZ(Math.PI / 2).translate(-0.55, 2.2, 0)
-  const armL2 = new THREE.CylinderGeometry(0.2, 0.2, 1.5, 8).translate(-0.95, 2.9, 0)
-  const armR1 = new THREE.CylinderGeometry(0.18, 0.18, 0.8, 8).rotateZ(-Math.PI / 2).translate(0.55, 2.8, 0)
-  const armR2 = new THREE.CylinderGeometry(0.18, 0.18, 1.3, 8).translate(0.95, 3.4, 0)
-  return mergeBufferGeometries([main, armL1, armL2, armR1, armR2])
+  // Main fluted trunk with accordion pleats
+  const main = new THREE.CylinderGeometry(0.34, 0.38, 5.0, 16, 10)
+  const mainPos = main.attributes.position
+  for (let i = 0; i < mainPos.count; i++) {
+    const x = mainPos.getX(i)
+    const z = mainPos.getZ(i)
+    const r = Math.sqrt(x * x + z * z)
+    if (r > 0.05) {
+      const angle = Math.atan2(z, x)
+      const flute = Math.sin(angle * 12) * 0.028
+      const newR = r + flute
+      mainPos.setX(i, Math.cos(angle) * newR)
+      mainPos.setZ(i, Math.sin(angle) * newR)
+    }
+  }
+  main.translate(0, 2.5, 0)
+  main.computeVertexNormals()
+
+  // Dome cap on main trunk
+  const mainCap = new THREE.SphereGeometry(0.34, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 5.0, 0)
+
+  // Left branching arm (curved elbow + vertical column + dome cap)
+  const armLHoriz = new THREE.CylinderGeometry(0.2, 0.22, 0.75, 10).rotateZ(Math.PI / 2).translate(-0.55, 2.4, 0)
+  const armLElbow = new THREE.SphereGeometry(0.21, 10, 8).translate(-0.95, 2.4, 0)
+  const armLVert = new THREE.CylinderGeometry(0.19, 0.21, 1.6, 10).translate(-0.95, 3.2, 0)
+  const armLCap = new THREE.SphereGeometry(0.19, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(-0.95, 4.0, 0)
+
+  // Right branching arm (higher offset, organic asymmetry)
+  const armRHoriz = new THREE.CylinderGeometry(0.18, 0.2, 0.75, 10).rotateZ(-Math.PI / 2).translate(0.55, 3.0, 0)
+  const armRElbow = new THREE.SphereGeometry(0.19, 10, 8).translate(0.95, 3.0, 0)
+  const armRVert = new THREE.CylinderGeometry(0.17, 0.19, 1.35, 10).translate(0.95, 3.7, 0)
+  const armRCap = new THREE.SphereGeometry(0.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0.95, 4.38, 0)
+
+  const merged = mergeBufferGeometries([
+    main, mainCap,
+    armLHoriz, armLElbow, armLVert, armLCap,
+    armRHoriz, armRElbow, armRVert, armRCap
+  ])
+  merged.computeVertexNormals()
+  return merged
 })()
 
 // 4. Roadside Shrub / Bush: Multi-lobed low foliage clump
@@ -101,15 +135,17 @@ const shrubGeo = (() => {
 
 // 5. Geological Weathered Boulders with sharp fracture cleavage planes
 const rockGeo = (() => {
-  const geo = new THREE.DodecahedronGeometry(1.4, 0)
+  const geo = new THREE.DodecahedronGeometry(1.5, 1)
   const pos = geo.attributes.position
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i)
     const y = pos.getY(i)
     const z = pos.getZ(i)
-    // Irregular geological shearing and cleavage facets
-    const shear = Math.sin(x * 2.8 + y * 1.9) * 0.22
-    pos.setXYZ(i, x * (1.15 + shear), y * 0.74 + shear * 0.35, z * (0.92 - shear))
+    // Irregular geological strata cleavage planes and chisel facets
+    const strata = Math.sin(y * 3.2) * 0.14
+    const cleavage = Math.sin(x * 2.2 + z * 1.8) * 0.18
+    const facet = Math.sin(x * 4.5 + y * 2.1) * 0.08
+    pos.setXYZ(i, x * (1.18 + strata) + cleavage * 0.2, y * 0.72 + strata * 0.4, z * (0.94 - strata) + facet * 0.15)
   }
   geo.computeVertexNormals()
   return geo
@@ -123,12 +159,54 @@ const grassTuftGeo = (() => {
   return mergeBufferGeometries([p1, p2, p3])
 })()
 
-// 7. Utility Poles
-const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 6.4, 8).translate(0, 3.2, 0)
+// 7. Highway Utility Pole: Heavy creosote timber mast, crossarm, metal angle braces, ceramic insulators, transformer & apex spike
+const poleGeo = (() => {
+  // Tapered Creosote Timber Mast
+  const mast = new THREE.CylinderGeometry(0.13, 0.19, 7.2, 10).translate(0, 3.6, 0)
+
+  // Heavy Horizontal Wooden Crossarm
+  const crossarm = new THREE.BoxGeometry(2.3, 0.13, 0.13).translate(0, 6.4, 0)
+
+  // Diagonal Metal Support Braces
+  const braceL = new THREE.BoxGeometry(0.035, 0.95, 0.035).rotateZ(0.72).translate(-0.46, 6.0, 0.08)
+  const braceR = new THREE.BoxGeometry(0.035, 0.95, 0.035).rotateZ(-0.72).translate(0.46, 6.0, 0.08)
+
+  // Ceramic Bell Insulators atop Crossarm
+  const insulL = new THREE.CylinderGeometry(0.045, 0.065, 0.22, 8).translate(-0.92, 6.56, 0)
+  const insulC = new THREE.CylinderGeometry(0.045, 0.065, 0.22, 8).translate(0, 6.56, 0)
+  const insulR = new THREE.CylinderGeometry(0.045, 0.065, 0.22, 8).translate(0.92, 6.56, 0)
+
+  // Metal Apex Lightning Ground Spike
+  const spike = new THREE.ConeGeometry(0.03, 0.38, 6).translate(0, 7.38, 0)
+
+  // Distribution Transformer on Pole Mast
+  const trans = new THREE.CylinderGeometry(0.15, 0.15, 0.48, 8).translate(0.28, 5.75, 0)
+
+  const merged = mergeBufferGeometries([
+    mast, crossarm, braceL, braceR, insulL, insulC, insulR, spike, trans
+  ])
+  merged.computeVertexNormals()
+  return merged
+})()
 
 // 8. Highway Reflector Delineator Posts (Guide Posts / Leitpfosten)
 const delineatorPostGeo = new THREE.BoxGeometry(0.12, 1.05, 0.08).translate(0, 0.525, 0)
 const delineatorReflectorGeo = new THREE.BoxGeometry(0.08, 0.18, 0.085).translate(0, 0.88, 0)
+
+// Pre-assign chunk-spanning bounding spheres to all instanced geometries to enable
+// hardware-accelerated frustum culling without edge-of-screen false-culling pops
+const CHUNK_SPHERE = new THREE.Sphere(new THREE.Vector3(0, 30, 0), 220)
+pineTrunkGeo.boundingSphere = CHUNK_SPHERE
+pineCanopyGeo.boundingSphere = CHUNK_SPHERE
+broadleafTrunkGeo.boundingSphere = CHUNK_SPHERE
+broadleafCanopyGeo.boundingSphere = CHUNK_SPHERE
+saguaroGeo.boundingSphere = CHUNK_SPHERE
+shrubGeo.boundingSphere = CHUNK_SPHERE
+rockGeo.boundingSphere = CHUNK_SPHERE
+grassTuftGeo.boundingSphere = CHUNK_SPHERE
+poleGeo.boundingSphere = CHUNK_SPHERE
+delineatorPostGeo.boundingSphere = CHUNK_SPHERE
+delineatorReflectorGeo.boundingSphere = CHUNK_SPHERE
 
 // Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
 const _dummy = new THREE.Object3D()
@@ -150,6 +228,47 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
+  const woodBumpTex = useMemo(() => getWoodBumpTexture(), [])
+
+  // Triplanar Shader for seamless rock strata & granular soil texture on steep terrain
+  const onTerrainMaterialCompile = useMemo(() => {
+    return (shader: THREE.WebGLProgramParametersWithUniforms) => {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vCustomWorldPos;
+         varying vec3 vCustomWorldNorm;`
+      )
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+         vCustomWorldPos = worldPosition.xyz;
+         vCustomWorldNorm = normalize(mat3(modelMatrix) * normal);`
+      )
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vCustomWorldPos;
+         varying vec3 vCustomWorldNorm;`
+      )
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         vec3 triWeight = abs(vCustomWorldNorm);
+         triWeight = normalize(max(triWeight, 0.001));
+         float bSum = triWeight.x + triWeight.y + triWeight.z;
+         triWeight /= bSum;
+
+         // Triplanar procedural strata & micro-rock grain
+         float cliffStrata = sin(vCustomWorldPos.y * 0.95) * 0.08 * (triWeight.x + triWeight.z);
+         float soilGrain = sin(vCustomWorldPos.x * 0.35 + vCustomWorldPos.z * 0.35) * 0.04 * triWeight.y;
+         float triDetail = cliffStrata + soilGrain;
+
+         diffuseColor.rgb = clamp(diffuseColor.rgb * (1.0 + triDetail), 0.0, 1.0);
+         roughnessFactor = clamp(roughnessFactor + triDetail * 0.4, 0.2, 0.98);`
+      )
+    }
+  }, [])
 
   // --------------------------------------------------------------------------
   // Geometry Buffer Pooling: Geometries are allocated ONCE per chunk slot.
@@ -167,7 +286,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     return geo
   }, [])
 
-  // In-place terrain elevation, normals, and vertex colors update
+  // In-place terrain elevation, slope-compensated UVs, normals, and vertex colors update
   useMemo(() => {
     const pos = terrainGeo.attributes.position
     const count = pos.count
@@ -183,6 +302,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     terrainGeo.computeVertexNormals()
 
     const normals = terrainGeo.attributes.normal
+    const uvs = terrainGeo.attributes.uv.array as Float32Array
     const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
     const colors = colorAttr.array as Float32Array
 
@@ -199,6 +319,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const pz = pos.getZ(i)
       const worldZ = chunkZ + pz
       const roadCx = getRoadCenter(worldZ)
+
+      // Slope-compensated UV mapping: incorporates vertical arc-length to eliminate stretching on cliffs
+      const steepness = Math.max(0, 1.0 - Math.min(1.0, Math.max(0.0, ny)))
+      const baseU = px / TERRAIN_W + 0.5
+      const baseV = pz / CHUNK_LEN + 0.5
+      const uSlope = (px >= 0 ? 1 : -1) * (py / TERRAIN_W) * steepness * 1.6
+      const vSlope = (py / CHUNK_LEN) * steepness * 1.8
+      uvs[i * 2] = baseU + uSlope
+      uvs[i * 2 + 1] = baseV + vSlope
 
       const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
       const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
@@ -222,6 +351,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       colors[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
       colors[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
     }
+    terrainGeo.attributes.uv.needsUpdate = true
     colorAttr.needsUpdate = true
     normals.needsUpdate = true
     terrainGeo.computeBoundingSphere()
@@ -892,6 +1022,45 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
   }, [sceneryData])
 
+  // Distance-Based Level of Detail (LOD) Culling:
+  // Dynamically gates instanced mesh instance count based on distance to camera,
+  // completely eliminating thousands of invisible micro-foliage and prop vertices
+  const lodLevelRef = useRef<number>(-1)
+
+  useEffect(() => {
+    lodLevelRef.current = -1
+  }, [sceneryData])
+
+  useFrame(({ camera }) => {
+    const dist = Math.abs(chunkZ - camera.position.z)
+    let newLod = 0
+    if (dist > 1400) newLod = 3
+    else if (dist > 850) newLod = 2
+    else if (dist > 420) newLod = 1
+
+    if (newLod !== lodLevelRef.current) {
+      lodLevelRef.current = newLod
+
+      const microMult = newLod >= 1 ? 0 : 1
+      const midMult = newLod >= 2 ? 0 : 1
+      const macroMult = newLod >= 3 ? 0 : 1
+
+      if (grassRef.current) grassRef.current.count = sceneryData.grassTufts.length * microMult
+      if (delineatorPostRef.current) delineatorPostRef.current.count = sceneryData.delineators.length * microMult
+      if (delineatorReflectorRef.current) delineatorReflectorRef.current.count = sceneryData.delineators.length * microMult
+      if (shrubRef.current) shrubRef.current.count = sceneryData.shrubs.length * microMult
+
+      if (rockRef.current) rockRef.current.count = sceneryData.rocks.length * midMult
+      if (poleRef.current) poleRef.current.count = sceneryData.poles.length * midMult
+
+      if (pineTrunkRef.current) pineTrunkRef.current.count = sceneryData.pines.length * macroMult
+      if (pineCanopyRef.current) pineCanopyRef.current.count = sceneryData.pines.length * macroMult
+      if (broadleafTrunkRef.current) broadleafTrunkRef.current.count = sceneryData.broadleafs.length * macroMult
+      if (broadleafCanopyRef.current) broadleafCanopyRef.current.count = sceneryData.broadleafs.length * macroMult
+      if (saguaroRef.current) saguaroRef.current.count = sceneryData.saguaros.length * macroMult
+    }
+  })
+
   // Strict Three.js Memory Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -905,19 +1074,20 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   return (
     <group position={[0, 0, chunkZ]}>
-      {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors & Micro-Relief */}
-      <mesh geometry={terrainGeo} receiveShadow>
+      {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors, Triplanar Strata & Micro-Relief */}
+      <mesh geometry={terrainGeo} receiveShadow frustumCulled={true}>
         <meshStandardMaterial
           vertexColors
           bumpMap={terrainBumpTex}
           bumpScale={0.032}
           roughness={biomeConfig.roughness}
           metalness={0.04}
+          onBeforeCompile={onTerrainMaterialCompile}
         />
       </mesh>
 
       {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
-      <mesh geometry={roadGeo} receiveShadow renderOrder={2}>
+      <mesh geometry={roadGeo} receiveShadow renderOrder={2} frustumCulled={true}>
         <meshStandardMaterial
           map={asphaltTex}
           bumpMap={asphaltBumpTex}
@@ -933,7 +1103,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 3. Roadside Gravel Shoulder Strips */}
-      <mesh geometry={shoulderGeo} receiveShadow renderOrder={1}>
+      <mesh geometry={shoulderGeo} receiveShadow renderOrder={1} frustumCulled={true}>
         <meshStandardMaterial
           color={biomeConfig.shoulderColor}
           roughness={0.92}
@@ -945,7 +1115,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
-      <mesh geometry={markingsGeo} renderOrder={3}>
+      <mesh geometry={markingsGeo} renderOrder={3} frustumCulled={true}>
         <meshStandardMaterial
           vertexColors
           roughness={0.3}
@@ -959,7 +1129,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
-      <mesh geometry={guardrailGeo} castShadow receiveShadow>
+      <mesh geometry={guardrailGeo} castShadow receiveShadow frustumCulled={true}>
         <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.25} />
       </mesh>
 
@@ -970,7 +1140,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
       </instancedMesh>
@@ -980,7 +1150,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
@@ -995,7 +1165,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
       </instancedMesh>
@@ -1005,7 +1175,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
       </instancedMesh>
@@ -1017,9 +1187,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.saguaros.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
-        <meshStandardMaterial color="#166534" roughness={0.85} />
+        <meshStandardMaterial color="#1e4e27" roughness={0.86} metalness={0.05} />
       </instancedMesh>
 
       {/* 9. Mountain Shrubs & Roadside Bushes */}
@@ -1029,7 +1199,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.shrubs.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
@@ -1044,7 +1214,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.rocks.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
       </instancedMesh>
@@ -1055,7 +1225,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         args={[grassTuftGeo, undefined, 36]}
         count={sceneryData.grassTufts.length}
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial
           color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
@@ -1064,15 +1234,20 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         />
       </instancedMesh>
 
-      {/* 12. Roadside Highway Utility Poles */}
+      {/* 12. Roadside Highway Utility Poles with Timber Grain */}
       <instancedMesh
         ref={poleRef}
         args={[poleGeo, undefined, 16]}
         count={sceneryData.poles.length}
         castShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
-        <meshStandardMaterial color="#362316" roughness={0.95} />
+        <meshStandardMaterial
+          color="#382518"
+          bumpMap={woodBumpTex}
+          bumpScale={0.024}
+          roughness={0.92}
+        />
       </instancedMesh>
 
       {/* 13. Roadside Reflector Delineator Posts (Guide Posts) */}
@@ -1082,7 +1257,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         count={sceneryData.delineators.length}
         castShadow
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial color="#f8fafc" roughness={0.45} />
       </instancedMesh>
@@ -1092,7 +1267,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         ref={delineatorReflectorRef}
         args={[delineatorReflectorGeo, undefined, 32]}
         count={sceneryData.delineators.length}
-        frustumCulled={false}
+        frustumCulled={true}
       >
         <meshStandardMaterial
           color="#ffffff"

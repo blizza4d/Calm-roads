@@ -251,3 +251,28 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   setDiagnostics: (d) => set((s) => ({ diagnostics: { ...s.diagnostics, ...d } })),
 }))
+
+/**
+ * High-Frequency Transient Telemetry Store.
+ * Decoupled from useGameStore to guarantee 0 FPS Canvas re-renders.
+ * Only the 2D DOM HUD instruments subscribe to this store.
+ */
+export interface TelemetryState {
+  speed: number
+  rpm: number
+  gear: string
+  distance: number
+  throttle: number
+  brake: number
+  setTelemetry: (data: Partial<TelemetryState>) => void
+}
+
+export const useTelemetryStore = create<TelemetryState>((set) => ({
+  speed: 0,
+  rpm: 850,
+  gear: '1',
+  distance: 0,
+  throttle: 0,
+  brake: 0,
+  setTelemetry: (data) => set((s) => ({ ...s, ...data })),
+}))

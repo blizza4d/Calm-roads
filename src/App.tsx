@@ -44,6 +44,8 @@ export default function App() {
             onCreated={({ gl }) => {
               gl.toneMapping = THREE.ACESFilmicToneMapping
               gl.toneMappingExposure = 1.08
+              gl.shadowMap.enabled = true
+              gl.shadowMap.type = THREE.PCFSoftShadowMap
             }}
             style={{ width: '100%', height: '100%' }}
           >

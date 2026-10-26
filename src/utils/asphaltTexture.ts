@@ -3,6 +3,7 @@ import * as THREE from 'three'
 let cachedAsphaltTexture: THREE.CanvasTexture | null = null
 let cachedBumpTexture: THREE.CanvasTexture | null = null
 let cachedTerrainBumpTexture: THREE.CanvasTexture | null = null
+let cachedWoodBumpTexture: THREE.CanvasTexture | null = null
 
 /**
  * High-fidelity procedural PBR asphalt texture generator.
@@ -203,5 +204,58 @@ export function getTerrainBumpTexture(): THREE.CanvasTexture {
   texture.needsUpdate = true
 
   cachedTerrainBumpTexture = texture
+  return texture
+}
+
+/**
+ * Procedural weathered woodgrain bump map for utility poles and timber structures.
+ */
+export function getWoodBumpTexture(): THREE.CanvasTexture {
+  if (cachedWoodBumpTexture) return cachedWoodBumpTexture
+
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    const fallback = new THREE.CanvasTexture(canvas)
+    cachedWoodBumpTexture = fallback
+    return fallback
+  }
+
+  ctx.fillStyle = '#808080'
+  ctx.fillRect(0, 0, size, size)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4
+      // Elongated vertical woodgrain striations
+      const grain = Math.sin(x * 0.35 + Math.sin(y * 0.05) * 2.5) * 35
+      const micro = (Math.random() - 0.5) * 45
+      const val = Math.max(0, Math.min(255, 128 + grain + micro))
+      data[idx] = val
+      data[idx + 1] = val
+      data[idx + 2] = val
+      data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(2, 8)
+  texture.anisotropy = 8
+  texture.generateMipmaps = true
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  cachedWoodBumpTexture = texture
   return texture
 }

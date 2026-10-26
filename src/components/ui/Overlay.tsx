@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import {
   useGameStore,
+  useTelemetryStore,
   WeatherType,
   VehicleModelType,
   CameraPerspectiveType,
@@ -103,13 +104,13 @@ function TouchPedals() {
 // 2. High-Precision Motorsport Telemetry Cluster (Bottom Right)
 // ----------------------------------------------------------------
 function SpeedometerHUD() {
-  const speed = useGameStore((s) => s.speed)
-  const rpm = useGameStore((s) => s.rpm)
-  const gear = useGameStore((s) => s.gear)
+  const speed = useTelemetryStore((s) => s.speed)
+  const rpm = useTelemetryStore((s) => s.rpm)
+  const gear = useTelemetryStore((s) => s.gear)
+  const distance = useTelemetryStore((s) => s.distance)
+  const throttle = useTelemetryStore((s) => s.throttle)
+  const brake = useTelemetryStore((s) => s.brake)
   const transmissionMode = useGameStore((s) => s.transmissionMode)
-  const distance = useGameStore((s) => s.distance)
-  const throttle = useGameStore((s) => s.throttle)
-  const brake = useGameStore((s) => s.brake)
   const speedUnit = useGameStore((s) => s.speedUnit)
   const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
@@ -877,7 +878,12 @@ function MasterMenuModal({
 // 4. Real-Time Diagnostics & Telemetry HUD [F3]
 // ----------------------------------------------------------------
 function DiagnosticsHUD() {
-  const { speed, speedUnit, gear, rpm, diagnostics, vehicleModel } = useGameStore()
+  const speed = useTelemetryStore((s) => s.speed)
+  const gear = useTelemetryStore((s) => s.gear)
+  const rpm = useTelemetryStore((s) => s.rpm)
+  const speedUnit = useGameStore((s) => s.speedUnit)
+  const diagnostics = useGameStore((s) => s.diagnostics)
+  const vehicleModel = useGameStore((s) => s.vehicleModel)
   const [fps, setFps] = useState(60)
 
   useEffect(() => {

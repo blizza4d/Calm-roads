@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { useGameStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
+import { useGameStore, useTelemetryStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
 import { ActiveCarModel } from './CarModels'
 import {
   getRoadCenter,
@@ -663,14 +663,14 @@ export default function VehicleController() {
     // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)
     telemetryCounter.current++
     if (telemetryCounter.current % 3 === 0) {
-      store.setTelemetry({
+      useTelemetryStore.getState().setTelemetry({
         speed: Math.round(currentSpeedKmh),
         rpm: finalRpm,
         gear: calculatedGear,
         throttle: curThrottleAbs,
         brake: targetBrake,
+        distance: accumulatedDistance.current,
       })
-      useGameStore.setState({ distance: accumulatedDistance.current })
     }
 
     // ------------------------------------------------------------------------
@@ -734,18 +734,18 @@ export default function VehicleController() {
 
   return (
     <group ref={carGroupRef}>
-      {/* Subtle vehicle-following soft rim & rear fill light to ensure car contours are always readable */}
+      {/* Subtle vehicle-following soft rim & rear fill light (softened to prevent specular blow-out) */}
       <pointLight
-        position={[0, 1.8, 2.6]}
-        intensity={1.2}
-        distance={9}
+        position={[0, 2.0, 3.2]}
+        intensity={0.35}
+        distance={6}
         color="#fff5ea"
         decay={2}
       />
       {/* Soft roof-top ambient fill */}
       <pointLight
         position={[0, 2.2, 0]}
-        intensity={0.6}
+        intensity={0.35}
         distance={6}
         color="#e2e8f0"
         decay={2}

@@ -435,10 +435,10 @@ export default function GameEnvironment() {
     const sunHeight = Math.sin(angle) // -1 (midnight) to +1 (noon)
     const sunEastWest = Math.cos(angle)
 
-    const sunDistance = 100
+    const sunDistance = 65
     const sunY = sunHeight * sunDistance
     const sunX = sunEastWest * sunDistance
-    const sunZ = -25
+    const sunZ = -20
 
     const isNight = sunHeight < -0.06
     const isSunsetOrSunrise = Math.abs(sunHeight) < 0.24
@@ -446,7 +446,7 @@ export default function GameEnvironment() {
     // Directional Light position:
     // Follows the sun during day; during night, shines as moonlight
     const lightX = isNight ? -sunX * 0.75 : sunX
-    const lightY = isNight ? Math.max(28, -sunY * 0.85) : Math.max(8, sunY)
+    const lightY = isNight ? Math.max(26, -sunY * 0.85) : Math.max(16, sunY)
     const lightZ = isNight ? -sunZ : sunZ
 
     let lightColor = '#fffdf8'
@@ -512,23 +512,6 @@ export default function GameEnvironment() {
     scene.background = new THREE.Color(skyColor)
   }, [scene, skyColor])
 
-  // Atmospheric Fog
-  const fogColor = useMemo(() => {
-    if (weather === 'snow') return '#e2e8f0'
-    if (weather === 'rain') return '#334155'
-    if (weather === 'mist') return '#94a3b8'
-    if (celestialData.isNight) return '#050811'
-    if (timeOfDay >= 17 && timeOfDay <= 19.5) return '#c27845' // Natural sunset mist
-    return biomeConfig.fogColor
-  }, [weather, celestialData.isNight, timeOfDay, biomeConfig])
-
-  const fogDensity = useMemo(() => {
-    if (weather === 'mist') return 0.0022
-    if (weather === 'rain') return 0.0012
-    if (weather === 'snow') return 0.0009
-    return biomeConfig.fogDensity
-  }, [weather, biomeConfig])
-
   // Discrete celestial phase key: only regenerate PMREM environment map when phase shifts
   const celestialPhase = useMemo(() => {
     if (celestialData.isNight) return 'night'
@@ -549,7 +532,7 @@ export default function GameEnvironment() {
         cy + celestialData.lightPos[1],
         cz + celestialData.lightPos[2]
       )
-      lightTargetRef.current.position.set(cx, cy, cz - 18)
+      lightTargetRef.current.position.set(cx, cy, cz - 10)
       dirLightRef.current.target = lightTargetRef.current
       dirLightRef.current.target.updateMatrixWorld()
     }
@@ -616,8 +599,8 @@ export default function GameEnvironment() {
       {/* Dynamic Background Atmosphere Color (Restores Sky from Black Void) */}
       <color attach="background" args={[skyColor]} />
 
-      {/* Atmospheric Fog */}
-      <fogExp2 attach="fog" args={[fogColor, fogDensity]} />
+      {/* Atmospheric Fog strictly calibrated to skyColor to seamlessly blend horizon without clipping void */}
+      <fogExp2 attach="fog" args={[skyColor, 0.0019]} />
 
       {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
       <group ref={skyFollowRef}>
@@ -640,7 +623,7 @@ export default function GameEnvironment() {
 
       {/* Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt */}
       <PanoramicMountainHorizon
-        fogColor={fogColor}
+        fogColor={skyColor}
         rockColor={biomeConfig.rockColor}
         isNight={celestialData.isNight}
       />
@@ -662,7 +645,7 @@ export default function GameEnvironment() {
         />
       </Suspense>
 
-      {/* Directional Sun/Moon Light with Soft Shadows & Zero Surface Acne */}
+      {/* Directional Sun/Moon Light with Tight Player-Centered Shadow Frustum & Zero Surface Acne */}
       <directionalLight
         ref={dirLightRef}
         castShadow
@@ -671,12 +654,16 @@ export default function GameEnvironment() {
         color={celestialData.lightColor}
         shadow-mapSize={graphicsQuality === 'low' ? [1024, 1024] : [2048, 2048]}
         shadow-camera-near={0.5}
-        shadow-camera-far={280}
-        shadow-bias={-0.00012}
-        shadow-normalBias={0.038}
-        shadow-radius={3.5}
+        shadow-camera-far={160}
+        shadow-camera-left={-38}
+        shadow-camera-right={38}
+        shadow-camera-top={46}
+        shadow-camera-bottom={-38}
+        shadow-bias={-0.00015}
+        shadow-normalBias={0.035}
+        shadow-radius={2.5}
       >
-        <orthographicCamera attach="shadow-camera" args={[-70, 70, 70, -70, 0.5, 280]} />
+        <orthographicCamera attach="shadow-camera" args={[-38, 38, 46, -38, 0.5, 160]} />
       </directionalLight>
 
       {/* Soft Ambient Fill Light (eliminates harsh pitch-black crevices in terrain shadows) */}
@@ -705,11 +692,13 @@ export default function GameEnvironment() {
         </points>
       )}
 
-      {/* Cinematic Post-Processing Pass */}
-      <EffectComposer multisampling={graphicsQuality === 'low' ? 0 : graphicsQuality === 'medium' ? 2 : 4}>
-        <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'low' ? 0.35 : 0.48} mipmapBlur />
-        <Vignette eskil={false} offset={0.42} darkness={0.22} />
-      </EffectComposer>
+      {/* Cinematic Post-Processing Pass (Bypassed on low-end hardware for peak 60fps) */}
+      {graphicsQuality !== 'low' && (
+        <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
+          <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'medium' ? 0.32 : 0.45} mipmapBlur />
+          <Vignette eskil={false} offset={0.42} darkness={0.22} />
+        </EffectComposer>
+      )}
     </>
   )
 }

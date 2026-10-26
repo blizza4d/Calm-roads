@@ -107,11 +107,14 @@ function BmwGtrWheel({
   }, [wheelScene])
 
   const rimMat = useMemo(() => {
+    // Calibrated automotive satin/semi-gloss alloy to prevent blown-out specular highlights
+    const effMetal = Math.min(0.68, Math.max(0.35, (metallic ?? 0.85) * 0.72))
+    const effRough = Math.max(0.34, roughness ?? 0.35)
     return new THREE.MeshStandardMaterial({
-      color: new THREE.Color(rimColor || '#e2e8f0'),
-      metalness: metallic ?? 0.88,
-      roughness: roughness ?? 0.18,
-      envMapIntensity: 2.2,
+      color: new THREE.Color(rimColor || '#cbd5e1'),
+      metalness: effMetal,
+      roughness: effRough,
+      envMapIntensity: 0.95, // Soften environment reflection blow-out
     })
   }, [rimColor, metallic, roughness])
 
@@ -198,7 +201,7 @@ export function BmwM3GtrModel({
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
       reflectivity: 0.95,
-      envMapIntensity: 2.4,
+      envMapIntensity: 1.25, // Calibrated down from 2.4 to eliminate blown-out specular highlights
     })
   }, [paintColor, metallic, roughness])
 
