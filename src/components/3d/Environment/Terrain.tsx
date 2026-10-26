@@ -151,12 +151,25 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
 
-  // 1. Terrain Ground Mesh Geometry with slope-aware natural shading and dense vertices
+  // --------------------------------------------------------------------------
+  // Geometry Buffer Pooling: Geometries are allocated ONCE per chunk slot.
+  // When chunkZ recycles, Float32Array buffers are mutated in-place and flagged
+  // with .needsUpdate = true, completely preventing GC spikes and VBO recreation.
+  // --------------------------------------------------------------------------
+
+  // 1. Terrain Ground Mesh Geometry (Pooled)
   const terrainGeo = useMemo(() => {
     const geo = new THREE.PlaneGeometry(TERRAIN_W, CHUNK_LEN, GRID_X, GRID_Z)
     geo.rotateX(-Math.PI / 2)
+    const count = geo.attributes.position.count
+    const colors = new Float32Array(count * 3)
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return geo
+  }, [])
 
-    const pos = geo.attributes.position
+  // In-place terrain elevation, normals, and vertex colors update
+  useMemo(() => {
+    const pos = terrainGeo.attributes.position
     const count = pos.count
 
     for (let i = 0; i < count; i++) {
@@ -166,13 +179,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
       pos.setY(i, y)
     }
+    pos.needsUpdate = true
+    terrainGeo.computeVertexNormals()
 
-    geo.computeVertexNormals()
-
-    // Multi-gradient natural vertex coloring:
-    // Steep slopes expose rock strata; flat regions display lush vegetation; high elevations get alpine tone
-    const normals = geo.attributes.normal
-    const colors = new Float32Array(count * 3)
+    const normals = terrainGeo.attributes.normal
+    const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
+    const colors = colorAttr.array as Float32Array
 
     const grassColor = new THREE.Color(biomeConfig.grassColor)
     const rockColor = new THREE.Color(biomeConfig.rockColor)
@@ -180,23 +192,18 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const tempColor = new THREE.Color()
 
     for (let i = 0; i < count; i++) {
-      const ny = normals.getY(i) // 1.0 = flat horizontal, 0.0 = sheer vertical
-      const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28)) // 0 (steep rock) to 1 (flat grass)
-
+      const ny = normals.getY(i)
+      const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28))
       const px = pos.getX(i)
       const py = pos.getY(i)
       const pz = pos.getZ(i)
       const worldZ = chunkZ + pz
-
       const roadCx = getRoadCenter(worldZ)
 
-      // Subtle geological strata banding
       const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
       const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
-
       tempColor.copy(rockColor).lerp(grassColor, slope)
 
-      // Alpine summit snow frosting at high elevations (py > 65m, and tundra py > 24m)
       if (biomeConfig.id === 'tundra' && py > 24) {
         const snowT = Math.min(1.0, (py - 24) / 18.0)
         tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.75)
@@ -205,36 +212,60 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         tempColor.lerp(new THREE.Color('#f1f5f9'), snowT * 0.6)
       }
 
-      // Proximity to road shoulder - accurate soil blending
       const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
         tempColor.lerp(shoulderColor, blendToSoil * 0.45)
       }
 
-      tempColor.r = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
-      tempColor.g = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
-      tempColor.b = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
-
-      colors[i * 3] = tempColor.r
-      colors[i * 3 + 1] = tempColor.g
-      colors[i * 3 + 2] = tempColor.b
+      colors[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
+      colors[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
+      colors[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
     }
+    colorAttr.needsUpdate = true
+    normals.needsUpdate = true
+    terrainGeo.computeBoundingSphere()
+    terrainGeo.computeBoundingBox()
+  }, [chunkZ, biomeConfig, terrainGeo])
 
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    geo.computeBoundingSphere()
-    geo.computeBoundingBox()
-    return geo
-  }, [chunkZ, biomeConfig])
-
-  // 2. Curved Asphalt Highway Ribbon Geometry (uniform width calculated via curve normals)
+  // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
   const roadGeo = useMemo(() => {
-    const segments = 50 // Every 4m along the 200m chunk
-    const positions: number[] = []
-    const normals: number[] = []
-    const uvs: number[] = []
+    const segments = 50
+    const geo = new THREE.BufferGeometry()
+    const posArr = new Float32Array((segments + 1) * 3 * 3)
+    const normArr = new Float32Array((segments + 1) * 3 * 3)
+    const uvArr = new Float32Array((segments + 1) * 3 * 2)
     const indices: number[] = []
 
+    for (let i = 0; i <= segments; i++) {
+      const idx = i * 3
+      uvArr[idx * 2] = 0
+      uvArr[idx * 2 + 1] = i * 0.8
+      uvArr[(idx + 1) * 2] = 0.5
+      uvArr[(idx + 1) * 2 + 1] = i * 0.8
+      uvArr[(idx + 2) * 2] = 1.0
+      uvArr[(idx + 2) * 2 + 1] = i * 0.8
+
+      if (i < segments) {
+        const row1 = i * 3
+        const row2 = (i + 1) * 3
+        indices.push(row1, row2, row1 + 1)
+        indices.push(row1 + 1, row2, row2 + 1)
+        indices.push(row1 + 1, row2 + 1, row1 + 2)
+        indices.push(row1 + 2, row2 + 1, row2 + 2)
+      }
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(normArr, 3))
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2))
+    geo.setIndex(indices)
+    return geo
+  }, [])
+
+  useMemo(() => {
+    const segments = 50
+    const pos = roadGeo.attributes.position.array as Float32Array
+    const norm = roadGeo.attributes.normal.array as Float32Array
     const halfW = ROAD_WIDTH / 2
 
     for (let i = 0; i <= segments; i++) {
@@ -244,53 +275,69 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cy = getRoadElevation(worldZ) + 0.085
       const { nx, nz } = getRoadTangent(worldZ)
 
-      // Crown camber in the road center (+0.025m) for realistic highway drainage profile
+      const baseIdx = i * 9
       // Left edge
-      positions.push(cx - nx * halfW, cy - 0.015, localZ - nz * halfW)
-      normals.push(-nx * 0.1, 0.98, -nz * 0.1)
-      uvs.push(0, i * 0.8)
+      pos[baseIdx] = cx - nx * halfW
+      pos[baseIdx + 1] = cy - 0.015
+      pos[baseIdx + 2] = localZ - nz * halfW
+      norm[baseIdx] = -nx * 0.1
+      norm[baseIdx + 1] = 0.98
+      norm[baseIdx + 2] = -nz * 0.1
 
       // Center crown
-      positions.push(cx, cy + 0.025, localZ)
-      normals.push(0, 1, 0)
-      uvs.push(0.5, i * 0.8)
+      pos[baseIdx + 3] = cx
+      pos[baseIdx + 4] = cy + 0.025
+      pos[baseIdx + 5] = localZ
+      norm[baseIdx + 3] = 0
+      norm[baseIdx + 4] = 1
+      norm[baseIdx + 5] = 0
 
       // Right edge
-      positions.push(cx + nx * halfW, cy - 0.015, localZ + nz * halfW)
-      normals.push(nx * 0.1, 0.98, nz * 0.1)
-      uvs.push(1, i * 0.8)
-
-      if (i < segments) {
-        const row1 = i * 3
-        const row2 = (i + 1) * 3
-
-        // Left half quad
-        indices.push(row1, row2, row1 + 1)
-        indices.push(row1 + 1, row2, row2 + 1)
-
-        // Right half quad
-        indices.push(row1 + 1, row2 + 1, row1 + 2)
-        indices.push(row1 + 2, row2 + 1, row2 + 2)
-      }
+      pos[baseIdx + 6] = cx + nx * halfW
+      pos[baseIdx + 7] = cy - 0.015
+      pos[baseIdx + 8] = localZ + nz * halfW
+      norm[baseIdx + 6] = nx * 0.1
+      norm[baseIdx + 7] = 0.98
+      norm[baseIdx + 8] = nz * 0.1
     }
+    roadGeo.attributes.position.needsUpdate = true
+    roadGeo.attributes.normal.needsUpdate = true
+    roadGeo.computeBoundingSphere()
+    roadGeo.computeBoundingBox()
+  }, [chunkZ, roadGeo])
 
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
-    geo.setIndex(indices)
-    geo.computeBoundingSphere()
-    geo.computeBoundingBox()
-    return geo
-  }, [chunkZ])
-
-  // 3. Roadside Gravel / Dirt Shoulder Strips
+  // 3. Roadside Gravel / Dirt Shoulder Strips (Pooled)
   const shoulderGeo = useMemo(() => {
     const segments = 32
-    const positions: number[] = []
-    const normals: number[] = []
+    const geo = new THREE.BufferGeometry()
+    const posArr = new Float32Array((segments + 1) * 4 * 3)
+    const normArr = new Float32Array((segments + 1) * 4 * 3)
     const indices: number[] = []
 
+    for (let i = 0; i <= segments; i++) {
+      for (let j = 0; j < 4; j++) {
+        const nIdx = (i * 4 + j) * 3
+        normArr[nIdx] = 0
+        normArr[nIdx + 1] = 1
+        normArr[nIdx + 2] = 0
+      }
+      if (i < segments) {
+        const base = i * 4
+        indices.push(base, base + 1, base + 4)
+        indices.push(base + 1, base + 5, base + 4)
+        indices.push(base + 2, base + 6, base + 3)
+        indices.push(base + 3, base + 6, base + 7)
+      }
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(normArr, 3))
+    geo.setIndex(indices)
+    return geo
+  }, [])
+
+  useMemo(() => {
+    const segments = 32
+    const pos = shoulderGeo.attributes.position.array as Float32Array
     const innerW = ROAD_WIDTH / 2
     const outerW = ROAD_WIDTH / 2 + 2.2
 
@@ -301,52 +348,91 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cy = getRoadElevation(worldZ) + 0.065
       const { nx, nz } = getRoadTangent(worldZ)
 
+      const baseIdx = i * 12
       // Left shoulder (inner to outer)
-      positions.push(cx - nx * innerW, cy, localZ - nz * innerW)
-      positions.push(cx - nx * outerW, cy - 0.05, localZ - nz * outerW)
+      pos[baseIdx] = cx - nx * innerW
+      pos[baseIdx + 1] = cy
+      pos[baseIdx + 2] = localZ - nz * innerW
+
+      pos[baseIdx + 3] = cx - nx * outerW
+      pos[baseIdx + 4] = cy - 0.05
+      pos[baseIdx + 5] = localZ - nz * outerW
 
       // Right shoulder (inner to outer)
-      positions.push(cx + nx * innerW, cy, localZ + nz * innerW)
-      positions.push(cx + nx * outerW, cy - 0.05, localZ + nz * outerW)
+      pos[baseIdx + 6] = cx + nx * innerW
+      pos[baseIdx + 7] = cy
+      pos[baseIdx + 8] = localZ + nz * innerW
 
-      for (let j = 0; j < 4; j++) normals.push(0, 1, 0)
+      pos[baseIdx + 9] = cx + nx * outerW
+      pos[baseIdx + 10] = cy - 0.05
+      pos[baseIdx + 11] = localZ + nz * outerW
+    }
+    shoulderGeo.attributes.position.needsUpdate = true
+    shoulderGeo.computeBoundingSphere()
+    shoulderGeo.computeBoundingBox()
+  }, [chunkZ, shoulderGeo])
 
-      if (i < segments) {
-        const base = i * 4
-        // Left strip
+  // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines (Pooled)
+  const markingsGeo = useMemo(() => {
+    const geo = new THREE.BufferGeometry()
+    const dashSpacing = 14
+    const numDashes = Math.floor(CHUNK_LEN / dashSpacing) // 14
+    const edgeSegments = 36
+    const totalVerts = numDashes * 4 + (edgeSegments + 1) * 4 // 56 + 148 = 204
+    const posArr = new Float32Array(totalVerts * 3)
+    const normArr = new Float32Array(totalVerts * 3)
+    const colArr = new Float32Array(totalVerts * 3)
+    const indices: number[] = []
+
+    let vIdx = 0
+    // Centerline indices & colors (amber-yellow)
+    for (let i = 0; i < numDashes; i++) {
+      for (let j = 0; j < 4; j++) {
+        normArr[(vIdx + j) * 3 + 1] = 1.0
+        colArr[(vIdx + j) * 3] = 0.98
+        colArr[(vIdx + j) * 3 + 1] = 0.78
+        colArr[(vIdx + j) * 3 + 2] = 0.12
+      }
+      indices.push(vIdx, vIdx + 1, vIdx + 2)
+      indices.push(vIdx + 1, vIdx + 3, vIdx + 2)
+      vIdx += 4
+    }
+
+    // Outer edge boundary lines indices & colors (crisp white)
+    const edgeBaseVert = vIdx
+    for (let i = 0; i <= edgeSegments; i++) {
+      for (let j = 0; j < 4; j++) {
+        normArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 1.0
+        colArr[(edgeBaseVert + i * 4 + j) * 3] = 0.96
+        colArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 0.97
+        colArr[(edgeBaseVert + i * 4 + j) * 3 + 2] = 0.98
+      }
+      if (i < edgeSegments) {
+        const base = edgeBaseVert + i * 4
         indices.push(base, base + 1, base + 4)
         indices.push(base + 1, base + 5, base + 4)
-        // Right strip
-        indices.push(base + 2, base + 6, base + 3)
-        indices.push(base + 3, base + 6, base + 7)
+        indices.push(base + 2, base + 3, base + 6)
+        indices.push(base + 3, base + 7, base + 6)
       }
     }
 
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(normArr, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3))
     geo.setIndex(indices)
-    geo.computeVertexNormals()
-    geo.computeBoundingSphere()
-    geo.computeBoundingBox()
     return geo
-  }, [chunkZ])
+  }, [])
 
-  // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines
-  const markingsGeo = useMemo(() => {
-    const positions: number[] = []
-    const normals: number[] = []
-    const colors: number[] = []
-    const indices: number[] = []
-
-    let vertCount = 0
-
-    // A. Yellow Dashed Centerline
+  useMemo(() => {
+    const pos = markingsGeo.attributes.position.array as Float32Array
     const dashSpacing = 14
     const dashLen = 7.0
     const halfLineW = 0.14
     const numDashes = Math.floor(CHUNK_LEN / dashSpacing)
 
+    let vOffset = 0
+
+    // A. Yellow Dashed Centerline positions
     for (let i = 0; i < numDashes; i++) {
       const localZCenter = CHUNK_LEN / 2 - (i * dashSpacing + dashSpacing * 0.5)
       const localZStart = localZCenter + dashLen / 2
@@ -363,23 +449,26 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const tanStart = getRoadTangent(wzStart)
       const tanEnd = getRoadTangent(wzEnd)
 
-      // Centerline quads (Vibrant highway amber-yellow)
-      positions.push(cxStart - tanStart.nx * halfLineW, cyStart, localZStart - tanStart.nz * halfLineW)
-      positions.push(cxStart + tanStart.nx * halfLineW, cyStart, localZStart + tanStart.nz * halfLineW)
-      positions.push(cxEnd - tanEnd.nx * halfLineW, cyEnd, localZEnd - tanEnd.nz * halfLineW)
-      positions.push(cxEnd + tanEnd.nx * halfLineW, cyEnd, localZEnd + tanEnd.nz * halfLineW)
+      pos[vOffset] = cxStart - tanStart.nx * halfLineW
+      pos[vOffset + 1] = cyStart
+      pos[vOffset + 2] = localZStart - tanStart.nz * halfLineW
 
-      for (let j = 0; j < 4; j++) {
-        normals.push(0, 1, 0)
-        colors.push(0.98, 0.78, 0.12) // Yellow
-      }
+      pos[vOffset + 3] = cxStart + tanStart.nx * halfLineW
+      pos[vOffset + 4] = cyStart
+      pos[vOffset + 5] = localZStart + tanStart.nz * halfLineW
 
-      indices.push(vertCount, vertCount + 1, vertCount + 2)
-      indices.push(vertCount + 1, vertCount + 3, vertCount + 2)
-      vertCount += 4
+      pos[vOffset + 6] = cxEnd - tanEnd.nx * halfLineW
+      pos[vOffset + 7] = cyEnd
+      pos[vOffset + 8] = localZEnd - tanEnd.nz * halfLineW
+
+      pos[vOffset + 9] = cxEnd + tanEnd.nx * halfLineW
+      pos[vOffset + 10] = cyEnd
+      pos[vOffset + 11] = localZEnd + tanEnd.nz * halfLineW
+
+      vOffset += 12
     }
 
-    // B. Solid White Outer Edge Boundary Lines
+    // B. Solid White Outer Edge Boundary positions
     const edgeOffset = ROAD_WIDTH / 2 - 0.45
     const edgeHalfW = 0.1
     const edgeSegments = 36
@@ -391,55 +480,63 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cy = getRoadElevation(worldZ) + 0.078
       const { nx, nz } = getRoadTangent(worldZ)
 
-      // Left solid white edge
       const lx = cx - nx * edgeOffset
       const lz = localZ - nz * edgeOffset
-      positions.push(lx - nx * edgeHalfW, cy, lz - nz * edgeHalfW)
-      positions.push(lx + nx * edgeHalfW, cy, lz + nz * edgeHalfW)
+      pos[vOffset] = lx - nx * edgeHalfW
+      pos[vOffset + 1] = cy
+      pos[vOffset + 2] = lz - nz * edgeHalfW
 
-      // Right solid white edge
+      pos[vOffset + 3] = lx + nx * edgeHalfW
+      pos[vOffset + 4] = cy
+      pos[vOffset + 5] = lz + nz * edgeHalfW
+
       const rx = cx + nx * edgeOffset
       const rz = localZ + nz * edgeOffset
-      positions.push(rx - nx * edgeHalfW, cy, rz - nz * edgeHalfW)
-      positions.push(rx + nx * edgeHalfW, cy, rz + nz * edgeHalfW)
+      pos[vOffset + 6] = rx - nx * edgeHalfW
+      pos[vOffset + 7] = cy
+      pos[vOffset + 8] = rz - nz * edgeHalfW
 
-      for (let j = 0; j < 4; j++) {
-        normals.push(0, 1, 0)
-        colors.push(0.96, 0.97, 0.98) // Crisp white
-      }
+      pos[vOffset + 9] = rx + nx * edgeHalfW
+      pos[vOffset + 10] = cy
+      pos[vOffset + 11] = rz + nz * edgeHalfW
 
-      if (i < edgeSegments) {
-        const base = vertCount + i * 4
-        // Left edge quad (Upward CCW winding)
-        indices.push(base, base + 1, base + 4)
-        indices.push(base + 1, base + 5, base + 4)
-        // Right edge quad (Upward CCW winding)
-        indices.push(base + 2, base + 3, base + 6)
-        indices.push(base + 3, base + 7, base + 6)
-      }
+      vOffset += 12
     }
 
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-    geo.setIndex(indices)
-    geo.computeBoundingSphere()
-    geo.computeBoundingBox()
-    return geo
-  }, [chunkZ])
+    markingsGeo.attributes.position.needsUpdate = true
+    markingsGeo.computeBoundingSphere()
+    markingsGeo.computeBoundingBox()
+  }, [chunkZ, markingsGeo])
 
-  // 5. Realistic Steel Highway Guardrails on Curved Outer Segments
+  // 5. Realistic Steel Highway Guardrails on Curved Outer Segments (Pooled)
   const guardrailGeo = useMemo(() => {
-    const segments = 28
-    const positions: number[] = []
-    const normals: number[] = []
+    const maxSegments = 28
+    const geo = new THREE.BufferGeometry()
+    const posArr = new Float32Array(maxSegments * 4 * 3)
+    const normArr = new Float32Array(maxSegments * 4 * 3)
     const indices: number[] = []
 
-    let vertIndex = 0
+    for (let i = 0; i < maxSegments; i++) {
+      const v = i * 4
+      indices.push(v, v + 1, v + 2)
+      indices.push(v + 1, v + 3, v + 2)
+    }
+
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(normArr, 3))
+    geo.setIndex(indices)
+    return geo
+  }, [])
+
+  useMemo(() => {
+    const segments = 28
+    const pos = guardrailGeo.attributes.position.array as Float32Array
+    const norm = guardrailGeo.attributes.normal.array as Float32Array
     const railOffset = ROAD_WIDTH / 2 + 1.2
     const railHeight = 0.65
     const railThickness = 0.22
+
+    let quadCount = 0
 
     for (let i = 0; i < segments; i++) {
       const z1 = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
@@ -464,29 +561,42 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const p2x = cx2 + tan2.nx * railOffset * side
         const p2z = z2 + tan2.nz * railOffset * side
 
-        positions.push(p1x, cy1 + railHeight, p1z)
-        positions.push(p1x, cy1 + railHeight - railThickness, p1z)
-        positions.push(p2x, cy2 + railHeight, p2z)
-        positions.push(p2x, cy2 + railHeight - railThickness, p2z)
+        const pIdx = quadCount * 12
+        pos[pIdx] = p1x
+        pos[pIdx + 1] = cy1 + railHeight
+        pos[pIdx + 2] = p1z
 
-        for (let j = 0; j < 4; j++) normals.push(tan1.nx * side, 0, tan1.nz * side)
+        pos[pIdx + 3] = p1x
+        pos[pIdx + 4] = cy1 + railHeight - railThickness
+        pos[pIdx + 5] = p1z
 
-        indices.push(vertIndex, vertIndex + 1, vertIndex + 2)
-        indices.push(vertIndex + 1, vertIndex + 3, vertIndex + 2)
-        vertIndex += 4
+        pos[pIdx + 6] = p2x
+        pos[pIdx + 7] = cy2 + railHeight
+        pos[pIdx + 8] = p2z
+
+        pos[pIdx + 9] = p2x
+        pos[pIdx + 10] = cy2 + railHeight - railThickness
+        pos[pIdx + 11] = p2z
+
+        for (let j = 0; j < 4; j++) {
+          norm[pIdx + j * 3] = tan1.nx * side
+          norm[pIdx + j * 3 + 1] = 0
+          norm[pIdx + j * 3 + 2] = tan1.nz * side
+        }
+        quadCount++
       }
     }
 
-    if (positions.length === 0) return null
-
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
-    geo.setIndex(indices)
-    geo.computeBoundingSphere()
-    geo.computeBoundingBox()
-    return geo
-  }, [chunkZ])
+    if (quadCount > 0) {
+      guardrailGeo.attributes.position.needsUpdate = true
+      guardrailGeo.attributes.normal.needsUpdate = true
+      guardrailGeo.setDrawRange(0, quadCount * 6)
+      guardrailGeo.computeBoundingSphere()
+      guardrailGeo.computeBoundingBox()
+    } else {
+      guardrailGeo.setDrawRange(0, 0)
+    }
+  }, [chunkZ, guardrailGeo])
 
   // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles)
   const sceneryData = useMemo(() => {
@@ -789,7 +899,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       roadGeo.dispose()
       shoulderGeo.dispose()
       markingsGeo.dispose()
-      if (guardrailGeo) guardrailGeo.dispose()
+      guardrailGeo.dispose()
     }
   }, [terrainGeo, roadGeo, shoulderGeo, markingsGeo, guardrailGeo])
 
@@ -848,12 +958,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         />
       </mesh>
 
-      {/* 5. Steel W-Beam Guardrails on Outer Highway Curves */}
-      {guardrailGeo && (
-        <mesh geometry={guardrailGeo} castShadow receiveShadow>
-          <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.25} />
-        </mesh>
-      )}
+      {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
+      <mesh geometry={guardrailGeo} castShadow receiveShadow>
+        <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.25} />
+      </mesh>
 
       {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
       <instancedMesh

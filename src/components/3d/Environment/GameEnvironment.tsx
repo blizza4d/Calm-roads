@@ -3,7 +3,6 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useGameStore } from '../../../store/useGameStore'
 import { BIOMES } from '../../../utils/roadMath'
 
@@ -399,107 +398,14 @@ function PanoramicMountainHorizon({
   )
 }
 
-// ------------------------------------------------------------------------
-// Procedural Cloud Layer: 32 merged cumulus cloud clusters in upper troposphere (1 draw call)
-// ------------------------------------------------------------------------
-function ProceduralCloudLayer({
-  celestialPhase,
-}: {
-  celestialPhase: string
-}) {
-  const { camera } = useThree()
-  const cloudGroupRef = useRef<THREE.Group>(null)
-
-  // Construct single merged BufferGeometry for all cloud clusters
-  const cloudsGeo = useMemo(() => {
-    const geometries: THREE.BufferGeometry[] = []
-    const baseGeo = new THREE.DodecahedronGeometry(1, 1)
-
-    // Deterministic pseudo-random seed generator
-    let seed = 77
-    const rnd = () => {
-      seed = (seed * 9301 + 49297) % 233280
-      return seed / 233280
-    }
-
-    const clusterCount = 32
-    for (let c = 0; c < clusterCount; c++) {
-      const angle = (c / clusterCount) * Math.PI * 2 + rnd() * 0.18
-      const dist = 520 + rnd() * 880
-      const cx = Math.cos(angle) * dist
-      const cz = Math.sin(angle) * dist
-      const cy = 340 + rnd() * 110
-
-      // Each cluster consists of 5 to 7 flattened intersecting puffs
-      const puffs = 5 + Math.floor(rnd() * 3)
-      for (let p = 0; p < puffs; p++) {
-        const puffGeo = baseGeo.clone()
-        const px = cx + (rnd() - 0.5) * 160
-        const py = cy + (rnd() - 0.5) * 32
-        const pz = cz + (rnd() - 0.5) * 160
-        const sx = 65 + rnd() * 75
-        const sy = 24 + rnd() * 32
-        const sz = 65 + rnd() * 75
-
-        puffGeo.scale(sx, sy, sz)
-        puffGeo.translate(px, py, pz)
-        geometries.push(puffGeo)
-      }
-    }
-
-    baseGeo.dispose()
-    const merged = mergeGeometries(geometries)
-    geometries.forEach((g) => g.dispose())
-    return merged
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (cloudsGeo) cloudsGeo.dispose()
-    }
-  }, [cloudsGeo])
-
-  // Atmospheric color & opacity based on celestial phase
-  const cloudColor = useMemo(() => {
-    if (celestialPhase === 'night') return '#1e293b'
-    if (celestialPhase === 'sunset') return '#fed7aa'
-    if (celestialPhase === 'sunrise') return '#fecdd3'
-    return '#f8fafc'
-  }, [celestialPhase])
-
-  const cloudOpacity = useMemo(() => {
-    if (celestialPhase === 'night') return 0.42
-    if (celestialPhase === 'sunset') return 0.92
-    return 0.88
-  }, [celestialPhase])
-
-  // Gentle atmospheric rotation & camera-tracking
-  useFrame((state) => {
-    if (cloudGroupRef.current) {
-      cloudGroupRef.current.position.set(camera.position.x, 0, camera.position.z)
-      cloudGroupRef.current.rotation.y = state.clock.getElapsedTime() * 0.0028
-    }
-  })
-
-  if (!cloudsGeo) return null
-
-  return (
-    <group ref={cloudGroupRef}>
-      <mesh geometry={cloudsGeo}>
-        <meshLambertMaterial
-          color={cloudColor}
-          transparent
-          opacity={cloudOpacity}
-          depthWrite={false}
-          flatShading
-        />
-      </mesh>
-    </group>
-  )
-}
-
 export default function GameEnvironment() {
-  const { timeOfDay, setTimeOfDay, autoTimeCycle, weather, currentResolvedBiome, graphicsQuality } = useGameStore()
+  // Discrete Zustand selectors to prevent 60fps React re-renders from telemetry updates
+  const timeOfDay = useGameStore((s) => s.timeOfDay)
+  const setTimeOfDay = useGameStore((s) => s.setTimeOfDay)
+  const autoTimeCycle = useGameStore((s) => s.autoTimeCycle)
+  const weather = useGameStore((s) => s.weather)
+  const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
+  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
   const { scene, camera } = useThree()
 
   // Directional Light & Shadow target
@@ -725,9 +631,6 @@ export default function GameEnvironment() {
         />
       </group>
 
-      {/* Procedural Tropospheric Cloud Canopy (32 merged clusters, 1 draw call) */}
-      <ProceduralCloudLayer celestialPhase={celestialPhase} />
-
       {/* Cosmic Celestial Night Sky: 3,600 Twinkling Stars, Milky Way & 3D Moon */}
       <CosmicCelestialSky
         sunHeight={celestialData.sunHeight}
@@ -776,11 +679,17 @@ export default function GameEnvironment() {
         <orthographicCamera attach="shadow-camera" args={[-70, 70, 70, -70, 0.5, 280]} />
       </directionalLight>
 
-      {/* Atmospheric Fill Ambient / Hemisphere Lighting */}
+      {/* Soft Ambient Fill Light (eliminates harsh pitch-black crevices in terrain shadows) */}
+      <ambientLight
+        color={celestialData.isNight ? '#38bdf8' : '#fed7aa'}
+        intensity={celestialData.isNight ? 0.45 : 0.68}
+      />
+
+      {/* Atmospheric Fill Ambient / Hemisphere Lighting with Softened Ground Bounce */}
       <hemisphereLight
         color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
-        groundColor={celestialData.isNight ? '#1e293b' : biomeConfig.skyHemiGround}
-        intensity={celestialData.isNight ? 0.48 : 0.98}
+        groundColor={celestialData.isNight ? '#334155' : '#64748b'}
+        intensity={celestialData.isNight ? 0.65 : 1.25}
       />
 
       {/* Rain or Snow Particles */}

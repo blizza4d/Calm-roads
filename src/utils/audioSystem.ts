@@ -99,6 +99,8 @@ export class RealisticVehicleAudioEngine {
   private engineMaster: GainNode | null = null
   private onLoadBus: GainNode | null = null
   private offLoadBus: GainNode | null = null
+  private onLoadFilter: BiquadFilterNode | null = null
+  private spatialPanner: PannerNode | null = null
 
   // Loop Channels for the 5 Engine States
   private loops: Record<EngineAudioState, ActiveLoopChannel> = {
@@ -208,15 +210,41 @@ export class RealisticVehicleAudioEngine {
       this.musicGain.gain.setValueAtTime(this.musicVolume, ctx.currentTime)
       this.musicGain.connect(this.masterGain)
 
+      // 3D Spatial Panner Node (HRTF model for Chase, Bumper & Drone camera tracking)
+      try {
+        const panner = ctx.createPanner()
+        panner.panningModel = 'HRTF'
+        panner.distanceModel = 'inverse'
+        panner.refDistance = 4.0
+        panner.maxDistance = 250.0
+        panner.rolloffFactor = 1.0
+        panner.coneInnerAngle = 360
+        panner.connect(this.sfxMaster)
+        this.spatialPanner = panner
+      } catch {
+        this.spatialPanner = null
+      }
+
       // Engine Sub-Busses
       this.engineMaster = ctx.createGain()
       this.engineMaster.gain.setValueAtTime(1.0, ctx.currentTime)
-      this.engineMaster.connect(this.sfxMaster)
+      if (this.spatialPanner) {
+        this.engineMaster.connect(this.spatialPanner)
+      } else {
+        this.engineMaster.connect(this.sfxMaster)
+      }
+
+      // Dynamic Manifold Combustion Roar Filter on On-Load Bus
+      this.onLoadFilter = ctx.createBiquadFilter()
+      this.onLoadFilter.type = 'lowpass'
+      this.onLoadFilter.frequency.setValueAtTime(4500, ctx.currentTime)
+      this.onLoadFilter.Q.setValueAtTime(0.7, ctx.currentTime)
+      this.onLoadFilter.connect(this.engineMaster)
 
       // On-Load Acceleration Bus (Low, Mid, High RPM)
       this.onLoadBus = ctx.createGain()
       this.onLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
-      this.onLoadBus.connect(this.engineMaster)
+      this.onLoadBus.connect(this.onLoadFilter)
 
       // Off-Throttle Deceleration Bus (Engine Braking / Compression Overrun)
       this.offLoadBus = ctx.createGain()
@@ -412,31 +440,31 @@ export class RealisticVehicleAudioEngine {
     })
 
     // ------------------------------------------------------------------------
-    // Dynamic Equal-Power Crossfading (The Secret to Realism)
+    // Dynamic Equal-Power Crossfading (True Sinusoidal Power Conservation)
     // ------------------------------------------------------------------------
     let gainIdle = 0
     let gainLow = 0
     let gainMid = 0
     let gainHigh = 0
 
-    // Band 1: Idle to Low RPM (850 - 2400 RPM)
+    // Band 1: Idle (700 - 2200 RPM)
     if (curRpm <= 1000) {
       gainIdle = 1.0
       gainLow = 0.0
-    } else if (curRpm < 2400) {
-      const t = (curRpm - 1000) / (2400 - 1000)
+    } else if (curRpm < 2200) {
+      const t = (curRpm - 1000) / (2200 - 1000)
       gainIdle = Math.cos(t * Math.PI * 0.5)
       gainLow = Math.sin(t * Math.PI * 0.5)
     }
-    // Band 2: Low to Mid RPM (2400 - 4600 RPM)
-    else if (curRpm < 4600) {
-      const t = (curRpm - 2400) / (4600 - 2400)
+    // Band 2: Low to Mid RPM (2200 - 4800 RPM)
+    else if (curRpm < 4800) {
+      const t = (curRpm - 2200) / (4800 - 2200)
       gainLow = Math.cos(t * Math.PI * 0.5)
       gainMid = Math.sin(t * Math.PI * 0.5)
     }
-    // Band 3: Mid to High RPM (4600 - 7200 RPM)
+    // Band 3: Mid to High RPM (4800 - 7200 RPM)
     else if (curRpm < 7200) {
-      const t = (curRpm - 4600) / (7200 - 4600)
+      const t = (curRpm - 4800) / (7200 - 4800)
       gainMid = Math.cos(t * Math.PI * 0.5)
       gainHigh = Math.sin(t * Math.PI * 0.5)
     }
@@ -445,12 +473,24 @@ export class RealisticVehicleAudioEngine {
       gainHigh = 1.0
     }
 
-    // Apply individual RPM gain targets to the respective GainNodes using setTargetAtTime
+    // Dynamic Engine Load Multipliers (Visceral Manifold Combustion Roar)
+    // Under full throttle, mid and high RPM harmonics are aggressively boosted
+    const midLoadBoost = 1.0 + throttleVal * 0.35
+    const highLoadBoost = 1.0 + throttleVal * 0.45
+
     const timeConstant = 0.045 // Smooth 45ms time constant eliminates zipper clicks
     this.loops.idle.gain?.gain.setTargetAtTime(gainIdle * (1 - throttleVal * 0.65), now, timeConstant)
     this.loops.low_rpm.gain?.gain.setTargetAtTime(gainLow, now, timeConstant)
-    this.loops.mid_rpm.gain?.gain.setTargetAtTime(gainMid, now, timeConstant)
-    this.loops.high_rpm.gain?.gain.setTargetAtTime(gainHigh, now, timeConstant)
+    this.loops.mid_rpm.gain?.gain.setTargetAtTime(gainMid * midLoadBoost, now, timeConstant)
+    this.loops.high_rpm.gain?.gain.setTargetAtTime(gainHigh * highLoadBoost, now, timeConstant)
+
+    // Dynamic Load Filter: Open manifold breathing up to 18,000 Hz under heavy throttle
+    if (this.onLoadFilter) {
+      const targetFilterFreq = isPressed
+        ? 4500 + throttleVal * 12500 + (curRpm / 8500) * 3000
+        : 2800
+      this.onLoadFilter.frequency.setTargetAtTime(Math.min(20000, targetFilterFreq), now, timeConstant)
+    }
 
     // ------------------------------------------------------------------------
     // 5. Load vs. Coasting (Throttle State)
@@ -458,7 +498,7 @@ export class RealisticVehicleAudioEngine {
     if (this.onLoadBus && this.offLoadBus) {
       if (isPressed) {
         // Accelerator is PRESSED: Fade On-Load master bus UP proportional to throttle
-        const targetOnLoad = 0.40 + throttleVal * 0.60
+        const targetOnLoad = 0.42 + throttleVal * 0.68
         this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, timeConstant)
         // Off-throttle engine braking fades down
         this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
@@ -489,6 +529,54 @@ export class RealisticVehicleAudioEngine {
    */
   public update(rpm: number, throttle: number | boolean, speed = 0): void {
     this.updateEngineSound(rpm, throttle, speed)
+  }
+
+  /**
+   * 3D Spatial Audio Integration: positions the engine/exhaust sound emitter
+   * relative to the camera listener in world space.
+   */
+  public updateSpatialPosition(
+    carPos: { x: number; y: number; z: number },
+    camPos: { x: number; y: number; z: number },
+    camForward?: { x: number; y: number; z: number }
+  ): void {
+    if (!this.ctx) return
+    const now = this.ctx.currentTime
+    const listener = this.ctx.listener
+
+    // 1. Position Web Audio listener at camera position
+    if (listener.positionX) {
+      listener.positionX.setTargetAtTime(camPos.x, now, 0.04)
+      listener.positionY.setTargetAtTime(camPos.y, now, 0.04)
+      listener.positionZ.setTargetAtTime(camPos.z, now, 0.04)
+    } else {
+      listener.setPosition(camPos.x, camPos.y, camPos.z)
+    }
+
+    // 2. Orient listener along camera sightline
+    if (camForward) {
+      if (listener.forwardX) {
+        listener.forwardX.setTargetAtTime(camForward.x, now, 0.04)
+        listener.forwardY.setTargetAtTime(camForward.y, now, 0.04)
+        listener.forwardZ.setTargetAtTime(camForward.z, now, 0.04)
+        listener.upX?.setTargetAtTime(0, now, 0.04)
+        listener.upY?.setTargetAtTime(1, now, 0.04)
+        listener.upZ?.setTargetAtTime(0, now, 0.04)
+      } else {
+        listener.setOrientation(camForward.x, camForward.y, camForward.z, 0, 1, 0)
+      }
+    }
+
+    // 3. Position spatial sound emitter at car body / exhaust
+    if (this.spatialPanner) {
+      if (this.spatialPanner.positionX) {
+        this.spatialPanner.positionX.setTargetAtTime(carPos.x, now, 0.04)
+        this.spatialPanner.positionY.setTargetAtTime(carPos.y, now, 0.04)
+        this.spatialPanner.positionZ.setTargetAtTime(carPos.z, now, 0.04)
+      } else {
+        this.spatialPanner.setPosition(carPos.x, carPos.y, carPos.z)
+      }
+    }
   }
 
   /**
@@ -864,6 +952,20 @@ export class RealisticVehicleAudioEngine {
         this.rallySource.disconnect()
       } catch {}
       this.rallySource = null
+    }
+
+    if (this.spatialPanner) {
+      try {
+        this.spatialPanner.disconnect()
+      } catch {}
+      this.spatialPanner = null
+    }
+
+    if (this.onLoadFilter) {
+      try {
+        this.onLoadFilter.disconnect()
+      } catch {}
+      this.onLoadFilter = null
     }
 
     this.stopMusic()

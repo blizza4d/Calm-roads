@@ -283,9 +283,9 @@ export function BmwM3GtrModel({
   const suspRr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[3] || 0))
 
   return (
-    <group position={[0, -0.358, 0]}>
-      {/* High-Fidelity BMW M3 GTR '05 Monocoque */}
-      <group position={[0, 0.148, 0]} rotation={[0, Math.PI, 0]} scale={98.0}>
+    <group position={[0, 0.02, 0]}>
+      {/* High-Fidelity BMW M3 GTR '05 Monocoque - Aligned with Ground Clearance */}
+      <group position={[0, -0.135, 0]} rotation={[0, Math.PI, 0]} scale={98.0}>
         <primitive object={clonedBody} />
       </group>
 
@@ -293,7 +293,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.82, 0.358, -1.38]}
+        position={[-0.82, -0.04, -1.38]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFl}
@@ -307,7 +307,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.82, 0.358, -1.38]}
+        position={[0.82, -0.04, -1.38]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFr}
@@ -321,7 +321,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.82, 0.358, 1.28]}
+        position={[-0.82, -0.04, 1.28]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRl}
@@ -335,7 +335,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.82, 0.358, 1.28]}
+        position={[0.82, -0.04, 1.28]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRr}
@@ -346,15 +346,15 @@ export function BmwM3GtrModel({
       />
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.65} y={0.52} z={-2.2} color="#fffbeb" intensity={75} />}
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.24} z={-2.2} color="#fffbeb" intensity={75} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
         <>
-          <pointLight position={[-0.82, 0.25, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
-          <pointLight position={[0.82, 0.25, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
-          <pointLight position={[-0.82, 0.25, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
-          <pointLight position={[0.82, 0.25, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[-0.82, -0.12, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[0.82, -0.12, -1.38]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[-0.82, -0.12, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
+          <pointLight position={[0.82, -0.12, 1.28]} color="#38bdf8" intensity={2.5} distance={3} />
         </>
       )}
     </group>

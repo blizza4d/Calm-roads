@@ -18,6 +18,7 @@ export interface VehicleConfig {
   name: string
   massKg: number
   wheelRadius: number
+  rideHeight: number
   maxSpeedMs: number
   maxSpeedKmh: number
   peakAccel: number
@@ -40,7 +41,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
   bmw_m3: {
     name: "BMW M3 GTR '05",
     massKg: 1350,
-    wheelRadius: 0.36,
+    wheelRadius: 0.34, // Exactly calibrated to 0.34m visual radius of tuner_wheel.glb
+    rideHeight: 0.36,  // GT stance, 11.6cm front splitter clearance, perfect asphalt alignment
     maxSpeedMs: 76.4, // ~275 km/h
     maxSpeedKmh: 275,
     peakAccel: 6.8, // Progressive GT power curve
@@ -62,6 +64,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     name: 'Modern Supercar',
     massKg: 1420,
     wheelRadius: 0.36,
+    rideHeight: 0.38,
     maxSpeedMs: 78.5, // ~282 km/h
     maxSpeedKmh: 282,
     peakAccel: 7.2, // Twin-turbo V8 power curve
@@ -83,6 +86,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     name: 'Antigravity Hovercraft',
     massKg: 980,
     wheelRadius: 0.32,
+    rideHeight: 1.25,
     maxSpeedMs: 86.1, // ~310 km/h
     maxSpeedKmh: 310,
     peakAccel: 7.6,
@@ -104,6 +108,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     name: 'Cozy Camper Van',
     massKg: 1950,
     wheelRadius: 0.38,
+    rideHeight: 0.48,
     maxSpeedMs: 40.3, // ~145 km/h
     maxSpeedKmh: 145,
     peakAccel: 3.2, // Heavy vintage inertia
@@ -125,6 +130,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     name: 'Rally Spec Hatchback',
     massKg: 1120,
     wheelRadius: 0.34,
+    rideHeight: 0.38,
     maxSpeedMs: 62.5, // ~225 km/h
     maxSpeedKmh: 225,
     peakAccel: 5.6,
@@ -146,11 +152,12 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
 
 const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
+const _tempCamForward = new THREE.Vector3()
 const _wheelCorners: [number, number][] = [
-  [-0.82, -1.35], // Front-Left
-  [0.82, -1.35],  // Front-Right
-  [-0.82, 1.35],  // Rear-Left
-  [0.82, 1.35],   // Rear-Right
+  [-0.82, -1.38], // Front-Left
+  [0.82, -1.38],  // Front-Right
+  [-0.82, 1.28],  // Rear-Left
+  [0.82, 1.28],   // Rear-Right
 ]
 
 export default function VehicleController() {
@@ -161,28 +168,21 @@ export default function VehicleController() {
   const prevCamModeRef = useRef<CameraPerspectiveType>('chase')
   const [, getKeys] = useKeyboardControls()
 
-  const {
-    vehicleModel,
-    paintColor,
-    metallic,
-    roughness,
-    biome,
-    isHoverMode,
-    cameraPerspective,
-    headlights,
-    photoMode,
-    setSpeed,
-    setRpm,
-    setGear,
-    addDistance,
-    setThrottle,
-    setBrake,
-    setSteering,
-    setCurrentResolvedBiome,
-  } = useGameStore()
+  // Discrete Zustand selectors to prevent 60fps React Fiber re-renders of the 3D car tree
+  const vehicleModel = useGameStore((s) => s.vehicleModel)
+  const paintColor = useGameStore((s) => s.paintColor)
+  const metallic = useGameStore((s) => s.metallic)
+  const roughness = useGameStore((s) => s.roughness)
+  const biome = useGameStore((s) => s.biome)
+  const isHoverMode = useGameStore((s) => s.isHoverMode)
+  const cameraPerspective = useGameStore((s) => s.cameraPerspective)
+  const headlights = useGameStore((s) => s.headlights)
+  const photoMode = useGameStore((s) => s.photoMode)
 
-  // State Variables - initialized on the road at Z=0
-  const initialSpawnY = getRoadElevation(0) + 0.44
+  const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
+
+  // State Variables - initialized on the road at Z=0 with calibrated ride height
+  const initialSpawnY = getRoadElevation(0) + (isHoverMode ? 1.25 : config.rideHeight)
   const initialSpawnX = getRoadCenter(0)
   const pos = useRef(new THREE.Vector3(initialSpawnX, initialSpawnY, 0))
   const forwardVel = useRef(0) // meters per second
@@ -193,15 +193,18 @@ export default function VehicleController() {
   const bodyRoll = useRef(0)
   const bodyPitch = useRef(0)
   const currentThrottle = useRef(0)
-  const hoverAltitude = useRef(0.44)
+  const hoverAltitude = useRef(isHoverMode ? 1.25 : config.rideHeight)
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
   const prevThrottleVal = useRef(0)
+
+  // Telemetry throttling and biome change tracking
+  const prevResolvedBiome = useRef<string>('')
+  const telemetryCounter = useRef(0)
+  const accumulatedDistance = useRef(useGameStore.getState().distance)
 
   // Fixed timestep physics accumulator (120 Hz fixed substepping)
   const physicsAccumulator = useRef(0)
   const FIXED_DT = 1 / 120
-
-  const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
   // Transmission simulation state (Auto by default with Left Shift upshift / Right Shift downshift manual overrides)
   const currentGearIndex = useRef(1)
@@ -258,7 +261,7 @@ export default function VehicleController() {
       else if (e.code === 'KeyR') {
         const curZ = pos.current.z
         pos.current.x = getRoadCenter(curZ)
-        pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : 0.44)
+        pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : config.rideHeight)
         forwardVel.current = 0
         lateralVel.current = 0
         yawAngle.current = 0
@@ -280,9 +283,12 @@ export default function VehicleController() {
     const keys = getKeys()
     const store = useGameStore.getState()
 
-    // 1. Resolve active biome at current Z position
+    // 1. Resolve active biome at current Z position without thrashing store if unchanged
     const activeBiomeConfig = getActiveBiomeAt(pos.current.z, biome)
-    setCurrentResolvedBiome(activeBiomeConfig.id)
+    if (prevResolvedBiome.current !== activeBiomeConfig.id) {
+      prevResolvedBiome.current = activeBiomeConfig.id
+      store.setCurrentResolvedBiome(activeBiomeConfig.id)
+    }
 
     // 2. User Controls & Input Processing
     let targetThrottle = 0
@@ -319,9 +325,6 @@ export default function VehicleController() {
       frameDelta * 3.8
     )
     const curThrottleAbs = Math.abs(currentThrottle.current)
-    setThrottle(curThrottleAbs)
-    setBrake(targetBrake)
-    setSteering(steerInput)
 
     // ------------------------------------------------------------------------
     // 3. Fixed-Timestep Physics Simulation Substepping (120 Hz)
@@ -433,7 +436,7 @@ export default function VehicleController() {
       const roadCx = getRoadCenter(pos.current.z)
       if (pos.current.y < -35 || Math.abs(pos.current.x - roadCx) > 130) {
         pos.current.x = roadCx
-        pos.current.y = getRoadElevation(pos.current.z) + (isHoverMode ? 1.25 : 0.44)
+        pos.current.y = getRoadElevation(pos.current.z) + (isHoverMode ? 1.25 : config.rideHeight)
         forwardVel.current = 0
         lateralVel.current = 0
         yawAngle.current = 0
@@ -464,7 +467,7 @@ export default function VehicleController() {
       activeBiomeConfig.id
     )
 
-    const targetRideHeight = isHoverMode ? 1.25 : 0.44
+    const targetRideHeight = isHoverMode ? 1.25 : config.rideHeight
     const hoverFloatPulse = isHoverMode ? Math.sin(state.clock.getElapsedTime() * 2.2) * 0.03 : 0
     hoverAltitude.current = THREE.MathUtils.lerp(
       hoverAltitude.current,
@@ -478,7 +481,7 @@ export default function VehicleController() {
     )
 
     // Accumulated trip distance (km)
-    addDistance((Math.abs(forwardVel.current) * frameDelta) / 1000)
+    accumulatedDistance.current += (Math.abs(forwardVel.current) * frameDelta) / 1000
 
     // Update root vehicle transform
     carGroupRef.current.position.set(pos.current.x, pos.current.y, pos.current.z)
@@ -536,7 +539,6 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 5. Automatic Transmission with Manual Shift Overrides & RPM Simulation
     // ------------------------------------------------------------------------
-    setSpeed(Math.round(currentSpeedKmh))
 
     // Update shift timers
     if (manualOverrideTimer.current > 0) {
@@ -632,9 +634,6 @@ export default function VehicleController() {
     smoothedRpm.current = THREE.MathUtils.lerp(smoothedRpm.current, targetRpm, frameDelta * 12)
     const finalRpm = Math.max(config.idleRpm, Math.min(config.redlineRpm, Math.round(smoothedRpm.current)))
 
-    setGear(calculatedGear)
-    setRpm(finalRpm)
-
     // Overrun exhaust pop detection & lateral slip factor
     const throttleDelta = curThrottleAbs - prevThrottleVal.current
     const isDecel = throttleDelta < -0.22 && finalRpm > 3500
@@ -645,6 +644,10 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 6. Real-Time Layered Audio Ecosystem & Dynamic Telemetry
     // ------------------------------------------------------------------------
+    // Dynamic 3D Spatial Audio Tracking (Engine & Exhaust follow car in camera space)
+    state.camera.getWorldDirection(_tempCamForward)
+    audioSystem.updateSpatialPosition(pos.current, state.camera.position, _tempCamForward)
+
     audioSystem.updateEngineSound(finalRpm, curThrottleAbs, currentSpeedKmh)
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
@@ -656,6 +659,19 @@ export default function VehicleController() {
       isDecelerating: isDecel,
       lateralSlip,
     })
+
+    // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)
+    telemetryCounter.current++
+    if (telemetryCounter.current % 3 === 0) {
+      store.setTelemetry({
+        speed: Math.round(currentSpeedKmh),
+        rpm: finalRpm,
+        gear: calculatedGear,
+        throttle: curThrottleAbs,
+        brake: targetBrake,
+      })
+      useGameStore.setState({ distance: accumulatedDistance.current })
+    }
 
     // ------------------------------------------------------------------------
     // 7. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
