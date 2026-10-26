@@ -648,7 +648,6 @@ export default function VehicleController() {
     state.camera.getWorldDirection(_tempCamForward)
     audioSystem.updateSpatialPosition(pos.current, state.camera.position, _tempCamForward)
 
-    audioSystem.updateEngineSound(finalRpm, curThrottleAbs, currentSpeedKmh)
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
       rpm: finalRpm,

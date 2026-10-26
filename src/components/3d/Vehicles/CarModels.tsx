@@ -77,6 +77,19 @@ function HeadlightBeams({
 // 1. Authentic BMW M3 GTR '05 (ALMS / GT Widebody Monocoque)
 // ----------------------------------------------------
 
+// Shared wheel materials to avoid redundant allocations across 4 wheels
+const sharedTireMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#222224'),
+  roughness: 0.90,
+  metalness: 0.05,
+})
+
+const sharedCaliperMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#d97706'), // Brembo racing gold/amber
+  metalness: 0.85,
+  roughness: 0.22,
+})
+
 function BmwGtrWheel({
   wheelScene,
   side, // 1 for left (-X), -1 for right (+X)
@@ -118,22 +131,6 @@ function BmwGtrWheel({
     })
   }, [rimColor, metallic, roughness])
 
-  const tireMat = useMemo(() => {
-    return new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#222224'),
-      roughness: 0.90,
-      metalness: 0.05,
-    })
-  }, [])
-
-  const caliperMat = useMemo(() => {
-    return new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#d97706'), // Brembo racing gold/amber
-      metalness: 0.85,
-      roughness: 0.22,
-    })
-  }, [])
-
   useEffect(() => {
     cloned.traverse((child) => {
       if (child instanceof THREE.Mesh) {
@@ -143,13 +140,13 @@ function BmwGtrWheel({
         if (name.includes('WheelBase')) {
           child.material = rimMat
         } else if (name.includes('Tire')) {
-          child.material = tireMat
+          child.material = sharedTireMat
         } else if (name.includes('Calliper')) {
-          child.material = caliperMat
+          child.material = sharedCaliperMat
         }
       }
     })
-  }, [cloned, rimMat, tireMat, caliperMat])
+  }, [cloned, rimMat])
 
   const hoverFold = isHoverMode ? 0.78 : 0.0
 

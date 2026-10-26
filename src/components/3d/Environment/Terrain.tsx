@@ -208,6 +208,52 @@ poleGeo.boundingSphere = CHUNK_SPHERE
 delineatorPostGeo.boundingSphere = CHUNK_SPHERE
 delineatorReflectorGeo.boundingSphere = CHUNK_SPHERE
 
+// ----------------------------------------------------------------------------
+// Shared Static Materials: Pre-allocated once to eliminate 200+ redundant WebGL material state changes
+// ----------------------------------------------------------------------------
+const sharedGuardrailMat = new THREE.MeshStandardMaterial({
+  color: '#cbd5e1',
+  metalness: 0.85,
+  roughness: 0.25,
+})
+
+const sharedMarkingsMat = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.3,
+  polygonOffset: true,
+  polygonOffsetFactor: -4,
+  polygonOffsetUnits: -4,
+  depthTest: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+})
+
+const sharedDelineatorPostMat = new THREE.MeshStandardMaterial({
+  color: '#f8fafc',
+  roughness: 0.45,
+})
+
+const sharedDelineatorReflectorMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  emissive: new THREE.Color('#f59e0b'),
+  emissiveIntensity: 1.8,
+  roughness: 0.12,
+  toneMapped: false,
+})
+
+const sharedSaguaroMat = new THREE.MeshStandardMaterial({
+  color: '#1e4e27',
+  roughness: 0.86,
+  metalness: 0.05,
+})
+
+const sharedPoleMat = new THREE.MeshStandardMaterial({
+  color: '#382518',
+  bumpMap: getWoodBumpTexture(),
+  bumpScale: 0.024,
+  roughness: 0.92,
+})
+
 // Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
 const _dummy = new THREE.Object3D()
 
@@ -228,7 +274,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
-  const woodBumpTex = useMemo(() => getWoodBumpTexture(), [])
 
   // Triplanar Shader for seamless rock strata & granular soil texture on steep terrain
   const onTerrainMaterialCompile = useMemo(() => {
@@ -355,7 +400,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     colorAttr.needsUpdate = true
     normals.needsUpdate = true
     terrainGeo.computeBoundingSphere()
-    terrainGeo.computeBoundingBox()
   }, [chunkZ, biomeConfig, terrainGeo])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
@@ -1115,23 +1159,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
-      <mesh geometry={markingsGeo} renderOrder={3} frustumCulled={true}>
-        <meshStandardMaterial
-          vertexColors
-          roughness={0.3}
-          polygonOffset
-          polygonOffsetFactor={-4}
-          polygonOffsetUnits={-4}
-          depthTest
-          depthWrite={false}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      <mesh geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={true} />
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
-      <mesh geometry={guardrailGeo} castShadow receiveShadow frustumCulled={true}>
-        <meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.25} />
-      </mesh>
+      <mesh geometry={guardrailGeo} material={sharedGuardrailMat} castShadow receiveShadow frustumCulled={true} />
 
       {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
       <instancedMesh
@@ -1183,21 +1214,18 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       {/* 8. Desert Saguaro Cacti */}
       <instancedMesh
         ref={saguaroRef}
-        args={[saguaroGeo, undefined, 24]}
+        args={[saguaroGeo, sharedSaguaroMat, 24]}
         count={sceneryData.saguaros.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color="#1e4e27" roughness={0.86} metalness={0.05} />
-      </instancedMesh>
+      />
 
       {/* 9. Mountain Shrubs & Roadside Bushes */}
       <instancedMesh
         ref={shrubRef}
         args={[shrubGeo, undefined, 24]}
         count={sceneryData.shrubs.length}
-        castShadow
         receiveShadow
         frustumCulled={true}
       >
@@ -1237,46 +1265,28 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       {/* 12. Roadside Highway Utility Poles with Timber Grain */}
       <instancedMesh
         ref={poleRef}
-        args={[poleGeo, undefined, 16]}
+        args={[poleGeo, sharedPoleMat, 16]}
         count={sceneryData.poles.length}
         castShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial
-          color="#382518"
-          bumpMap={woodBumpTex}
-          bumpScale={0.024}
-          roughness={0.92}
-        />
-      </instancedMesh>
+      />
 
       {/* 13. Roadside Reflector Delineator Posts (Guide Posts) */}
       <instancedMesh
         ref={delineatorPostRef}
-        args={[delineatorPostGeo, undefined, 32]}
+        args={[delineatorPostGeo, sharedDelineatorPostMat, 32]}
         count={sceneryData.delineators.length}
-        castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color="#f8fafc" roughness={0.45} />
-      </instancedMesh>
+      />
 
       {/* 14. Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
       <instancedMesh
         ref={delineatorReflectorRef}
-        args={[delineatorReflectorGeo, undefined, 32]}
+        args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
         count={sceneryData.delineators.length}
         frustumCulled={true}
-      >
-        <meshStandardMaterial
-          color="#ffffff"
-          emissive="#f59e0b"
-          emissiveIntensity={1.8}
-          roughness={0.12}
-          toneMapped={false}
-        />
-      </instancedMesh>
+      />
     </group>
   )
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining)

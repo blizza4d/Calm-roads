@@ -97,6 +97,8 @@ export class RealisticVehicleAudioEngine {
 
   // Engine Sub-Busses
   private engineMaster: GainNode | null = null
+  private subBassEQ: BiquadFilterNode | null = null
+  private growlEQ: BiquadFilterNode | null = null
   private onLoadBus: GainNode | null = null
   private offLoadBus: GainNode | null = null
   private onLoadFilter: BiquadFilterNode | null = null
@@ -118,6 +120,9 @@ export class RealisticVehicleAudioEngine {
   private rallyBuffer: AudioBuffer | null = null
   private rallySource: AudioBufferSourceNode | null = null
   private rallyGain: GainNode | null = null
+  private v8RecordedBuffer: AudioBuffer | null = null
+  private v8RecordedSource: AudioBufferSourceNode | null = null
+  private v8RecordedGain: GainNode | null = null
 
   // Telemetry Tracking
   private prevThrottle = 0
@@ -228,10 +233,27 @@ export class RealisticVehicleAudioEngine {
       // Engine Sub-Busses
       this.engineMaster = ctx.createGain()
       this.engineMaster.gain.setValueAtTime(1.0, ctx.currentTime)
+
+      // Heavy Sub-Bass Reinforcement EQ (Subwoofer chest thump 45 - 110 Hz)
+      this.subBassEQ = ctx.createBiquadFilter()
+      this.subBassEQ.type = 'lowshelf'
+      this.subBassEQ.frequency.setValueAtTime(90, ctx.currentTime)
+      this.subBassEQ.gain.setValueAtTime(5.8, ctx.currentTime) // +5.8 dB heavy bass weight
+
+      // Guttural Manifold Growl & Displacement Resonance EQ (180 - 320 Hz)
+      this.growlEQ = ctx.createBiquadFilter()
+      this.growlEQ.type = 'peaking'
+      this.growlEQ.frequency.setValueAtTime(230, ctx.currentTime)
+      this.growlEQ.Q.setValueAtTime(1.3, ctx.currentTime)
+      this.growlEQ.gain.setValueAtTime(3.6, ctx.currentTime) // +3.6 dB heavy growl
+
+      this.engineMaster.connect(this.subBassEQ)
+      this.subBassEQ.connect(this.growlEQ)
+
       if (this.spatialPanner) {
-        this.engineMaster.connect(this.spatialPanner)
+        this.growlEQ.connect(this.spatialPanner)
       } else {
-        this.engineMaster.connect(this.sfxMaster)
+        this.growlEQ.connect(this.sfxMaster)
       }
 
       // Dynamic Manifold Combustion Roar Filter on On-Load Bus
@@ -316,15 +338,17 @@ export class RealisticVehicleAudioEngine {
       this.fetchAndDecode(ctx, ['/sounds/gear_shift.wav', '/audio/cars/bmw-m3-gtr/gear_up.wav']),
       this.fetchAndDecode(ctx, ['/sounds/gear_downshift.wav', '/audio/cars/bmw-m3-gtr/gear_down.wav']),
       this.fetchAndDecode(ctx, ['/audio/raw/audi_quattro_rally.ogg']),
+      this.fetchAndDecode(ctx, ['/audio/raw/v8_idle_and_revs.ogg', '/audio/raw/bmw_m3_gt2_2010.ogg']),
     ])
 
     await Promise.all([...bufferPromises, transientPromises])
 
-    const [overrun, gearUp, gearDown, rally] = await transientPromises
+    const [overrun, gearUp, gearDown, rally, v8Rec] = await transientPromises
     this.overrunBuffer = overrun
     this.gearUpBuffer = gearUp
     this.gearDownBuffer = gearDown
     this.rallyBuffer = rally
+    this.v8RecordedBuffer = v8Rec
   }
 
   // --------------------------------------------------------------------------
@@ -393,6 +417,25 @@ export class RealisticVehicleAudioEngine {
 
       this.rallySource = rallySrc
       this.rallyGain = rallyGain
+    }
+
+    // Setup authentic recorded V8 texture loop if loaded
+    if (this.v8RecordedBuffer && !this.v8RecordedSource && this.engineMaster) {
+      const v8Gain = ctx.createGain()
+      v8Gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      v8Gain.connect(this.engineMaster)
+
+      const v8Src = ctx.createBufferSource()
+      v8Src.buffer = this.v8RecordedBuffer
+      v8Src.loop = true
+      v8Src.playbackRate.setValueAtTime(1.0, ctx.currentTime)
+      v8Src.connect(v8Gain)
+      try {
+        v8Src.start(0)
+      } catch {}
+
+      this.v8RecordedSource = v8Src
+      this.v8RecordedGain = v8Gain
     }
   }
 
@@ -490,6 +533,24 @@ export class RealisticVehicleAudioEngine {
         ? 4500 + throttleVal * 12500 + (curRpm / 8500) * 3000
         : 2800
       this.onLoadFilter.frequency.setTargetAtTime(Math.min(20000, targetFilterFreq), now, timeConstant)
+    }
+
+    // Dynamic Sub-Bass & Manifold Growl Swell under Throttle Load
+    if (this.subBassEQ) {
+      const targetBass = 5.8 + throttleVal * 3.8 // +5.8 dB up to +9.6 dB heavy sub-bass
+      this.subBassEQ.gain.setTargetAtTime(targetBass, now, timeConstant)
+    }
+    if (this.growlEQ) {
+      const targetGrowl = 3.6 + throttleVal * 3.6 // +3.6 dB up to +7.2 dB guttural throat
+      this.growlEQ.gain.setTargetAtTime(targetGrowl, now, timeConstant)
+    }
+
+    // Blend authentic recorded V8 texture with multi-tier engine loops
+    if (this.v8RecordedGain && this.v8RecordedSource) {
+      const recPitch = Math.min(1.85, Math.max(0.68, curRpm / 3400))
+      this.v8RecordedSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
+      const targetRecGain = (0.22 + throttleVal * 0.42) * Math.min(1.0, curRpm / 1600)
+      this.v8RecordedGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
     }
 
     // ------------------------------------------------------------------------
@@ -952,6 +1013,35 @@ export class RealisticVehicleAudioEngine {
         this.rallySource.disconnect()
       } catch {}
       this.rallySource = null
+    }
+
+    if (this.v8RecordedSource) {
+      try {
+        this.v8RecordedSource.stop()
+        this.v8RecordedSource.disconnect()
+      } catch {}
+      this.v8RecordedSource = null
+    }
+
+    if (this.v8RecordedGain) {
+      try {
+        this.v8RecordedGain.disconnect()
+      } catch {}
+      this.v8RecordedGain = null
+    }
+
+    if (this.subBassEQ) {
+      try {
+        this.subBassEQ.disconnect()
+      } catch {}
+      this.subBassEQ = null
+    }
+
+    if (this.growlEQ) {
+      try {
+        this.growlEQ.disconnect()
+      } catch {}
+      this.growlEQ = null
     }
 
     if (this.spatialPanner) {

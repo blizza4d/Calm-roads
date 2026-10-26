@@ -37,7 +37,39 @@ function createWav(channels, samples) {
   return buffer;
 }
 
-// Lowpass filter helper (simple single-pole IIR)
+// 2-Pole Resonant Bandpass Filter (Models Tuned Exhaust Runner & Collector Cavities)
+class ResonantFilter {
+  constructor(freq, q = 2.5) {
+    this.setParams(freq, q);
+    this.x1 = 0; this.x2 = 0;
+    this.y1 = 0; this.y2 = 0;
+  }
+  setParams(freq, q) {
+    const w0 = 2 * Math.PI * freq / sampleRate;
+    const alpha = Math.sin(w0) / (2 * q);
+    const b0 = alpha;
+    const b1 = 0;
+    const b2 = -alpha;
+    const a0 = 1 + alpha;
+    const a1 = -2 * Math.cos(w0);
+    const a2 = 1 - alpha;
+    this.b0 = b0 / a0;
+    this.b1 = b1 / a0;
+    this.b2 = b2 / a0;
+    this.a1 = a1 / a0;
+    this.a2 = a2 / a0;
+  }
+  process(x) {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1;
+    this.x1 = x;
+    this.y2 = this.y1;
+    this.y1 = y;
+    return y;
+  }
+}
+
+// Lowpass filter helper (single-pole IIR)
 function applyLowpass(samples, cutoffHz) {
   const dt = 1 / sampleRate;
   const rc = 1 / (2 * Math.PI * cutoffHz);
@@ -51,15 +83,28 @@ function applyLowpass(samples, cutoffHz) {
   return out;
 }
 
-// Wave-shaping saturation (soft asymmetric saturation characteristic of racing exhaust manifolds)
-function saturate(x, drive = 1.8) {
+// Asymmetric Soft Saturation with Rich Even & Odd Harmonics (Models High-Pressure Exhaust Tube Gas Compression)
+function saturateExhaust(x, drive = 1.6) {
   const v = x * drive;
-  return Math.tanh(v) * 0.85 + Math.sin(v * 2) * 0.08;
+  // Asymmetric polynomial transfer curve typical of high-velocity exhaust pulses
+  if (v > 1.2) return 0.88 + 0.12 * Math.tanh(v - 1.2);
+  if (v < -1.2) return -0.88 + 0.12 * Math.tanh(v + 1.2);
+  return v - 0.22 * Math.pow(v, 3) + 0.08 * Math.pow(v, 2);
 }
 
-// Cross-plane V8 combustion pulse synthesizer
-// Firing intervals: 90, 180, 270, 180 deg
-function synthesizeV8Combustion(rpm, throttle = 1.0, durationSec = 3.0, rpmEnd = null) {
+/**
+ * Authentic Racing V8 Physical Combustion Acoustic Synthesizer:
+ * Models:
+ * - 4-Stroke 720-degree crankshaft cycle
+ * - Cross-plane staggered bank firing order (Cylinders 1-8-4-3-6-5-7-2)
+ * - Bank 1 vs Bank 2 pulse collisions (the iconic guttural V8 burble/thrum)
+ * - Explosive supersonic blowdown shock wave + resonant tuned header pipe ringing
+ * - Massive low-end sub-bass crank thrum (subwoofer frequencies: 25 - 90 Hz)
+ * - Intake runner induction growl under load (Helmholtz resonance: 130 - 280 Hz)
+ * - Straight-cut Hewland dog-box gear whine
+ * - Dual side-exit exhaust collector acoustic delay and stereo spread
+ */
+function synthesizeRealisticV8(rpm, throttle = 1.0, durationSec = 3.2, rpmEnd = null) {
   const totalSamples = Math.floor(sampleRate * durationSec);
   const left = new Float32Array(totalSamples);
   const right = new Float32Array(totalSamples);
@@ -67,56 +112,108 @@ function synthesizeV8Combustion(rpm, throttle = 1.0, durationSec = 3.0, rpmEnd =
   const startRpm = rpm;
   const endRpm = rpmEnd !== null ? rpmEnd : rpm;
 
-  let phase = 0;
+  // Cross-plane V8 Firing Angles in Radians over a 720° (4*pi) 4-stroke cycle
+  // Left Bank (Bank 1): Cyl 1 (0°), Cyl 4 (180°), Cyl 3 (270°), Cyl 5 (450°)
+  // Right Bank (Bank 2): Cyl 8 (90°), Cyl 6 (360°), Cyl 7 (540°), Cyl 2 (630°)
+  const bank1Angles = [0, Math.PI, 1.5 * Math.PI, 2.5 * Math.PI];
+  const bank2Angles = [0.5 * Math.PI, 2.0 * Math.PI, 3.0 * Math.PI, 3.5 * Math.PI];
+  const cycleRad = 4.0 * Math.PI;
+
+  let crankAngle = 0;
   let whinePhase = 0;
   let noiseState = 0;
+
+  // Tuned exhaust runner resonant filters (180Hz body punch, 420Hz throat rasp)
+  const filterL1 = new ResonantFilter(175, 2.8);
+  const filterL2 = new ResonantFilter(390, 2.2);
+  const filterR1 = new ResonantFilter(175, 2.8);
+  const filterR2 = new ResonantFilter(390, 2.2);
 
   for (let i = 0; i < totalSamples; i++) {
     const progress = i / totalSamples;
     const curRpm = startRpm + (endRpm - startRpm) * progress;
     const revPerSec = curRpm / 60;
-    const firingFreq = revPerSec * 4; // 4 combustion pulses per crank rev for V8
-    const crankFreq = revPerSec;
+    const radPerSec = revPerSec * 2 * Math.PI;
+    const dt = 1 / sampleRate;
 
-    // Advance phase
-    phase += (firingFreq / sampleRate) * 2 * Math.PI;
-    whinePhase += ((curRpm * 0.44 * 6) / sampleRate) * 2 * Math.PI; // Straight-cut dog-box gear tooth mesh frequency
+    crankAngle += radPerSec * dt;
+    const cyclePos = crankAngle % cycleRad;
 
-    // Cylinder firing pulse: asymmetric pulse train
-    const p1 = Math.sin(phase);
-    const p2 = Math.sin(phase * 2) * 0.65;
-    const p3 = Math.sin(phase * 3) * 0.42;
-    const p4 = Math.sin(phase * 4) * 0.28;
-    const sub = Math.sin(crankFreq * 2 * Math.PI * (i / sampleRate)) * 0.35; // Sub-crank thrum
+    // 1. Bank 1 (Left Exhaust Collector) Individual Combustion Pulses
+    let pulseB1 = 0;
+    for (let c = 0; c < 4; c++) {
+      let delta = cyclePos - bank1Angles[c];
+      if (delta < 0) delta += cycleRad;
+      // Cylinder blowdown phase lasts ~1.1 radians (~63 degrees of crank rotation)
+      if (delta < 1.15) {
+        const tRel = delta / 1.15;
+        // Asymmetric steep wavefront spike
+        const shock = Math.sin(Math.PI * Math.pow(tRel, 0.38)) * Math.exp(-3.2 * tRel);
+        // Header pipe acoustic ring
+        const ring = Math.sin(delta * 16.0) * Math.exp(-4.2 * tRel) * 0.42;
+        // Negative rebound pulse in exhaust collector
+        const rebound = -0.16 * Math.sin(Math.PI * 2 * tRel) * Math.exp(-2.2 * tRel);
+        pulseB1 += shock + ring + rebound;
+      }
+    }
 
-    // High-RPM harmonic screaming rasp (3.5kHz peak)
-    const rasp = Math.sin(phase * 5) * 0.22 + Math.sin(phase * 7) * 0.15;
+    // 2. Bank 2 (Right Exhaust Collector) Individual Combustion Pulses
+    let pulseB2 = 0;
+    for (let c = 0; c < 4; c++) {
+      let delta = cyclePos - bank2Angles[c];
+      if (delta < 0) delta += cycleRad;
+      if (delta < 1.15) {
+        const tRel = delta / 1.15;
+        const shock = Math.sin(Math.PI * Math.pow(tRel, 0.38)) * Math.exp(-3.2 * tRel);
+        const ring = Math.sin(delta * 16.0) * Math.exp(-4.2 * tRel) * 0.42;
+        const rebound = -0.16 * Math.sin(Math.PI * 2 * tRel) * Math.exp(-2.2 * tRel);
+        pulseB2 += shock + ring + rebound;
+      }
+    }
 
-    // Dog-box transmission straight-cut whine
-    const whineIntensity = Math.min(1.0, (curRpm - 1200) / 4500) * 0.28;
-    const gearWhine = Math.sin(whinePhase) * whineIntensity + Math.sin(whinePhase * 2) * (whineIntensity * 0.3);
+    // 3. Deep Visceral Sub-Bass Body & Crank Thrum
+    // Sub-harmonic fundamental (1x and 2x crank speed, creates deep chest punch)
+    const sub1 = Math.sin(crankAngle * 0.5) * 0.36; // 4-stroke cycle fundamental (f_crank / 2)
+    const sub2 = Math.sin(crankAngle) * 0.42;       // Crankshaft revolution fundamental
+    const sub3 = Math.sin(crankAngle * 2.0) * 0.28; // Bank collision pulse (heavy V8 thrum)
+    const subBass = sub1 + sub2 + sub3;
 
-    // Intake air suction noise
-    noiseState = noiseState * 0.94 + (Math.random() - 0.5) * 0.06;
-    const intakeHiss = noiseState * (throttle * 0.18);
+    // 4. Heavy Intake Manifold Induction Roar (Guttural roar under heavy throttle load)
+    const intakeResonance = Math.sin(crankAngle * 2.0 + 0.8) * 0.45 + Math.sin(crankAngle * 4.0) * 0.28;
+    noiseState = noiseState * 0.92 + (Math.random() - 0.5) * 0.08;
+    const intakeRoar = (intakeResonance * 0.65 + noiseState * 0.35) * (throttle * 0.85);
 
-    // Raw exhaust mixture
-    const rawPulse = p1 + p2 + p3 + p4 + sub + (curRpm > 4500 ? rasp * 1.5 : rasp);
-    const saturatedExhaust = saturate(rawPulse, 1.2 + throttle * 1.6);
+    // 5. Straight-Cut Dog-Box Transmission Whine (6-speed sequential spur gears)
+    whinePhase += ((curRpm * 0.42 * 6.0) / sampleRate) * 2 * Math.PI;
+    const whineIntensity = Math.min(1.0, Math.max(0, (curRpm - 1100) / 4800)) * (0.16 + throttle * 0.12);
+    const dogBoxWhine = (Math.sin(whinePhase) + Math.sin(whinePhase * 2.0) * 0.35) * whineIntensity;
 
-    const mono = (saturatedExhaust * 0.72 + gearWhine + intakeHiss) * (0.45 + throttle * 0.55);
+    // 6. Mechanical Valvetrain & DOHC Camshaft Click
+    const valveClick = Math.pow(Math.abs(Math.sin(crankAngle * 4.0)), 28.0) * 0.18;
 
-    // Stereo spread (left bank vs right bank exhaust pulse phase offset)
-    const bankDelay = Math.sin(crankFreq * 2 * Math.PI * (i / sampleRate) + 0.5) * 0.12;
-    left[i] = mono * (1.0 + bankDelay);
-    right[i] = mono * (1.0 - bankDelay);
+    // 7. Exhaust Tube Acoustics & Saturation
+    // Pass Bank pulses through resonant body filters
+    const tunedL = filterL1.process(pulseB1) * 0.65 + filterL2.process(pulseB1) * 0.35;
+    const tunedR = filterR1.process(pulseB2) * 0.65 + filterR2.process(pulseB2) * 0.35;
+
+    // Combine raw pulses, tuned exhaust resonances, sub-bass thump, and induction roar
+    const rawMixL = (pulseB1 * 0.55 + tunedL * 0.45) * (0.65 + throttle * 0.55) + subBass * 0.62 + intakeRoar * 0.5 + valveClick;
+    const rawMixR = (pulseB2 * 0.55 + tunedR * 0.45) * (0.65 + throttle * 0.55) + subBass * 0.62 + intakeRoar * 0.5 + valveClick;
+
+    // Saturated high-velocity exhaust compression
+    const satL = saturateExhaust(rawMixL, 1.4 + throttle * 1.8);
+    const satR = saturateExhaust(rawMixR, 1.4 + throttle * 1.8);
+
+    // Master Stereo Output with Transmission Whine
+    left[i] = satL * 0.82 + dogBoxWhine * 0.45;
+    right[i] = satR * 0.82 + dogBoxWhine * 0.45;
   }
 
   return [left, right];
 }
 
-// Make a loop seamless by crossfading end with beginning
-function makeSeamlessLoop(channels, crossfadeSec = 0.25) {
+// Seamless Looper with Power-Preserving Sinusoidal Crossfade
+function makeSeamlessLoop(channels, crossfadeSec = 0.35) {
   const xfSamples = Math.floor(sampleRate * crossfadeSec);
   const numSamples = channels[0].length;
   const loopLen = numSamples - xfSamples;
@@ -126,9 +223,12 @@ function makeSeamlessLoop(channels, crossfadeSec = 0.25) {
   for (let i = 0; i < loopLen; i++) {
     if (i < xfSamples) {
       const t = i / xfSamples;
+      // Sinusoidal equal-power crossfade prevents volume dips at the loop boundary
+      const gainStart = Math.sin(t * Math.PI * 0.5);
+      const gainEnd = Math.cos(t * Math.PI * 0.5);
       const endIdx = loopLen + i;
-      outL[i] = channels[0][i] * t + channels[0][endIdx] * (1 - t);
-      outR[i] = channels[1][i] * t + channels[1][endIdx] * (1 - t);
+      outL[i] = channels[0][i] * gainStart + channels[0][endIdx] * gainEnd;
+      outR[i] = channels[1][i] * gainStart + channels[1][endIdx] * gainEnd;
     } else {
       outL[i] = channels[0][i];
       outR[i] = channels[1][i];
@@ -137,178 +237,197 @@ function makeSeamlessLoop(channels, crossfadeSec = 0.25) {
   return [outL, outR];
 }
 
-const outDir = 'public/audio/cars/bmw-m3-gtr';
-fs.mkdirSync(outDir, { recursive: true });
+const outDirs = [
+  'public/audio/cars/bmw-m3-gtr',
+  'public/sounds'
+];
 
-console.log('Generating authentic BMW M3 GTR racing V8 audio library...');
+outDirs.forEach(dir => fs.mkdirSync(dir, { recursive: true }));
 
-// 1. Idle Loop (850 RPM steady mechanical rumble)
-{
-  const raw = synthesizeV8Combustion(850, 0.08, 3.2);
-  const looped = makeSeamlessLoop(raw, 0.3);
-  fs.writeFileSync(path.join(outDir, 'idle_loop.wav'), createWav(2, looped));
-  console.log('✓ idle_loop.wav');
+console.log('Generating heavy, realistic, authentic racing V8 audio library...');
+
+function saveAudio(filename, buffer) {
+  outDirs.forEach(dir => {
+    fs.writeFileSync(path.join(dir, filename), buffer);
+  });
 }
 
-// 2. Low-RPM Acceleration (1,200 - 3,500 RPM)
+// 1. Idle Loop: Deep, guttural 850 RPM cross-plane mechanical heartbeat with low sub-bass thrum
 {
-  const raw = synthesizeV8Combustion(1200, 0.75, 4.0, 3500);
-  fs.writeFileSync(path.join(outDir, 'low_rpm_acceleration.wav'), createWav(2, raw));
-  console.log('✓ low_rpm_acceleration.wav');
+  const raw = synthesizeRealisticV8(850, 0.06, 3.6);
+  const looped = makeSeamlessLoop(raw, 0.45);
+  const wav = createWav(2, looped);
+  saveAudio('idle_loop.wav', wav);
+  saveAudio('engine_idle.wav', wav);
+  console.log('✓ idle_loop.wav & engine_idle.wav (Deep Heavy V8 Rumble)');
 }
 
-// 3. Mid-RPM Acceleration (3,500 - 5,800 RPM)
+// 2. Low-RPM Acceleration (1,200 - 3,200 RPM): Heavy low-end torque, throaty manifold roar
 {
-  const raw = synthesizeV8Combustion(3500, 0.88, 3.8, 5800);
-  fs.writeFileSync(path.join(outDir, 'mid_rpm_acceleration.wav'), createWav(2, raw));
-  console.log('✓ mid_rpm_acceleration.wav');
+  const raw = synthesizeRealisticV8(1200, 0.85, 3.8, 3200);
+  const looped = makeSeamlessLoop(raw, 0.4);
+  const wav = createWav(2, looped);
+  saveAudio('low_rpm_acceleration.wav', wav);
+  saveAudio('engine_low.wav', wav);
+  console.log('✓ low_rpm_acceleration.wav & engine_low.wav (Throaty Heavy Torque)');
 }
 
-// 4. High-RPM Acceleration (5,800 - 8,200 RPM Screamer)
+// 3. Mid-RPM Acceleration (3,200 - 5,600 RPM): Tuned header pipe resonance, visceral exhaust bark
 {
-  const raw = synthesizeV8Combustion(5800, 1.0, 3.5, 8200);
-  fs.writeFileSync(path.join(outDir, 'high_rpm_acceleration.wav'), createWav(2, raw));
+  const raw = synthesizeRealisticV8(3200, 0.95, 3.6, 5600);
+  const looped = makeSeamlessLoop(raw, 0.4);
+  const wav = createWav(2, looped);
+  saveAudio('mid_rpm_acceleration.wav', wav);
+  saveAudio('engine_mid.wav', wav);
+  console.log('✓ mid_rpm_acceleration.wav & engine_mid.wav (Resonant Exhaust Growl)');
+}
+
+// 4. High-RPM Acceleration (5,600 - 8,200 RPM Screamer): Screaming racing harmonics, dog-box gear tooth whine
+{
+  const raw = synthesizeRealisticV8(5600, 1.0, 3.4, 8200);
+  const looped = makeSeamlessLoop(raw, 0.35);
+  const wav = createWav(2, looped);
+  saveAudio('high_rpm_acceleration.wav', wav);
   console.log('✓ high_rpm_acceleration.wav');
 }
 
-// 5. Full-Throttle Racing (Screaming 6,500 - 8,400 RPM Wide Open Throttle)
+// 5. High-RPM Sustained Loop (7,800 RPM Redline Howl)
 {
-  const raw = synthesizeV8Combustion(6500, 1.0, 4.0, 8400);
-  fs.writeFileSync(path.join(outDir, 'full_throttle_racing.wav'), createWav(2, raw));
-  console.log('✓ full_throttle_racing.wav');
+  const raw = synthesizeRealisticV8(7800, 1.0, 3.2);
+  const looped = makeSeamlessLoop(raw, 0.4);
+  const wav = createWav(2, looped);
+  saveAudio('high_rpm_loop.wav', wav);
+  saveAudio('engine_high.wav', wav);
+  console.log('✓ high_rpm_loop.wav & engine_high.wav (Screaming Top-End)');
 }
 
-// 6. High-RPM Sustained Loop (7,800 RPM Redline Scream)
+// 6. Deceleration / Engine Braking (Heavy reverse torque compression burble from 6,800 to 2,000 RPM)
 {
-  const raw = synthesizeV8Combustion(7800, 0.95, 3.0);
-  const looped = makeSeamlessLoop(raw, 0.3);
-  fs.writeFileSync(path.join(outDir, 'high_rpm_loop.wav'), createWav(2, looped));
-  console.log('✓ high_rpm_loop.wav');
-}
-
-// 7. Deceleration (Throttle-off overrun from 6,800 down to 2,200 RPM)
-{
-  const totalSamples = Math.floor(sampleRate * 3.5);
+  const totalSamples = Math.floor(sampleRate * 3.6);
   const left = new Float32Array(totalSamples);
   const right = new Float32Array(totalSamples);
-  let phase = 0;
+  let crankAngle = 0;
 
   for (let i = 0; i < totalSamples; i++) {
     const t = i / totalSamples;
-    const curRpm = 6800 - (6800 - 2200) * Math.pow(t, 0.7);
-    const firingFreq = (curRpm / 60) * 4;
-    phase += (firingFreq / sampleRate) * 2 * Math.PI;
+    const curRpm = 6800 - (6800 - 2000) * Math.pow(t, 0.65);
+    const revPerSec = curRpm / 60;
+    crankAngle += (revPerSec * 2 * Math.PI) / sampleRate;
 
-    // Hollow engine braking compression pulses
-    const p1 = Math.sin(phase);
-    const p2 = Math.sin(phase * 2) * 0.45;
-    const sub = Math.sin((curRpm / 60) * 2 * Math.PI * (i / sampleRate)) * 0.55;
+    // Heavy hollow compression pulses
+    const p1 = Math.sin(crankAngle * 2.0) * 0.55;
+    const p2 = Math.sin(crankAngle * 4.0) * 0.35;
+    const subThump = Math.sin(crankAngle) * 0.48; // Deep sub-bass compression drag
 
-    // Occasional subtle burbles in exhaust
-    const burble = (Math.random() < 0.003) ? (Math.random() - 0.5) * 0.8 : 0;
+    // Random explosive exhaust manifold burble on trailing throttle
+    let burble = 0;
+    if (Math.random() < 0.004) {
+      burble = (Math.random() - 0.5) * 1.2;
+    }
 
-    const s = (p1 + p2 + sub + burble) * (0.35 + (1 - t) * 0.3);
-    left[i] = s * 0.9;
-    right[i] = s * 0.9;
+    const s = saturateExhaust(p1 + p2 + subThump + burble, 1.3) * (0.38 + (1 - t) * 0.32);
+    left[i] = s * 0.92;
+    right[i] = s * 0.88;
   }
-  fs.writeFileSync(path.join(outDir, 'deceleration.wav'), createWav(2, [left, right]));
-  console.log('✓ deceleration.wav');
+  const looped = makeSeamlessLoop([left, right], 0.35);
+  const wav = createWav(2, looped);
+  saveAudio('deceleration.wav', wav);
+  saveAudio('engine_braking.wav', wav);
+  saveAudio('engine_off_throttle.wav', wav);
+  console.log('✓ deceleration.wav & engine_off_throttle.wav (Heavy Compression Burble)');
 }
 
-// 8. Engine Braking Loop (Hollow 4,500 RPM compression loop)
+// 7. Explosive Exhaust Overrun Crackles & Concussive Pops (Unburnt fuel detonation in hot side-pipes)
 {
-  const raw = synthesizeV8Combustion(4500, 0.02, 2.5);
-  const looped = makeSeamlessLoop(raw, 0.25);
-  fs.writeFileSync(path.join(outDir, 'engine_braking.wav'), createWav(2, looped));
-  console.log('✓ engine_braking.wav');
-}
-
-// 9. Exhaust Overrun Crackles & Pops (Unburnt fuel detonations)
-{
-  const dur = 2.2;
+  const dur = 2.4;
   const totalSamples = Math.floor(sampleRate * dur);
   const left = new Float32Array(totalSamples);
   const right = new Float32Array(totalSamples);
 
-  // Generate 8 discrete explosive backfire crackles
-  const popTimes = [0.08, 0.22, 0.41, 0.65, 0.88, 1.15, 1.45, 1.82];
+  // 10 discrete concussive pop transients with deep chest-thump bass and metallic whip crack
+  const popTimes = [0.06, 0.18, 0.34, 0.52, 0.76, 1.05, 1.35, 1.62, 1.95, 2.15];
   for (const pt of popTimes) {
     const center = Math.floor(pt * sampleRate);
-    const popDur = Math.floor(0.04 * sampleRate); // 40ms transient
-    const amp = 0.55 + Math.random() * 0.45;
-    const freq = 120 + Math.random() * 180;
+    const popDur = Math.floor(0.045 * sampleRate);
+    const amp = 0.75 + Math.random() * 0.45;
+    const subFreq = 55 + Math.random() * 45; // 55-100 Hz deep concussive punch
 
     for (let j = 0; j < popDur && center + j < totalSamples; j++) {
-      const decay = Math.exp(-j / (sampleRate * 0.008));
-      const val = (Math.random() * 2 - 1) * decay * amp + Math.sin(2 * Math.PI * freq * (j / sampleRate)) * decay * amp;
+      const decayFast = Math.exp(-j / (sampleRate * 0.005));
+      const decaySub = Math.exp(-j / (sampleRate * 0.025));
+      // Sharp metallic detonation + deep acoustic bass concussion
+      const metallicSnap = (Math.random() * 2 - 1) * decayFast * amp * 0.85;
+      const subThud = Math.sin(2 * Math.PI * subFreq * (j / sampleRate)) * decaySub * amp * 0.95;
+      const val = metallicSnap + subThud;
       left[center + j] += val;
       right[center + j] += val * (0.8 + Math.random() * 0.4);
     }
   }
 
-  fs.writeFileSync(path.join(outDir, 'exhaust_overrun.wav'), createWav(2, [left, right]));
-  console.log('✓ exhaust_overrun.wav');
+  const wav = createWav(2, [left, right]);
+  saveAudio('exhaust_overrun.wav', wav);
+  saveAudio('exhaust_pop.wav', wav);
+  console.log('✓ exhaust_overrun.wav & exhaust_pop.wav (Heavy Concussive Pops)');
 }
 
-// 10. Gear Up (Dog-box sequential ignition cut & engagement clunk, 0.4s)
+// 8. Dog-Box Sequential Gear Up Clunk & Ignition Cut
 {
-  const dur = 0.42;
+  const dur = 0.38;
   const totalSamples = Math.floor(sampleRate * dur);
   const left = new Float32Array(totalSamples);
   const right = new Float32Array(totalSamples);
 
   for (let i = 0; i < totalSamples; i++) {
     const t = i / sampleRate;
-    // 0 to 45ms: ignition cut silence/drop
     let s = 0;
-    if (t > 0.045 && t < 0.12) {
-      // Mechanical steel dog ring engagement clunk
-      const clunkT = (t - 0.045);
-      const clunkDecay = Math.exp(-clunkT * 95);
-      s = Math.sin(2 * Math.PI * 340 * clunkT) * clunkDecay * 0.8 + (Math.random() - 0.5) * clunkDecay * 0.6;
-    } else if (t >= 0.12) {
-      // Re-engagement exhaust pop & resume
-      const resumeT = (t - 0.12);
-      s = Math.sin(2 * Math.PI * 480 * resumeT) * Math.exp(-resumeT * 25) * 0.5;
+    if (t > 0.035 && t < 0.11) {
+      const clunkT = (t - 0.035);
+      const clunkDecay = Math.exp(-clunkT * 110);
+      // Heavy mechanical dog-ring engagement clunk (280Hz steel strike + sub-thud)
+      s = Math.sin(2 * Math.PI * 260 * clunkT) * clunkDecay * 0.9 + Math.sin(2 * Math.PI * 90 * clunkT) * clunkDecay * 0.7;
+    } else if (t >= 0.11) {
+      const resumeT = (t - 0.11);
+      s = Math.sin(2 * Math.PI * 440 * resumeT) * Math.exp(-resumeT * 30) * 0.45;
     }
     left[i] = s;
     right[i] = s;
   }
-  fs.writeFileSync(path.join(outDir, 'gear_up.wav'), createWav(2, [left, right]));
-  console.log('✓ gear_up.wav');
+  const wav = createWav(2, [left, right]);
+  saveAudio('gear_up.wav', wav);
+  saveAudio('gear_shift.wav', wav);
+  console.log('✓ gear_up.wav & gear_shift.wav (Mechanical Dog-Ring Shift)');
 }
 
-// 11. Gear Down (Heel-and-toe throttle blip + downshift clunk, 0.55s)
+// 9. Downshift Throttle Blip & Clunk
 {
-  const dur = 0.55;
+  const dur = 0.52;
   const totalSamples = Math.floor(sampleRate * dur);
   const left = new Float32Array(totalSamples);
   const right = new Float32Array(totalSamples);
 
   for (let i = 0; i < totalSamples; i++) {
     const t = i / sampleRate;
-    // Throttle blip barking +500 RPM for 180ms
-    const blipRpm = 4500 + Math.sin((t / 0.25) * Math.PI) * 1200;
+    const blipRpm = 4200 + Math.sin((t / 0.22) * Math.PI) * 1400;
     const firingFreq = (blipRpm / 60) * 4;
-    const blipEnv = t < 0.25 ? Math.sin((t / 0.25) * Math.PI) : 0;
-    const pulse = Math.sin(2 * Math.PI * firingFreq * t) * blipEnv * 0.7;
+    const blipEnv = t < 0.22 ? Math.sin((t / 0.22) * Math.PI) : 0;
+    const pulse = Math.sin(2 * Math.PI * firingFreq * t) * blipEnv * 0.85;
 
-    // Dog-ring mechanical engagement clunk at t = 0.22s
     let clunk = 0;
-    if (t >= 0.20 && t < 0.32) {
-      const ct = t - 0.20;
-      clunk = (Math.sin(2 * Math.PI * 290 * ct) + (Math.random() - 0.5)) * Math.exp(-ct * 80) * 0.75;
+    if (t >= 0.18 && t < 0.28) {
+      const ct = t - 0.18;
+      clunk = Math.sin(2 * Math.PI * 240 * ct) * Math.exp(-ct * 95) * 0.85;
     }
-
     const s = pulse + clunk;
     left[i] = s;
     right[i] = s;
   }
-  fs.writeFileSync(path.join(outDir, 'gear_down.wav'), createWav(2, [left, right]));
-  console.log('✓ gear_down.wav');
+  const wav = createWav(2, [left, right]);
+  saveAudio('gear_down.wav', wav);
+  saveAudio('gear_downshift.wav', wav);
+  console.log('✓ gear_down.wav & gear_downshift.wav');
 }
 
-// 12. Startup (Race starter motor cranking + V8 ignition flare, 2.8s)
+// 10. High-Torque Starter Motor & V8 Ignition Flare
 {
   const dur = 2.8;
   const totalSamples = Math.floor(sampleRate * dur);
@@ -318,127 +437,37 @@ console.log('Generating authentic BMW M3 GTR racing V8 audio library...');
   for (let i = 0; i < totalSamples; i++) {
     const t = i / sampleRate;
     let s = 0;
-    if (t < 0.85) {
-      // Starter motor high-pitched whine (1,200 Hz) + 3 heavy compression chugs (18 Hz)
-      const starterWhine = Math.sin(2 * Math.PI * 1150 * t) * 0.25;
-      const chug = Math.sin(2 * Math.PI * 18 * t) * 0.45;
-      s = starterWhine + chug;
-    } else if (t >= 0.85 && t < 1.6) {
-      // Violent explosive ignition flare up to 2,600 RPM
-      const ignT = t - 0.85;
-      const flareRpm = 2600 * Math.exp(-ignT * 1.8) + 850;
+    if (t < 0.8) {
+      const starterWhine = Math.sin(2 * Math.PI * 980 * t) * 0.22;
+      const compressionChug = Math.sin(2 * Math.PI * 16 * t) * 0.65;
+      s = starterWhine + compressionChug;
+    } else if (t >= 0.8 && t < 1.6) {
+      const ignT = t - 0.8;
+      const flareRpm = 2800 * Math.exp(-ignT * 1.6) + 850;
       const firingFreq = (flareRpm / 60) * 4;
-      s = Math.sin(2 * Math.PI * firingFreq * t) * (0.85 + Math.sin(t * 30) * 0.15) + (Math.random() - 0.5) * 0.2;
+      s = Math.sin(2 * Math.PI * firingFreq * t) * 0.95 + Math.sin(2 * Math.PI * (firingFreq * 0.5) * t) * 0.45;
     } else {
-      // Settles into steady 850 RPM idle
-      s = Math.sin(2 * Math.PI * 56.7 * t) * 0.5 + Math.sin(2 * Math.PI * 113.4 * t) * 0.25;
+      s = Math.sin(2 * Math.PI * 56.7 * t) * 0.55 + Math.sin(2 * Math.PI * 113.4 * t) * 0.35;
     }
-    left[i] = s * 0.85;
-    right[i] = s * 0.85;
+    left[i] = s * 0.9;
+    right[i] = s * 0.9;
   }
-  fs.writeFileSync(path.join(outDir, 'startup.wav'), createWav(2, [left, right]));
+  const wav = createWav(2, [left, right]);
+  saveAudio('startup.wav', wav);
   console.log('✓ startup.wav');
 }
 
-// 13. Asset Manifest
+// 11. Write Asset Manifest
 const manifest = {
   carId: 'bmw-m3-gtr',
   name: 'BMW M3 GTR E46 P60B40 Racing V8',
-  engineType: '4.0L 90° Naturally Aspirated Racing V8 (Flat-Plane / Cross-Plane High Revving)',
+  engineType: '4.0L 90° Naturally Aspirated Racing V8 (Cross-Plane High Revving with Tuned Side-Pipes)',
   transmission: 'Hewland 6-Speed Sequential Dog-Box with Straight-Cut Spur Gears',
-  redlineRpm: 8200,
+  redlineRpm: 8500,
   idleRpm: 850,
   audioFormat: 'PCM 16-bit 44.1kHz Stereo WAV',
   license: 'CC-BY-4.0 / Calm Roads Audio Project',
-  clips: {
-    idle_loop: {
-      file: 'idle_loop.wav',
-      purpose: 'Stationary idle combustion rumble (850 RPM)',
-      loop: true,
-      loopStartSec: 0.0,
-      loopEndSec: 2.9,
-      baseRpm: 850,
-      rpmRange: [750, 1200]
-    },
-    low_rpm_acceleration: {
-      file: 'low_rpm_acceleration.wav',
-      purpose: 'Low-speed throttle roll-on with intake suction and primary V8 heartbeat',
-      loop: false,
-      baseRpm: 2200,
-      rpmRange: [1200, 3500]
-    },
-    mid_rpm_acceleration: {
-      file: 'mid_rpm_acceleration.wav',
-      purpose: 'Midrange throttle ramp with tuned header pipe resonance',
-      loop: false,
-      baseRpm: 4500,
-      rpmRange: [3400, 5800]
-    },
-    high_rpm_acceleration: {
-      file: 'high_rpm_acceleration.wav',
-      purpose: 'High-RPM screaming race-V8 harmonics with straight-cut dog-box whine',
-      loop: false,
-      baseRpm: 7000,
-      rpmRange: [5600, 8200]
-    },
-    full_throttle_racing: {
-      file: 'full_throttle_racing.wav',
-      purpose: 'Aggressive wide-open throttle racing run with peak manifold saturation',
-      loop: false,
-      baseRpm: 7500,
-      rpmRange: [6000, 8400]
-    },
-    high_rpm_loop: {
-      file: 'high_rpm_loop.wav',
-      purpose: 'Sustained top-speed redline howl (7,800 - 8,200 RPM)',
-      loop: true,
-      loopStartSec: 0.0,
-      loopEndSec: 2.7,
-      baseRpm: 7800,
-      rpmRange: [7200, 8400]
-    },
-    deceleration: {
-      file: 'deceleration.wav',
-      purpose: 'Throttle lift-off compression braking and exhaust burble',
-      loop: false,
-      baseRpm: 4500,
-      rpmRange: [2200, 6800]
-    },
-    engine_braking: {
-      file: 'engine_braking.wav',
-      purpose: 'Sustained reverse torque engine braking',
-      loop: true,
-      loopStartSec: 0.0,
-      loopEndSec: 2.25,
-      baseRpm: 4500,
-      rpmRange: [2500, 6000]
-    },
-    exhaust_overrun: {
-      file: 'exhaust_overrun.wav',
-      purpose: 'Unburnt fuel popping and crackling on rapid throttle lift',
-      loop: false,
-      trigger: 'throttle_release_fast'
-    },
-    gear_up: {
-      file: 'gear_up.wav',
-      purpose: 'Sequential dog-box ignition cut & engagement clunk',
-      loop: false,
-      trigger: 'upshift'
-    },
-    gear_down: {
-      file: 'gear_down.wav',
-      purpose: 'Heel-and-toe rev-matched throttle blip & downshift clunk',
-      loop: false,
-      trigger: 'downshift'
-    },
-    startup: {
-      file: 'startup.wav',
-      purpose: 'High-torque starter motor crank and V8 ignition flare',
-      loop: false,
-      trigger: 'engine_start'
-    }
-  }
 };
 
-fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-console.log('✓ manifest.json written successfully');
+fs.writeFileSync(path.join('public/audio/cars/bmw-m3-gtr', 'manifest.json'), JSON.stringify(manifest, null, 2));
+console.log('✓ manifest.json written successfully. All audio assets updated!');
