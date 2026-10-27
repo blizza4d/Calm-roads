@@ -93,28 +93,45 @@ self.onmessage = (e: MessageEvent<TerrainWorkerRequest>) => {
       uvs[idx * 2] = baseU + uSlope
       uvs[idx * 2 + 1] = baseV + vSlope
 
-      // Vertex color blending
-      const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28))
+      // Smooth slope blending (smoothstep Hermite transition between grass and rock)
+      const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
+      const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
       const roadCx = getRoadCenter(worldZ)
-      const strataNoise = Math.sin(py * 0.35 + localX * 0.02) * 0.05
-      const spatialVar = Math.sin(localX * 0.04 + localZ * 0.04) * 0.03
+      // Continuous world-coordinate variation across chunks (zero chunk boundary seams, zero horizontal stripes)
+      const organicVar = (Math.sin(localX * 0.018 + worldZ * 0.018) + Math.cos(localX * 0.035 - worldZ * 0.028)) * 0.022
 
-      // Parse colors
-      let cr = 0.35 * (1 - slope) + 0.18 * slope
-      let cg = 0.38 * (1 - slope) + 0.32 * slope
-      let cb = 0.42 * (1 - slope) + 0.18 * slope
+      // Continuous worldZ biome color sampling
+      const vertexBiome = getActiveBiomeAt(worldZ, biomeId)
+      const isDesert = vertexBiome.id === 'desert'
+      const isTundra = vertexBiome.id === 'tundra'
+      const isAutumn = vertexBiome.id === 'autumn'
 
-      if (biomeConfig.id === 'desert') {
-        cr = 0.72 * (1 - slope) + 0.65 * slope
-        cg = 0.52 * (1 - slope) + 0.46 * slope
-        cb = 0.32 * (1 - slope) + 0.26 * slope
-      } else if (biomeConfig.id === 'tundra' && py > 24) {
-        const snowT = Math.min(1.0, (py - 24) / 18.0)
-        cr = cr * (1 - snowT) + 0.96 * snowT
-        cg = cg * (1 - snowT) + 0.98 * snowT
-        cb = cb * (1 - snowT) + 1.0 * snowT
-      } else if (py > 65) {
-        const snowT = Math.min(1.0, (py - 65) / 35.0)
+      let cr = 0.18 * slope + 0.17 * (1 - slope)
+      let cg = 0.24 * slope + 0.32 * (1 - slope)
+      let cb = 0.28 * slope + 0.18 * (1 - slope)
+
+      if (isDesert) {
+        cr = 0.62 * slope + 0.74 * (1 - slope)
+        cg = 0.44 * slope + 0.52 * (1 - slope)
+        cb = 0.25 * slope + 0.30 * (1 - slope)
+      } else if (isAutumn) {
+        cr = 0.42 * slope + 0.48 * (1 - slope)
+        cg = 0.26 * slope + 0.32 * (1 - slope)
+        cb = 0.18 * slope + 0.14 * (1 - slope)
+      } else if (isTundra) {
+        cr = 0.40 * slope + 0.68 * (1 - slope)
+        cg = 0.44 * slope + 0.72 * (1 - slope)
+        cb = 0.50 * slope + 0.76 * (1 - slope)
+      }
+
+      // Smooth alpine summit snow transition
+      if (isTundra && py > 22) {
+        const snowT = Math.min(1.0, (py - 22) / 20.0)
+        cr = cr * (1 - snowT) + 0.94 * snowT
+        cg = cg * (1 - snowT) + 0.96 * snowT
+        cb = cb * (1 - snowT) + 0.98 * snowT
+      } else if (py > 62) {
+        const snowT = Math.min(1.0, (py - 62) / 36.0)
         cr = cr * (1 - snowT) + 0.94 * snowT
         cg = cg * (1 - snowT) + 0.96 * snowT
         cb = cb * (1 - snowT) + 0.98 * snowT
@@ -128,9 +145,9 @@ self.onmessage = (e: MessageEvent<TerrainWorkerRequest>) => {
         cb = cb * (1 - blendToSoil * 0.45) + 0.28 * (blendToSoil * 0.45)
       }
 
-      colors[idx * 3] = Math.max(0, Math.min(1, cr + strataNoise + spatialVar))
-      colors[idx * 3 + 1] = Math.max(0, Math.min(1, cg + strataNoise + spatialVar))
-      colors[idx * 3 + 2] = Math.max(0, Math.min(1, cb + strataNoise + spatialVar))
+      colors[idx * 3] = Math.max(0, Math.min(1, cr + organicVar))
+      colors[idx * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
+      colors[idx * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
     }
   }
 

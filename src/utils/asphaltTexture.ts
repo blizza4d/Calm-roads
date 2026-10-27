@@ -95,7 +95,7 @@ export function getAsphaltTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas)
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(1, 16)
+  texture.repeat.set(1, 1)
   texture.anisotropy = 16
   texture.generateMipmaps = true
   texture.minFilter = THREE.LinearMipmapLinearFilter
@@ -142,7 +142,7 @@ export function getAsphaltBumpTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas)
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(1, 16)
+  texture.repeat.set(1, 1)
   texture.anisotropy = 16
   texture.generateMipmaps = true
   texture.minFilter = THREE.LinearMipmapLinearFilter

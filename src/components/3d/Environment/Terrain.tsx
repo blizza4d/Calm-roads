@@ -59,17 +59,16 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
 // ------------------------------------------------------------------------
 // Realistic Procedural Vegetation & Geological Geometries
 // ------------------------------------------------------------------------
-// Realistic Procedural Vegetation & Geological Geometries
-// ------------------------------------------------------------------------
-// 1. Alpine / Mountain Conifer: 4-tiered organic conical skirt canopy with flaring branches
+// 1. Alpine / Mountain Conifer: 5-tiered organic asymmetrical conical skirt canopy
 const pineCanopyGeo = (() => {
-  const t1 = new THREE.ConeGeometry(2.4, 2.0, 10).translate(0, 2.2, 0)
-  const t2 = new THREE.ConeGeometry(1.9, 1.8, 10).translate(0, 3.4, 0)
-  const t3 = new THREE.ConeGeometry(1.4, 1.6, 10).translate(0, 4.6, 0)
-  const t4 = new THREE.ConeGeometry(0.85, 1.5, 10).translate(0, 5.6, 0)
-  return mergeBufferGeometries([t1, t2, t3, t4])
+  const t1 = new THREE.ConeGeometry(2.5, 2.1, 10).translate(0, 2.0, 0)
+  const t2 = new THREE.ConeGeometry(2.05, 1.9, 10).rotateY(0.4).translate(0, 3.2, 0)
+  const t3 = new THREE.ConeGeometry(1.55, 1.7, 10).rotateY(-0.3).translate(0, 4.4, 0)
+  const t4 = new THREE.ConeGeometry(1.05, 1.5, 9).rotateY(0.6).translate(0, 5.5, 0)
+  const t5 = new THREE.ConeGeometry(0.55, 1.2, 8).rotateY(-0.5).translate(0, 6.4, 0)
+  return mergeBufferGeometries([t1, t2, t3, t4, t5])
 })()
-const pineTrunkGeo = new THREE.CylinderGeometry(0.16, 0.45, 4.8, 8).translate(0, 2.4, 0)
+const pineTrunkGeo = new THREE.CylinderGeometry(0.16, 0.45, 5.2, 8).translate(0, 2.6, 0)
 
 // 2. Deciduous Broadleaf / Mountain Maple: Organic 5-cluster asymmetrical canopy
 const broadleafCanopyGeo = (() => {
@@ -142,11 +141,13 @@ const rockGeo = (() => {
     const x = pos.getX(i)
     const y = pos.getY(i)
     const z = pos.getZ(i)
-    // Irregular geological strata cleavage planes and chisel facets
-    const strata = Math.sin(y * 3.2) * 0.14
-    const cleavage = Math.sin(x * 2.2 + z * 1.8) * 0.18
-    const facet = Math.sin(x * 4.5 + y * 2.1) * 0.08
-    pos.setXYZ(i, x * (1.18 + strata) + cleavage * 0.2, y * 0.72 + strata * 0.4, z * (0.94 - strata) + facet * 0.15)
+    // Geological strata cleavage planes and natural chisel facets
+    const strata = Math.sin(y * 2.8) * 0.12
+    const cleavage = Math.sin(x * 1.9 + z * 1.6) * 0.15
+    const facet = Math.sin(x * 3.8 + y * 1.8) * 0.07
+    // Ground embedding: flatten base slightly
+    const yFlatten = y < -0.4 ? y * 0.5 - 0.2 : y * 0.75
+    pos.setXYZ(i, x * (1.15 + strata) + cleavage * 0.18, yFlatten + strata * 0.35, z * (0.95 - strata) + facet * 0.12)
   }
   geo.computeVertexNormals()
   return geo
@@ -220,7 +221,7 @@ const sharedGuardrailMat = new THREE.MeshStandardMaterial({
 
 const sharedMarkingsMat = new THREE.MeshStandardMaterial({
   vertexColors: true,
-  roughness: 0.3,
+  roughness: 0.65,
   polygonOffset: true,
   polygonOffsetFactor: -4,
   polygonOffsetUnits: -4,
@@ -305,14 +306,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
          float bSum = triWeight.x + triWeight.y + triWeight.z;
          triWeight /= bSum;
 
-         // Triplanar procedural strata & micro-rock grain
-         float cliffStrata = sin(vCustomWorldPos.y * 0.95) * 0.08 * (triWeight.x + triWeight.z);
-         float soilGrain = sin(vCustomWorldPos.x * 0.35 + vCustomWorldPos.z * 0.35) * 0.04 * triWeight.y;
-         float triDetail = cliffStrata + soilGrain;
-
-         diffuseColor.rgb = clamp(diffuseColor.rgb * (1.0 + triDetail), 0.0, 1.0);
-         roughnessFactor = clamp(roughnessFactor + triDetail * 0.4, 0.2, 0.98);
-
          // Continuous per-pixel altitude-based alpine snow blending on mountain peaks
          float snowLine = 48.0;
          float snowCeiling = 82.0;
@@ -357,14 +350,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const uvs = geo.attributes.uv.array as Float32Array
     const colArray = colors
 
-    const grassColor = new THREE.Color(biomeConfig.grassColor)
-    const rockColor = new THREE.Color(biomeConfig.rockColor)
-    const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
-    const tempColor = new THREE.Color()
-
     for (let i = 0; i < count; i++) {
       const ny = normals.getY(i)
-      const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28))
       const px = pos.getX(i)
       const py = pos.getY(i)
       const pz = pos.getZ(i)
@@ -379,27 +366,61 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       uvs[i * 2] = baseU + uSlope
       uvs[i * 2 + 1] = baseV + vSlope
 
-      const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
-      const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
-      tempColor.copy(rockColor).lerp(grassColor, slope)
+      // Smooth slope blending (smoothstep Hermite transition between grass and rock)
+      const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
+      const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
 
-      if (biomeConfig.id === 'tundra' && py > 24) {
-        const snowT = Math.min(1.0, (py - 24) / 18.0)
-        tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.75)
-      } else if (py > 65) {
-        const snowT = Math.min(1.0, (py - 65) / 35.0)
-        tempColor.lerp(new THREE.Color('#f1f5f9'), snowT * 0.6)
+      // Continuous world-coordinate variation across chunks (zero chunk boundary seams, zero horizontal stripes)
+      const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.022
+
+      // Continuous worldZ biome color sampling
+      const vertexBiome = getActiveBiomeAt(worldZ, biomeConfig.id)
+      const isDesert = vertexBiome.id === 'desert'
+      const isTundra = vertexBiome.id === 'tundra'
+      const isAutumn = vertexBiome.id === 'autumn'
+
+      let cr = 0.18 * slope + 0.17 * (1 - slope)
+      let cg = 0.24 * slope + 0.32 * (1 - slope)
+      let cb = 0.28 * slope + 0.18 * (1 - slope)
+
+      if (isDesert) {
+        cr = 0.62 * slope + 0.74 * (1 - slope)
+        cg = 0.44 * slope + 0.52 * (1 - slope)
+        cb = 0.25 * slope + 0.30 * (1 - slope)
+      } else if (isAutumn) {
+        cr = 0.42 * slope + 0.48 * (1 - slope)
+        cg = 0.26 * slope + 0.32 * (1 - slope)
+        cb = 0.18 * slope + 0.14 * (1 - slope)
+      } else if (isTundra) {
+        cr = 0.40 * slope + 0.68 * (1 - slope)
+        cg = 0.44 * slope + 0.72 * (1 - slope)
+        cb = 0.50 * slope + 0.76 * (1 - slope)
+      }
+
+      // Smooth alpine summit snow transition
+      if (isTundra && py > 22) {
+        const snowT = Math.min(1.0, (py - 22) / 20.0)
+        cr = cr * (1 - snowT) + 0.94 * snowT
+        cg = cg * (1 - snowT) + 0.96 * snowT
+        cb = cb * (1 - snowT) + 0.98 * snowT
+      } else if (py > 62) {
+        const snowT = Math.min(1.0, (py - 62) / 36.0)
+        cr = cr * (1 - snowT) + 0.94 * snowT
+        cg = cg * (1 - snowT) + 0.96 * snowT
+        cb = cb * (1 - snowT) + 0.98 * snowT
       }
 
       const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
-        tempColor.lerp(shoulderColor, blendToSoil * 0.45)
+        cr = cr * (1 - blendToSoil * 0.45) + 0.36 * (blendToSoil * 0.45)
+        cg = cg * (1 - blendToSoil * 0.45) + 0.32 * (blendToSoil * 0.45)
+        cb = cb * (1 - blendToSoil * 0.45) + 0.28 * (blendToSoil * 0.45)
       }
 
-      colArray[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
-      colArray[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
-      colArray[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
+      colArray[i * 3] = Math.max(0, Math.min(1, cr + organicVar))
+      colArray[i * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
+      colArray[i * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
     }
     geo.computeBoundingSphere()
 
@@ -466,14 +487,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
       const colors = colorAttr.array as Float32Array
 
-      const grassColor = new THREE.Color(biomeConfig.grassColor)
-      const rockColor = new THREE.Color(biomeConfig.rockColor)
-      const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
-      const tempColor = new THREE.Color()
-
       for (let i = 0; i < count; i++) {
         const ny = normals.getY(i)
-        const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28))
         const px = pos.getX(i)
         const py = pos.getY(i)
         const pz = pos.getZ(i)
@@ -488,27 +503,61 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         uvs[i * 2] = baseU + uSlope
         uvs[i * 2 + 1] = baseV + vSlope
 
-        const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
-        const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
-        tempColor.copy(rockColor).lerp(grassColor, slope)
+        // Smooth slope blending (smoothstep Hermite transition between grass and rock)
+        const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
+        const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
 
-        if (biomeConfig.id === 'tundra' && py > 24) {
-          const snowT = Math.min(1.0, (py - 24) / 18.0)
-          tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.75)
-        } else if (py > 65) {
-          const snowT = Math.min(1.0, (py - 65) / 35.0)
-          tempColor.lerp(new THREE.Color('#f1f5f9'), snowT * 0.6)
+        // Continuous world-coordinate variation across chunks (zero chunk boundary seams, zero horizontal stripes)
+        const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.022
+
+        // Continuous worldZ biome color sampling
+        const vertexBiome = getActiveBiomeAt(worldZ, biomeConfig.id)
+        const isDesert = vertexBiome.id === 'desert'
+        const isTundra = vertexBiome.id === 'tundra'
+        const isAutumn = vertexBiome.id === 'autumn'
+
+        let cr = 0.18 * slope + 0.17 * (1 - slope)
+        let cg = 0.24 * slope + 0.32 * (1 - slope)
+        let cb = 0.28 * slope + 0.18 * (1 - slope)
+
+        if (isDesert) {
+          cr = 0.62 * slope + 0.74 * (1 - slope)
+          cg = 0.44 * slope + 0.52 * (1 - slope)
+          cb = 0.25 * slope + 0.30 * (1 - slope)
+        } else if (isAutumn) {
+          cr = 0.42 * slope + 0.48 * (1 - slope)
+          cg = 0.26 * slope + 0.32 * (1 - slope)
+          cb = 0.18 * slope + 0.14 * (1 - slope)
+        } else if (isTundra) {
+          cr = 0.40 * slope + 0.68 * (1 - slope)
+          cg = 0.44 * slope + 0.72 * (1 - slope)
+          cb = 0.50 * slope + 0.76 * (1 - slope)
+        }
+
+        // Smooth alpine summit snow transition
+        if (isTundra && py > 22) {
+          const snowT = Math.min(1.0, (py - 22) / 20.0)
+          cr = cr * (1 - snowT) + 0.94 * snowT
+          cg = cg * (1 - snowT) + 0.96 * snowT
+          cb = cb * (1 - snowT) + 0.98 * snowT
+        } else if (py > 62) {
+          const snowT = Math.min(1.0, (py - 62) / 36.0)
+          cr = cr * (1 - snowT) + 0.94 * snowT
+          cg = cg * (1 - snowT) + 0.96 * snowT
+          cb = cb * (1 - snowT) + 0.98 * snowT
         }
 
         const distFromCenter = Math.abs(px - roadCx)
         if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
           const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
-          tempColor.lerp(shoulderColor, blendToSoil * 0.45)
+          cr = cr * (1 - blendToSoil * 0.45) + 0.36 * (blendToSoil * 0.45)
+          cg = cg * (1 - blendToSoil * 0.45) + 0.32 * (blendToSoil * 0.45)
+          cb = cb * (1 - blendToSoil * 0.45) + 0.28 * (blendToSoil * 0.45)
         }
 
-        colors[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
-        colors[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
-        colors[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
+        colors[i * 3] = Math.max(0, Math.min(1, cr + organicVar))
+        colors[i * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
+        colors[i * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
       }
       terrainGeo.attributes.uv.needsUpdate = true
       colorAttr.needsUpdate = true
@@ -559,6 +608,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const segments = 50
     const pos = roadGeo.attributes.position.array as Float32Array
     const norm = roadGeo.attributes.normal.array as Float32Array
+    const uv = roadGeo.attributes.uv.array as Float32Array
     const halfW = ROAD_WIDTH / 2
 
     for (let i = 0; i <= segments; i++) {
@@ -567,6 +617,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cx = getRoadCenter(worldZ)
       const cy = getRoadElevation(worldZ) + 0.085
       const { nx, nz } = getRoadTangent(worldZ)
+      const v = worldZ / 24.0
 
       const baseIdx = i * 9
       // Left edge
@@ -592,9 +643,18 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       norm[baseIdx + 6] = nx * 0.1
       norm[baseIdx + 7] = 0.98
       norm[baseIdx + 8] = nz * 0.1
+
+      const uvIdx = i * 6
+      uv[uvIdx] = 0
+      uv[uvIdx + 1] = v
+      uv[uvIdx + 2] = 0.5
+      uv[uvIdx + 3] = v
+      uv[uvIdx + 4] = 1.0
+      uv[uvIdx + 5] = v
     }
     roadGeo.attributes.position.needsUpdate = true
     roadGeo.attributes.normal.needsUpdate = true
+    roadGeo.attributes.uv.needsUpdate = true
     roadGeo.computeBoundingSphere()
     roadGeo.computeBoundingBox()
   }, [chunkZ, roadGeo])
@@ -678,27 +738,27 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const indices: number[] = []
 
     let vIdx = 0
-    // Centerline indices & colors (amber-yellow)
+    // Centerline indices & colors (traffic amber)
     for (let i = 0; i < numDashes; i++) {
       for (let j = 0; j < 4; j++) {
         normArr[(vIdx + j) * 3 + 1] = 1.0
-        colArr[(vIdx + j) * 3] = 0.98
-        colArr[(vIdx + j) * 3 + 1] = 0.78
-        colArr[(vIdx + j) * 3 + 2] = 0.12
+        colArr[(vIdx + j) * 3] = 0.92
+        colArr[(vIdx + j) * 3 + 1] = 0.64
+        colArr[(vIdx + j) * 3 + 2] = 0.08
       }
       indices.push(vIdx, vIdx + 1, vIdx + 2)
       indices.push(vIdx + 1, vIdx + 3, vIdx + 2)
       vIdx += 4
     }
 
-    // Outer edge boundary lines indices & colors (crisp white)
+    // Outer edge boundary lines indices & colors (weathered highway white)
     const edgeBaseVert = vIdx
     for (let i = 0; i <= edgeSegments; i++) {
       for (let j = 0; j < 4; j++) {
         normArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 1.0
-        colArr[(edgeBaseVert + i * 4 + j) * 3] = 0.96
-        colArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 0.97
-        colArr[(edgeBaseVert + i * 4 + j) * 3 + 2] = 0.98
+        colArr[(edgeBaseVert + i * 4 + j) * 3] = 0.82
+        colArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 0.84
+        colArr[(edgeBaseVert + i * 4 + j) * 3 + 2] = 0.86
       }
       if (i < edgeSegments) {
         const base = edgeBaseVert + i * 4
@@ -720,7 +780,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const pos = markingsGeo.attributes.position.array as Float32Array
     const dashSpacing = 14
     const dashLen = 7.0
-    const halfLineW = 0.14
+    const halfLineW = 0.075
     const numDashes = Math.floor(CHUNK_LEN / dashSpacing)
 
     let vOffset = 0
@@ -763,7 +823,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
     // B. Solid White Outer Edge Boundary positions
     const edgeOffset = ROAD_WIDTH / 2 - 0.45
-    const edgeHalfW = 0.1
+    const edgeHalfW = 0.06
     const edgeSegments = 36
 
     for (let i = 0; i <= edgeSegments; i++) {
@@ -1256,9 +1316,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           bumpMap={asphaltBumpTex}
           bumpScale={0.018}
           color="#ffffff"
-          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.55 : 0.65}
-          metalness={isRaining ? 0.45 : 0.08}
-          envMapIntensity={isRaining ? 1.6 : 0.8}
+          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.78 : 0.82}
+          metalness={isRaining ? 0.45 : 0.04}
+          envMapIntensity={isRaining ? 1.6 : 0.4}
           polygonOffset
           polygonOffsetFactor={-2}
           polygonOffsetUnits={-2}

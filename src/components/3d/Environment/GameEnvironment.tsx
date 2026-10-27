@@ -296,7 +296,7 @@ function CosmicCelestialSky({
 
 // ------------------------------------------------------------------------
 // Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt
-// 1. DistantMountainHorizon: 360-degree panoramic alpine mountain silhouette ring
+// 1. DistantMountainHorizon: 360-degree panoramic alpine mountain silhouette ring with smooth aerial perspective
 // 2. AtmosphericHorizonGround: Soft atmospheric ground skirt preventing Drei Sky black void
 // ------------------------------------------------------------------------
 function PanoramicMountainHorizon({
@@ -312,22 +312,22 @@ function PanoramicMountainHorizon({
   const ringGroupRef = useRef<THREE.Group>(null)
 
   const mountainGeo = useMemo(() => {
-    const segments = 128
-    const radius = 3000
+    const segments = 256
+    const radius = 3850 // Positioned at far horizon perimeter, safely beyond active 4.8km terrain buffer
     const positions: number[] = []
     const colors: number[] = []
     const indices: number[] = []
 
     const fogCol = new THREE.Color(fogColor)
     const baseRock = new THREE.Color(rockColor)
-    // Mountain summit color: natural rock tinted with atmospheric fog
+    // Mountain summit color: natural rock gently tinted with atmospheric aerial haze
     const summitCol = isNight
-      ? new THREE.Color('#0f172a').lerp(fogCol, 0.4)
-      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.45)
-    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.35)
+      ? new THREE.Color('#0f172a').lerp(fogCol, 0.65)
+      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.68)
+    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.55)
 
-    // Deep anchor base (y = -500m) to completely eliminate floating gaps
-    const baseY = -500
+    // Deep anchor base (y = -800m) to completely eliminate floating gaps
+    const baseY = -800
 
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2
@@ -337,13 +337,13 @@ function PanoramicMountainHorizon({
       const x = radius * sinT
       const z = radius * cosT
 
-      // Multi-octave natural mountain peak silhouettes with variable heights
+      // Multi-octave natural mountain peak silhouettes with smooth harmonious ridges
       const peakH =
-        220 +
-        Math.sin(theta * 3.0) * 85 +
-        Math.cos(theta * 7.0 + 1.2) * 55 +
-        Math.sin(theta * 13.0) * 32 +
-        Math.cos(theta * 23.0) * 18
+        160 +
+        Math.sin(theta * 3.0) * 65 +
+        Math.cos(theta * 7.0 + 0.8) * 40 +
+        Math.sin(theta * 13.0) * 22 +
+        Math.cos(theta * 27.0) * 12
 
       // Bottom vertex (deep horizon base)
       positions.push(x, baseY, z)
@@ -351,7 +351,7 @@ function PanoramicMountainHorizon({
 
       // Top vertex (mountain summit)
       positions.push(x, peakH, z)
-      const col = peakH > 290 ? snowCol : summitCol
+      const col = peakH > 220 ? snowCol : summitCol
       colors.push(col.r, col.g, col.b)
     }
 
@@ -378,7 +378,7 @@ function PanoramicMountainHorizon({
   // Track camera in X, Z and damped Y so mountains stay anchored to visual horizon
   useFrame(() => {
     if (ringGroupRef.current) {
-      ringGroupRef.current.position.set(camera.position.x, camera.position.y * 0.35, camera.position.z)
+      ringGroupRef.current.position.set(camera.position.x, camera.position.y * 0.85, camera.position.z)
     }
   })
 
@@ -391,8 +391,8 @@ function PanoramicMountainHorizon({
   return (
     <group ref={ringGroupRef}>
       {/* 360-Degree Panoramic Mountain Horizon Silhouettes */}
-      <mesh geometry={mountainGeo}>
-        <meshBasicMaterial vertexColors side={THREE.FrontSide} depthWrite={true} />
+      <mesh geometry={mountainGeo} renderOrder={-1}>
+        <meshBasicMaterial vertexColors side={THREE.FrontSide} depthWrite={false} />
       </mesh>
     </group>
   )
@@ -502,8 +502,14 @@ export default function GameEnvironment() {
     if (weather === 'rain') return '#1e293b'
     if (weather === 'mist') return '#64748b'
     if (celestialData.isNight) return '#030712'
-    if (timeOfDay >= 17 && timeOfDay <= 19.5) return '#c2410c' // Sunset amber
-    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) return '#e11d48' // Sunrise crimson
+    if (timeOfDay >= 16.5 && timeOfDay <= 19.5) {
+      // Warm golden sunset with atmospheric peach haze instead of harsh flat orange
+      return '#e0833a'
+    }
+    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) {
+      // Gentle dawn rose-gold
+      return '#e87958'
+    }
     return '#38bdf8' // Crisp daylight cyan-blue
   }, [weather, celestialData.isNight, timeOfDay])
 
@@ -599,8 +605,8 @@ export default function GameEnvironment() {
       {/* Dynamic Background Atmosphere Color (Restores Sky from Black Void) */}
       <color attach="background" args={[skyColor]} />
 
-      {/* Atmospheric Fog strictly calibrated to skyColor to seamlessly blend horizon without clipping void */}
-      <fogExp2 attach="fog" args={[skyColor, 0.0019]} />
+      {/* Calibrated atmospheric aerial perspective fog: preserves rich horizon depth up to 4km without flat walls */}
+      <fogExp2 attach="fog" args={[skyColor, 0.00042]} />
 
       {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
       <group ref={skyFollowRef}>

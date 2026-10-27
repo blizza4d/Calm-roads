@@ -1,9 +1,19 @@
 import { createNoise2D } from 'simplex-noise'
 
+// Deterministic Mulberry32 PRNG to ensure 100% synchronized elevation across Main Thread & Web Worker
+function mulberry32(a: number) {
+  return function () {
+    let t = (a += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 // High-precision Simplex Noise generators for realistic multi-octave geological terrain
-const terrainNoise = createNoise2D()
-const detailNoise = createNoise2D()
-const microNoise = createNoise2D()
+const terrainNoise = createNoise2D(mulberry32(1337))
+const detailNoise = createNoise2D(mulberry32(4242))
+const microNoise = createNoise2D(mulberry32(9999))
 
 export const ROAD_WIDTH = 11.5
 
@@ -165,24 +175,25 @@ function smoothRidge(n: number): number {
 
 function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
   if (bId === 'desert') {
-    const mesaShape = Math.tanh(terrainNoise(x * 0.0032, z * 0.0032) * 2.4) * 32.0
-    const duneWave = (Math.sin(x * 0.012 + z * 0.006) * 0.65 + detailNoise(x * 0.014, z * 0.014) * 0.35) * 14.0
-    const duneRipple = microNoise(x * 0.028, z * 0.028) * 2.2
-    return mesaShape + duneWave + duneRipple
+    const mesaShape = Math.max(0, Math.tanh(terrainNoise(x * 0.0025, z * 0.0025) * 2.2)) * 36.0
+    const duneWave = (Math.sin(x * 0.008 + z * 0.005) * 0.5 + 0.5) * 16.0
+    const duneDetail = (detailNoise(x * 0.012, z * 0.012) * 0.5 + 0.5) * 6.0
+    return mesaShape + duneWave + duneDetail
   } else if (bId === 'tundra') {
-    const primaryMassif = (smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 0.72 + terrainNoise(x * 0.0032, z * 0.0032) * 0.28) * 52.0
-    const secondaryRidge = smoothRidge(detailNoise(x * 0.0075, z * 0.0075)) * 16.0
-    const glacialValley = microNoise(x * 0.018, z * 0.018) * 3.8 - 12.0
-    return primaryMassif + secondaryRidge + glacialValley
+    const primaryMassif = smoothRidge(terrainNoise(x * 0.0024, z * 0.0024)) * 56.0
+    const secondaryRidge = smoothRidge(detailNoise(x * 0.0065, z * 0.0065)) * 18.0
+    const alpineDetail = (microNoise(x * 0.015, z * 0.015) * 0.5 + 0.5) * 5.0
+    return primaryMassif + secondaryRidge + alpineDetail
   } else if (bId === 'autumn') {
-    const alpineMassif = (smoothRidge(terrainNoise(x * 0.0034, z * 0.0034)) * 0.65 + terrainNoise(x * 0.0038, z * 0.0038) * 0.35) * 44.0
-    const ridgePasses = smoothRidge(detailNoise(x * 0.0085, z * 0.0085)) * 14.0
-    const valleyFoothills = microNoise(x * 0.022, z * 0.022) * 3.4
-    return alpineMassif + ridgePasses + valleyFoothills - 6.0
+    const alpineMassif = smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 48.0
+    const ridgePasses = smoothRidge(detailNoise(x * 0.0072, z * 0.0072)) * 16.0
+    const foothillDetail = (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5) * 4.5
+    return alpineMassif + ridgePasses + foothillDetail
   } else {
-    const rollingCountryside = terrainNoise(x * 0.0038, z * 0.0038) * 28.0
-    const forestKnolls = detailNoise(x * 0.0095, z * 0.0095) * 9.5
-    const gentleHills = microNoise(x * 0.025, z * 0.025) * 2.8
+    // Forest: Lush rolling mountain flanks and forested peaks
+    const rollingCountryside = (terrainNoise(x * 0.0032, z * 0.0032) * 0.5 + 0.5) * 36.0
+    const forestKnolls = smoothRidge(detailNoise(x * 0.008, z * 0.008)) * 14.0
+    const gentleHills = (microNoise(x * 0.02, z * 0.02) * 0.5 + 0.5) * 4.0
     return rollingCountryside + forestKnolls + gentleHills
   }
 }
@@ -248,8 +259,8 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   }
 
   // Distance scaling: Gradual elevation gain into distant mountain horizons
-  const mountainRamp = Math.min(2.5, 0.15 + Math.pow(distPastCorridor / 95.0, 1.35) * 1.8)
-  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 520.0), 1.6) * 55.0
+  const mountainRamp = Math.min(2.2, 0.12 + Math.pow(distPastCorridor / 95.0, 1.25) * 1.6)
+  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 520.0), 1.5) * 52.0
 
   return (roadY - 0.05) + (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult
 }

@@ -79,9 +79,9 @@ function HeadlightBeams({
 
 // Shared wheel materials to avoid redundant allocations across 4 wheels
 const sharedTireMat = new THREE.MeshStandardMaterial({
-  color: new THREE.Color('#222224'),
-  roughness: 0.90,
-  metalness: 0.05,
+  color: new THREE.Color('#1c1d20'),
+  roughness: 0.88,
+  metalness: 0.04,
 })
 
 const sharedCaliperMat = new THREE.MeshStandardMaterial({
@@ -115,24 +115,31 @@ function BmwGtrWheel({
 }) {
   const cloned = useMemo(() => {
     const root = wheelScene.clone(true)
-    root.position.set(-0.86, -8.76, 0)
+    // The actual wheel in tuner_wheel.glb is centered at Y=2.505 with diameter ~5.00
+    root.position.set(0, -2.505, 0)
     return root
   }, [wheelScene])
 
   const rimMat = useMemo(() => {
     // Calibrated automotive satin/semi-gloss alloy to prevent blown-out specular highlights
-    const effMetal = Math.min(0.68, Math.max(0.35, (metallic ?? 0.85) * 0.72))
-    const effRough = Math.max(0.34, roughness ?? 0.35)
+    const effMetal = Math.min(0.78, Math.max(0.45, (metallic ?? 0.85) * 0.82))
+    const effRough = Math.max(0.28, roughness ?? 0.28)
     return new THREE.MeshStandardMaterial({
-      color: new THREE.Color(rimColor || '#cbd5e1'),
+      color: new THREE.Color(rimColor || '#d1d5db'),
       metalness: effMetal,
       roughness: effRough,
-      envMapIntensity: 0.95, // Soften environment reflection blow-out
+      envMapIntensity: 1.05,
     })
   }, [rimColor, metallic, roughness])
 
   useEffect(() => {
     cloned.traverse((child) => {
+      // Hide corrupted giant Object_8 mesh from tuner_wheel.glb
+      if (child.name === 'Object_8') {
+        child.visible = false
+        return
+      }
+
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         child.receiveShadow = true
@@ -156,14 +163,14 @@ function BmwGtrWheel({
       <group rotation={[0, 0, side === 1 ? -hoverFold : hoverFold]}>
         {/* Steering angle */}
         <group rotation={[0, steeringAngle, 0]}>
-          {/* Wheel rotation around axle (X) */}
-          <group rotation={[wheelRotation, 0, 0]}>
-            {/* Outboard wheel rim face alignment */}
-            <group
-              rotation={[0, 0, side === 1 ? Math.PI / 2 : -Math.PI / 2]}
-              scale={0.01642}
-            >
-              <primitive object={cloned} />
+          {/* Outboard wheel rim face alignment: Left wheel side===1 rotates 180° around Y to face outboard (-X) */}
+          <group rotation={[0, side === 1 ? Math.PI : 0, 0]}>
+            {/* Wheel spin around axle (X). Rolls forward synchronized with car motion */}
+            <group rotation={[side === 1 ? wheelRotation : -wheelRotation, 0, 0]}>
+              {/* Scaled from 5.0m mesh diameter to exact 0.68m visual wheel diameter (0.34m radius) */}
+              <group scale={0.136}>
+                <primitive object={cloned} />
+              </group>
             </group>
           </group>
         </group>
@@ -221,8 +228,16 @@ export function BmwM3GtrModel({
   const carbonFiberMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: new THREE.Color('#18181b'),
+      metalness: 0.32,
+      roughness: 0.42,
+    })
+  }, [])
+
+  const wingUprightMaterial = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#111827'),
       metalness: 0.65,
-      roughness: 0.35,
+      roughness: 0.48,
     })
   }, [])
 
@@ -264,7 +279,15 @@ export function BmwM3GtrModel({
         child.receiveShadow = true
 
         const matName = child.material?.name || ''
-        if (matName.includes('Carpaint')) {
+        if (child.name.includes('Object_124') || child.name.includes('Spoiler_0000_001_MAT_Carbon')) {
+          // Refine rear wing airfoil: sleek racing profile, thin carbon blade
+          child.scale.set(1.0, 0.72, 1.0)
+          child.material = carbonFiberMaterial
+        } else if (child.name.includes('Object_121')) {
+          // Wing stanchions: matte anodized aero brackets
+          child.scale.set(0.9, 1.0, 0.9)
+          child.material = wingUprightMaterial
+        } else if (matName.includes('Carpaint')) {
           child.material = bodyPaintMaterial
         } else if (matName.includes('Carbon')) {
           child.material = carbonFiberMaterial
@@ -282,7 +305,7 @@ export function BmwM3GtrModel({
         }
       }
     })
-  }, [clonedBody, bodyPaintMaterial, carbonFiberMaterial, glassMaterial, taillightMaterial, headlightMaterial])
+  }, [clonedBody, bodyPaintMaterial, carbonFiberMaterial, wingUprightMaterial, glassMaterial, taillightMaterial, headlightMaterial])
 
   // Strict suspension travel clamp for sports car (max travel ±0.06m)
   const suspFl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[0] || 0))
@@ -297,11 +320,11 @@ export function BmwM3GtrModel({
         <primitive object={clonedBody} />
       </group>
 
-      {/* Front-Left Articulated BBS Race Wheel */}
+      {/* Front-Left Articulated BBS Race Wheel: Positioned flush inside front wheel arch */}
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.82, -0.04, -1.38]}
+        position={[-0.83, -0.068, -1.55]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFl}
@@ -311,11 +334,11 @@ export function BmwM3GtrModel({
         roughness={roughness}
       />
 
-      {/* Front-Right Articulated BBS Race Wheel */}
+      {/* Front-Right Articulated BBS Race Wheel: Positioned flush inside front wheel arch */}
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.82, -0.04, -1.38]}
+        position={[0.83, -0.068, -1.55]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFr}
@@ -325,11 +348,11 @@ export function BmwM3GtrModel({
         roughness={roughness}
       />
 
-      {/* Rear-Left Articulated BBS Race Wheel */}
+      {/* Rear-Left Articulated BBS Race Wheel: Positioned flush inside rear widebody arch */}
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.82, -0.04, 1.28]}
+        position={[-0.83, -0.068, 1.18]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRl}
@@ -339,11 +362,11 @@ export function BmwM3GtrModel({
         roughness={roughness}
       />
 
-      {/* Rear-Right Articulated BBS Race Wheel */}
+      {/* Rear-Right Articulated BBS Race Wheel: Positioned flush inside rear widebody arch */}
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.82, -0.04, 1.28]}
+        position={[0.83, -0.068, 1.18]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRr}

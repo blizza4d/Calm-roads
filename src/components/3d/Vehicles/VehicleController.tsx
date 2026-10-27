@@ -733,23 +733,6 @@ export default function VehicleController() {
 
   return (
     <group ref={carGroupRef}>
-      {/* Subtle vehicle-following soft rim & rear fill light (softened to prevent specular blow-out) */}
-      <pointLight
-        position={[0, 2.0, 3.2]}
-        intensity={0.35}
-        distance={6}
-        color="#fff5ea"
-        decay={2}
-      />
-      {/* Soft roof-top ambient fill */}
-      <pointLight
-        position={[0, 2.2, 0]}
-        intensity={0.35}
-        distance={6}
-        color="#e2e8f0"
-        decay={2}
-      />
-
       <group ref={chassisMeshRef}>
         <ActiveCarModel
           type={vehicleModel}

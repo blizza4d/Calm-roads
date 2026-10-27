@@ -946,7 +946,7 @@ function DiagnosticsHUD() {
           </div>
           <div className="flex justify-between text-white/70">
             <span>Active Road Chunks:</span>
-            <span className="text-white font-bold">{diagnostics.activeChunks} / 23 ({diagnostics.drawDistance}m pool)</span>
+            <span className="text-white font-bold">{diagnostics.activeChunks} / 28 ({diagnostics.drawDistance}m pool)</span>
           </div>
           <div className="flex justify-between text-white/70">
             <span>Forward Horizon Buffer:</span>
