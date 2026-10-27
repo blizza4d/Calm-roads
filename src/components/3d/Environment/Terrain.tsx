@@ -12,6 +12,7 @@ import {
   BiomeConfig,
 } from '../../../utils/roadMath'
 import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
+import { requestTerrainChunk } from '../../../workers/terrainWorkerPool'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
@@ -310,7 +311,18 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
          float triDetail = cliffStrata + soilGrain;
 
          diffuseColor.rgb = clamp(diffuseColor.rgb * (1.0 + triDetail), 0.0, 1.0);
-         roughnessFactor = clamp(roughnessFactor + triDetail * 0.4, 0.2, 0.98);`
+         roughnessFactor = clamp(roughnessFactor + triDetail * 0.4, 0.2, 0.98);
+
+         // Continuous per-pixel altitude-based alpine snow blending on mountain peaks
+         float snowLine = 48.0;
+         float snowCeiling = 82.0;
+         float altT = clamp((vCustomWorldPos.y - snowLine) / (snowCeiling - snowLine), 0.0, 1.0);
+         float snowCoverage = smoothstep(0.0, 1.0, altT);
+         float slopeHold = clamp(vCustomWorldNorm.y * 1.25, 0.0, 1.0);
+         float finalSnow = snowCoverage * (0.35 + 0.65 * slopeHold);
+         vec3 alpineSnow = vec3(0.95, 0.97, 1.0);
+         diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.85);
+         roughnessFactor = mix(roughnessFactor, 0.42, finalSnow * 0.85);`
       )
     }
   }, [])
@@ -328,14 +340,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const count = geo.attributes.position.count
     const colors = new Float32Array(count * 3)
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    return geo
-  }, [])
 
-  // In-place terrain elevation, slope-compensated UVs, normals, and vertex colors update
-  useMemo(() => {
-    const pos = terrainGeo.attributes.position
-    const count = pos.count
-
+    // Initial synchronous populate so first frame ground is instantly available
+    const pos = geo.attributes.position
     for (let i = 0; i < count; i++) {
       const localX = pos.getX(i)
       const localZ = pos.getZ(i)
@@ -344,12 +351,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       pos.setY(i, y)
     }
     pos.needsUpdate = true
-    terrainGeo.computeVertexNormals()
+    geo.computeVertexNormals()
 
-    const normals = terrainGeo.attributes.normal
-    const uvs = terrainGeo.attributes.uv.array as Float32Array
-    const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
-    const colors = colorAttr.array as Float32Array
+    const normals = geo.attributes.normal
+    const uvs = geo.attributes.uv.array as Float32Array
+    const colArray = colors
 
     const grassColor = new THREE.Color(biomeConfig.grassColor)
     const rockColor = new THREE.Color(biomeConfig.rockColor)
@@ -365,7 +371,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const worldZ = chunkZ + pz
       const roadCx = getRoadCenter(worldZ)
 
-      // Slope-compensated UV mapping: incorporates vertical arc-length to eliminate stretching on cliffs
       const steepness = Math.max(0, 1.0 - Math.min(1.0, Math.max(0.0, ny)))
       const baseU = px / TERRAIN_W + 0.5
       const baseV = pz / CHUNK_LEN + 0.5
@@ -392,14 +397,128 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         tempColor.lerp(shoulderColor, blendToSoil * 0.45)
       }
 
-      colors[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
-      colors[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
-      colors[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
+      colArray[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
+      colArray[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
+      colArray[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
     }
-    terrainGeo.attributes.uv.needsUpdate = true
-    colorAttr.needsUpdate = true
-    normals.needsUpdate = true
-    terrainGeo.computeBoundingSphere()
+    geo.computeBoundingSphere()
+
+    return geo
+  }, [])
+
+  // Web Worker offloaded heightmap & normal computation for smooth recycling without main-thread spikes
+  useEffect(() => {
+    let cancelled = false
+
+    const applyWorkerData = (res: {
+      positions: Float32Array
+      normals: Float32Array
+      colors: Float32Array
+      uvs: Float32Array
+    }) => {
+      if (cancelled) return
+      const posAttr = terrainGeo.attributes.position as THREE.BufferAttribute
+      ;(posAttr.array as Float32Array).set(res.positions)
+      posAttr.needsUpdate = true
+
+      const normAttr = terrainGeo.attributes.normal as THREE.BufferAttribute
+      ;(normAttr.array as Float32Array).set(res.normals)
+      normAttr.needsUpdate = true
+
+      const uvAttr = terrainGeo.attributes.uv as THREE.BufferAttribute
+      ;(uvAttr.array as Float32Array).set(res.uvs)
+      uvAttr.needsUpdate = true
+
+      const colAttr = terrainGeo.attributes.color as THREE.BufferAttribute
+      ;(colAttr.array as Float32Array).set(res.colors)
+      colAttr.needsUpdate = true
+
+      terrainGeo.computeBoundingSphere()
+    }
+
+    const dispatched = requestTerrainChunk(
+      chunkZ,
+      biomeConfig.id,
+      GRID_X,
+      GRID_Z,
+      CHUNK_LEN,
+      TERRAIN_W,
+      applyWorkerData
+    )
+
+    if (!dispatched) {
+      // Synchronous fallback if Web Worker is unavailable
+      const pos = terrainGeo.attributes.position
+      const count = pos.count
+
+      for (let i = 0; i < count; i++) {
+        const localX = pos.getX(i)
+        const localZ = pos.getZ(i)
+        const worldZ = chunkZ + localZ
+        const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
+        pos.setY(i, y)
+      }
+      pos.needsUpdate = true
+      terrainGeo.computeVertexNormals()
+
+      const normals = terrainGeo.attributes.normal
+      const uvs = terrainGeo.attributes.uv.array as Float32Array
+      const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
+      const colors = colorAttr.array as Float32Array
+
+      const grassColor = new THREE.Color(biomeConfig.grassColor)
+      const rockColor = new THREE.Color(biomeConfig.rockColor)
+      const shoulderColor = new THREE.Color(biomeConfig.shoulderColor)
+      const tempColor = new THREE.Color()
+
+      for (let i = 0; i < count; i++) {
+        const ny = normals.getY(i)
+        const slope = Math.max(0, Math.min(1, (ny - 0.65) / 0.28))
+        const px = pos.getX(i)
+        const py = pos.getY(i)
+        const pz = pos.getZ(i)
+        const worldZ = chunkZ + pz
+        const roadCx = getRoadCenter(worldZ)
+
+        const steepness = Math.max(0, 1.0 - Math.min(1.0, Math.max(0.0, ny)))
+        const baseU = px / TERRAIN_W + 0.5
+        const baseV = pz / CHUNK_LEN + 0.5
+        const uSlope = (px >= 0 ? 1 : -1) * (py / TERRAIN_W) * steepness * 1.6
+        const vSlope = (py / CHUNK_LEN) * steepness * 1.8
+        uvs[i * 2] = baseU + uSlope
+        uvs[i * 2 + 1] = baseV + vSlope
+
+        const strataNoise = Math.sin(py * 0.35 + px * 0.02) * 0.05
+        const spatialVar = Math.sin(px * 0.04 + pz * 0.04) * 0.03
+        tempColor.copy(rockColor).lerp(grassColor, slope)
+
+        if (biomeConfig.id === 'tundra' && py > 24) {
+          const snowT = Math.min(1.0, (py - 24) / 18.0)
+          tempColor.lerp(new THREE.Color('#f8fafc'), snowT * 0.75)
+        } else if (py > 65) {
+          const snowT = Math.min(1.0, (py - 65) / 35.0)
+          tempColor.lerp(new THREE.Color('#f1f5f9'), snowT * 0.6)
+        }
+
+        const distFromCenter = Math.abs(px - roadCx)
+        if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
+          const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
+          tempColor.lerp(shoulderColor, blendToSoil * 0.45)
+        }
+
+        colors[i * 3] = Math.max(0, Math.min(1, tempColor.r + strataNoise + spatialVar))
+        colors[i * 3 + 1] = Math.max(0, Math.min(1, tempColor.g + strataNoise + spatialVar))
+        colors[i * 3 + 2] = Math.max(0, Math.min(1, tempColor.b + strataNoise + spatialVar))
+      }
+      terrainGeo.attributes.uv.needsUpdate = true
+      colorAttr.needsUpdate = true
+      normals.needsUpdate = true
+      terrainGeo.computeBoundingSphere()
+    }
+
+    return () => {
+      cancelled = true
+    }
   }, [chunkZ, biomeConfig, terrainGeo])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
@@ -1292,11 +1411,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining)
 
 // Predictive High-Speed World Horizon Streaming Engine:
-// Pre-generates 23 active chunks (4.6 kilometers continuous highway coverage).
-// Guarantees >3.8km forward horizon buffer ahead of the vehicle even at top speed (300+ km/h).
-// Uses multi-chunk catchup and instant recentering upon vehicle reset or teleport.
-const NUM_CHUNKS = 23
-const CHUNKS_BEHIND = 3
+// Pre-generates 28 active chunks (5.6 kilometers continuous highway coverage).
+// Guarantees >=4.8km forward horizon buffer ahead of the vehicle (3 chunks beyond 4,200m camera far plane).
+// Uses rate-limited chunk recycling (1 chunk/frame max) to completely eliminate multi-chunk GC/computation stutters.
+const NUM_CHUNKS = 28
+const CHUNKS_BEHIND = 4
 
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
@@ -1342,7 +1461,8 @@ export default function Terrain() {
     const currentSlots = [...slotsRef.current]
 
     // While rearmost chunk has safely passed behind camera, recycle it to the forward horizon
-    while (recycledCount < 3) {
+    // Rate-limited to at most 1 chunk per frame to guarantee a rock-solid 60 FPS without multi-chunk frame drops
+    while (recycledCount < 1) {
       let rearmostIdx = 0
       let rearmostZ = currentSlots[0]
       let frontmostIdx = 0

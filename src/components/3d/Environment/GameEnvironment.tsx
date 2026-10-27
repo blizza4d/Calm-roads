@@ -450,18 +450,18 @@ export default function GameEnvironment() {
     const lightZ = isNight ? -sunZ : sunZ
 
     let lightColor = '#fffdf8'
-    let lightIntensity = 2.6
+    let lightIntensity = 3.2
     let skyTurbidity = 2.0
     let skyRayleigh = 1.1
 
     if (isNight) {
       lightColor = '#93c5fd' // Cool silver-blue moonlight
-      lightIntensity = 0.65
+      lightIntensity = 0.75
       skyTurbidity = 0.05
       skyRayleigh = 0.05
     } else if (isSunsetOrSunrise) {
       lightColor = '#fed7aa' // Warm golden amber sunlight
-      lightIntensity = 2.4
+      lightIntensity = 2.8
       skyTurbidity = 2.8
       skyRayleigh = 1.6
     }
@@ -654,16 +654,16 @@ export default function GameEnvironment() {
         color={celestialData.lightColor}
         shadow-mapSize={graphicsQuality === 'low' ? [1024, 1024] : [2048, 2048]}
         shadow-camera-near={0.5}
-        shadow-camera-far={160}
-        shadow-camera-left={-38}
-        shadow-camera-right={38}
-        shadow-camera-top={46}
-        shadow-camera-bottom={-38}
+        shadow-camera-far={200}
+        shadow-camera-left={-55}
+        shadow-camera-right={55}
+        shadow-camera-top={65}
+        shadow-camera-bottom={-50}
         shadow-bias={-0.00015}
         shadow-normalBias={0.035}
         shadow-radius={2.5}
       >
-        <orthographicCamera attach="shadow-camera" args={[-38, 38, 46, -38, 0.5, 160]} />
+        <orthographicCamera attach="shadow-camera" args={[-55, 55, 65, -50, 0.5, 200]} />
       </directionalLight>
 
       {/* Soft Ambient Fill Light (eliminates harsh pitch-black crevices in terrain shadows) */}

@@ -40,11 +40,13 @@ export default function App() {
               preserveDrawingBuffer: photoMode,
               alpha: false,
               toneMapping: THREE.ACESFilmicToneMapping,
-              toneMappingExposure: 1.08,
+              toneMappingExposure: 1.15,
+              outputColorSpace: THREE.SRGBColorSpace,
             }}
             onCreated={({ gl }) => {
               gl.toneMapping = THREE.ACESFilmicToneMapping
-              gl.toneMappingExposure = 1.08
+              gl.toneMappingExposure = 1.15
+              gl.outputColorSpace = THREE.SRGBColorSpace
               gl.shadowMap.enabled = true
               gl.shadowMap.type = THREE.PCFSoftShadowMap
             }}

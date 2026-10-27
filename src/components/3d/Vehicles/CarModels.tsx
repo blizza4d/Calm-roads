@@ -191,14 +191,17 @@ export function BmwM3GtrModel({
   }, [bodyScene])
 
   const bodyPaintMaterial = useMemo(() => {
+    // Calibrated metallic & roughness to prevent blown-out white glowing artifacts on body and wheel arches
+    const effMetal = Math.min(0.72, Math.max(0.2, (metallic ?? 0.72)))
+    const effRough = Math.max(0.25, (roughness ?? 0.25))
     return new THREE.MeshPhysicalMaterial({
       color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
-      metalness: metallic ?? 0.85,
-      roughness: roughness ?? 0.16,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.04,
-      reflectivity: 0.95,
-      envMapIntensity: 1.25, // Calibrated down from 2.4 to eliminate blown-out specular highlights
+      metalness: effMetal,
+      roughness: effRough,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.06,
+      reflectivity: 0.8,
+      envMapIntensity: 0.95, // Balanced environment reflection to prevent specular blowout
     })
   }, [paintColor, metallic, roughness])
 
@@ -271,6 +274,11 @@ export function BmwM3GtrModel({
           child.material = taillightMaterial
         } else if (matName.includes('Lights')) {
           child.material = headlightMaterial
+        } else if (child.material instanceof THREE.MeshStandardMaterial) {
+          // Clamp unmapped model materials to prevent blown-out white specular artifacts on arches
+          child.material.envMapIntensity = 0.95
+          child.material.roughness = Math.max(0.25, child.material.roughness)
+          child.material.metalness = Math.min(0.70, child.material.metalness)
         }
       }
     })
@@ -283,7 +291,7 @@ export function BmwM3GtrModel({
   const suspRr = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[3] || 0))
 
   return (
-    <group position={[0, 0.02, 0]}>
+    <group position={[0, 0.048, 0]}>
       {/* High-Fidelity BMW M3 GTR '05 Monocoque - Aligned with Ground Clearance */}
       <group position={[0, -0.135, 0]} rotation={[0, Math.PI, 0]} scale={98.0}>
         <primitive object={clonedBody} />
