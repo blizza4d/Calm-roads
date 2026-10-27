@@ -320,6 +320,75 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
   }, [])
 
+  // Memoized Static PBR Materials to eliminate 140+ redundant WebGL material recompiles across chunks
+  const roadMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      map: asphaltTex,
+      bumpMap: asphaltBumpTex,
+      bumpScale: 0.018,
+      color: '#ffffff',
+      roughness: isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.78 : 0.82,
+      metalness: isRaining ? 0.45 : 0.04,
+      envMapIntensity: isRaining ? 1.6 : 0.4,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    })
+  }, [asphaltTex, asphaltBumpTex, isRaining, biomeConfig.id])
+
+  const shoulderMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.shoulderColor,
+      roughness: 0.92,
+      metalness: 0.06,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    })
+  }, [biomeConfig.shoulderColor])
+
+  const pineTrunkMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({ color: biomeConfig.treeTrunkColor, roughness: 0.88 })
+  }, [biomeConfig.treeTrunkColor])
+
+  const pineCanopyMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor,
+      roughness: 0.82,
+    })
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+
+  const broadleafTrunkMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({ color: biomeConfig.treeTrunkColor, roughness: 0.88 })
+  }, [biomeConfig.treeTrunkColor])
+
+  const broadleafCanopyMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({ color: biomeConfig.treeFoliageColor, roughness: 0.76 })
+  }, [biomeConfig.treeFoliageColor])
+
+  const shrubMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor,
+      roughness: 0.88,
+    })
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+
+  const rockMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.rockColor,
+      roughness: 0.92,
+      metalness: 0.04,
+    })
+  }, [biomeConfig.rockColor])
+
+  const grassMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor,
+      roughness: 0.85,
+      side: THREE.DoubleSide,
+    })
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+
   // --------------------------------------------------------------------------
   // Geometry Buffer Pooling: Geometries are allocated ONCE per chunk slot.
   // When chunkZ recycles, Float32Array buffers are mutated in-place and flagged
@@ -1310,32 +1379,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
-      <mesh geometry={roadGeo} receiveShadow renderOrder={2} frustumCulled={true}>
-        <meshStandardMaterial
-          map={asphaltTex}
-          bumpMap={asphaltBumpTex}
-          bumpScale={0.018}
-          color="#ffffff"
-          roughness={isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.78 : 0.82}
-          metalness={isRaining ? 0.45 : 0.04}
-          envMapIntensity={isRaining ? 1.6 : 0.4}
-          polygonOffset
-          polygonOffsetFactor={-2}
-          polygonOffsetUnits={-2}
-        />
-      </mesh>
+      <mesh geometry={roadGeo} material={roadMat} receiveShadow renderOrder={2} frustumCulled={true} />
 
       {/* 3. Roadside Gravel Shoulder Strips */}
-      <mesh geometry={shoulderGeo} receiveShadow renderOrder={1} frustumCulled={true}>
-        <meshStandardMaterial
-          color={biomeConfig.shoulderColor}
-          roughness={0.92}
-          metalness={0.06}
-          polygonOffset
-          polygonOffsetFactor={-1}
-          polygonOffsetUnits={-1}
-        />
-      </mesh>
+      <mesh geometry={shoulderGeo} material={shoulderMat} receiveShadow renderOrder={1} frustumCulled={true} />
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
       <mesh geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={true} />
@@ -1346,49 +1393,38 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
       <instancedMesh
         ref={pineTrunkRef}
-        args={[pineTrunkGeo, undefined, 36]}
+        args={[pineTrunkGeo, pineTrunkMat, 36]}
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
-      </instancedMesh>
+      />
       <instancedMesh
         ref={pineCanopyRef}
-        args={[pineCanopyGeo, undefined, 36]}
+        args={[pineCanopyGeo, pineCanopyMat, 36]}
         count={sceneryData.pines.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial
-          color={biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor}
-          roughness={0.82}
-        />
-      </instancedMesh>
+      />
 
       {/* 7. Organic Broadleaf / Mountain Maples */}
       <instancedMesh
         ref={broadleafTrunkRef}
-        args={[broadleafTrunkGeo, undefined, 36]}
+        args={[broadleafTrunkGeo, broadleafTrunkMat, 36]}
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color={biomeConfig.treeTrunkColor} roughness={0.88} />
-      </instancedMesh>
+      />
       <instancedMesh
         ref={broadleafCanopyRef}
-        args={[broadleafCanopyGeo, undefined, 36]}
+        args={[broadleafCanopyGeo, broadleafCanopyMat, 36]}
         count={sceneryData.broadleafs.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color={biomeConfig.treeFoliageColor} roughness={0.76} />
-      </instancedMesh>
+      />
 
       {/* 8. Desert Saguaro Cacti */}
       <instancedMesh
@@ -1403,43 +1439,30 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       {/* 9. Mountain Shrubs & Roadside Bushes */}
       <instancedMesh
         ref={shrubRef}
-        args={[shrubGeo, undefined, 24]}
+        args={[shrubGeo, shrubMat, 24]}
         count={sceneryData.shrubs.length}
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial
-          color={biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor}
-          roughness={0.88}
-        />
-      </instancedMesh>
+      />
 
       {/* 10. Weathered Boulders & Rock Outcrops */}
       <instancedMesh
         ref={rockRef}
-        args={[rockGeo, undefined, 24]}
+        args={[rockGeo, rockMat, 24]}
         count={sceneryData.rocks.length}
         castShadow
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial color={biomeConfig.rockColor} roughness={0.92} />
-      </instancedMesh>
+      />
 
       {/* 11. Roadside Wild Grass Tufts */}
       <instancedMesh
         ref={grassRef}
-        args={[grassTuftGeo, undefined, 36]}
+        args={[grassTuftGeo, grassMat, 36]}
         count={sceneryData.grassTufts.length}
         receiveShadow
         frustumCulled={true}
-      >
-        <meshStandardMaterial
-          color={biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor}
-          roughness={0.85}
-          side={THREE.DoubleSide}
-        />
-      </instancedMesh>
+      />
 
       {/* 12. Roadside Highway Utility Poles with Timber Grain */}
       <instancedMesh

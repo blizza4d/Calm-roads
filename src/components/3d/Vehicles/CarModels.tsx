@@ -411,6 +411,13 @@ const _vUp = new THREE.Vector3(0, 1, 0)
 const _vRight = new THREE.Vector3(1, 0, 0)
 const _vForward = new THREE.Vector3(0, 0, 1)
 
+// Reusable scratch objects to eliminate per-frame garbage collections in animation loops
+const _qSteer = new THREE.Quaternion()
+const _qSpin = new THREE.Quaternion()
+const _qHover = new THREE.Quaternion()
+const _qTurn = new THREE.Quaternion()
+const _spinAxis = new THREE.Vector3()
+
 export function SupercarModel({
   paintColor,
   metallic,
@@ -577,11 +584,11 @@ export function SupercarModel({
       )
       wheelFl.scale.set(1, 1, 1)
 
-      const qSteer = new THREE.Quaternion().setFromAxisAngle(_vUp, steeringAngle)
-      const spinAxis = _vRight.clone().applyQuaternion(qSteer)
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, -hoverFold)
-      wheelFl.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(BASE_WHEEL_QUAT)
+      _qSteer.setFromAxisAngle(_vUp, steeringAngle)
+      _spinAxis.copy(_vRight).applyQuaternion(_qSteer)
+      _qSpin.setFromAxisAngle(_spinAxis, wheelRotation)
+      _qHover.setFromAxisAngle(_vForward, -hoverFold)
+      wheelFl.quaternion.copy(_qHover).multiply(_qSpin).multiply(_qSteer).multiply(BASE_WHEEL_QUAT)
     }
 
     // Front-Right Wheel
@@ -593,11 +600,11 @@ export function SupercarModel({
       )
       wheelFr.scale.set(1, 1, 1)
 
-      const qSteer = new THREE.Quaternion().setFromAxisAngle(_vUp, steeringAngle)
-      const spinAxis = _vRight.clone().applyQuaternion(qSteer)
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(spinAxis, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, hoverFold)
-      wheelFr.quaternion.copy(qHover).multiply(qSpin).multiply(qSteer).multiply(BASE_WHEEL_QUAT)
+      _qSteer.setFromAxisAngle(_vUp, steeringAngle)
+      _spinAxis.copy(_vRight).applyQuaternion(_qSteer)
+      _qSpin.setFromAxisAngle(_spinAxis, wheelRotation)
+      _qHover.setFromAxisAngle(_vForward, hoverFold)
+      wheelFr.quaternion.copy(_qHover).multiply(_qSpin).multiply(_qSteer).multiply(BASE_WHEEL_QUAT)
     }
 
     // Rear-Left Wheel (spin + suspension + hover)
@@ -609,9 +616,9 @@ export function SupercarModel({
       )
       wheelRl.scale.set(1, 1, 1)
 
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(_vRight, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, -hoverFold)
-      wheelRl.quaternion.copy(qHover).multiply(qSpin).multiply(BASE_WHEEL_QUAT)
+      _qSpin.setFromAxisAngle(_vRight, wheelRotation)
+      _qHover.setFromAxisAngle(_vForward, -hoverFold)
+      wheelRl.quaternion.copy(_qHover).multiply(_qSpin).multiply(BASE_WHEEL_QUAT)
     }
 
     // Rear-Right Wheel
@@ -623,9 +630,9 @@ export function SupercarModel({
       )
       wheelRr.scale.set(1, 1, 1)
 
-      const qSpin = new THREE.Quaternion().setFromAxisAngle(_vRight, wheelRotation)
-      const qHover = new THREE.Quaternion().setFromAxisAngle(_vForward, hoverFold)
-      wheelRr.quaternion.copy(qHover).multiply(qSpin).multiply(BASE_WHEEL_QUAT)
+      _qSpin.setFromAxisAngle(_vRight, wheelRotation)
+      _qHover.setFromAxisAngle(_vForward, hoverFold)
+      wheelRr.quaternion.copy(_qHover).multiply(_qSpin).multiply(BASE_WHEEL_QUAT)
     }
 
     // Cockpit Steering Wheel Column
@@ -636,8 +643,8 @@ export function SupercarModel({
         REST_WHEEL_POSITIONS.steering.z
       )
       steeringWheel.scale.set(1, 1, 1)
-      const qTurn = new THREE.Quaternion().setFromAxisAngle(_vForward, -steeringAngle * 2.8)
-      steeringWheel.quaternion.copy(BASE_STEER_QUAT).multiply(qTurn)
+      _qTurn.setFromAxisAngle(_vForward, -steeringAngle * 2.8)
+      steeringWheel.quaternion.copy(BASE_STEER_QUAT).multiply(_qTurn)
     }
   })
 
@@ -705,7 +712,7 @@ export function CamperVanModel({
 
   const renderVanWheel = (isFront: boolean, isLeft: boolean) => (
     <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
-      <group rotation={[wheelRotation, 0, 0]}>
+      <group rotation={[-wheelRotation, 0, 0]}>
         {/* Rubber Tire */}
         <mesh rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.38, 0.38, 0.28, 24]} />
@@ -1041,7 +1048,7 @@ export function VintageHatchbackModel({
 
   const renderHatchWheel = (isFront: boolean, isLeft: boolean) => (
     <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
-      <group rotation={[wheelRotation, 0, 0]}>
+      <group rotation={[-wheelRotation, 0, 0]}>
         <mesh rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.34, 0.34, 0.25, 24]} />
           <meshStandardMaterial color="#18181b" roughness={0.9} />

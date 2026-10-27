@@ -337,13 +337,14 @@ function PanoramicMountainHorizon({
       const x = radius * sinT
       const z = radius * cosT
 
-      // Multi-octave natural mountain peak silhouettes with smooth harmonious ridges
+      // Multi-octave natural mountain peak silhouettes with rich stratified ridges
       const peakH =
-        160 +
-        Math.sin(theta * 3.0) * 65 +
-        Math.cos(theta * 7.0 + 0.8) * 40 +
-        Math.sin(theta * 13.0) * 22 +
-        Math.cos(theta * 27.0) * 12
+        170 +
+        Math.sin(theta * 3.0) * 70 +
+        Math.cos(theta * 7.0 + 0.8) * 42 +
+        Math.sin(theta * 13.0) * 25 +
+        Math.cos(theta * 29.0) * 14 +
+        Math.sin(theta * 53.0) * 6
 
       // Bottom vertex (deep horizon base)
       positions.push(x, baseY, z)
@@ -435,42 +436,47 @@ export default function GameEnvironment() {
     const sunHeight = Math.sin(angle) // -1 (midnight) to +1 (noon)
     const sunEastWest = Math.cos(angle)
 
-    const sunDistance = 65
-    const sunY = sunHeight * sunDistance
-    const sunX = sunEastWest * sunDistance
-    const sunZ = -20
+    // Preetham atmospheric scattering model requires celestial coordinates (~400,000m scale)
+    // to correctly evaluate sunfade, Rayleigh scattering, and ozone absorption
+    const skySunDist = 400000
+    const skySunX = sunEastWest * skySunDist
+    const skySunY = sunHeight * skySunDist
+    const skySunZ = -150000
 
     const isNight = sunHeight < -0.06
     const isSunsetOrSunrise = Math.abs(sunHeight) < 0.24
 
-    // Directional Light position:
-    // Follows the sun during day; during night, shines as moonlight
-    const lightX = isNight ? -sunX * 0.75 : sunX
-    const lightY = isNight ? Math.max(26, -sunY * 0.85) : Math.max(16, sunY)
-    const lightZ = isNight ? -sunZ : sunZ
+    // Directional Light position for tight shadow frustum (follows player)
+    const lightDist = 65
+    const lightX = isNight ? -sunEastWest * 45 : sunEastWest * lightDist
+    const lightY = isNight ? Math.max(26, -sunHeight * 55) : Math.max(16, sunHeight * lightDist)
+    const lightZ = isNight ? 20 : -20
 
     let lightColor = '#fffdf8'
     let lightIntensity = 3.2
     let skyTurbidity = 2.0
-    let skyRayleigh = 1.1
+    let skyRayleigh = 2.2
 
     if (isNight) {
       lightColor = '#93c5fd' // Cool silver-blue moonlight
       lightIntensity = 0.75
-      skyTurbidity = 0.05
-      skyRayleigh = 0.05
+      skyTurbidity = 0.1
+      skyRayleigh = 0.1
     } else if (isSunsetOrSunrise) {
       lightColor = '#fed7aa' // Warm golden amber sunlight
-      lightIntensity = 2.8
-      skyTurbidity = 2.8
-      skyRayleigh = 1.6
+      lightIntensity = 2.9
+      skyTurbidity = 3.4
+      skyRayleigh = 3.2
     }
 
     if (weather === 'rain') {
       lightIntensity *= 0.52
       lightColor = '#94a3b8'
+      skyTurbidity = 4.2
+      skyRayleigh = 1.2
     } else if (weather === 'mist') {
       lightIntensity *= 0.65
+      skyTurbidity = 5.0
     }
 
     // Moon position placed opposite the sun on the celestial dome
@@ -481,7 +487,7 @@ export default function GameEnvironment() {
     const moonZ = -Math.sin(moonAngle) * 350
 
     return {
-      skySunPos: [sunX, sunY, sunZ] as [number, number, number],
+      skySunPos: [skySunX, skySunY, skySunZ] as [number, number, number],
       lightPos: [lightX, lightY, lightZ] as [number, number, number],
       moonPos: [moonX, moonY, moonZ] as [number, number, number],
       sunHeight,
@@ -496,22 +502,37 @@ export default function GameEnvironment() {
   // Biome and Weather lighting modifications
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
 
-  // Dynamic Sky Background Color (Guarantees zero black void across day/night and weather cycles)
+  // Dynamic Sky & Atmosphere Background Color with smooth 24h chromatic interpolation
   const skyColor = useMemo(() => {
     if (weather === 'snow') return '#cbd5e1'
     if (weather === 'rain') return '#1e293b'
     if (weather === 'mist') return '#64748b'
-    if (celestialData.isNight) return '#030712'
-    if (timeOfDay >= 16.5 && timeOfDay <= 19.5) {
-      // Warm golden sunset with atmospheric peach haze instead of harsh flat orange
-      return '#e0833a'
+
+    const t = timeOfDay // 0 to 24
+    if (t < 5.0 || t > 21.5) {
+      // Celestial night
+      return '#030712'
+    } else if (t >= 5.0 && t < 7.0) {
+      // Dawn rose-gold transition
+      const f = (t - 5.0) / 2.0
+      return '#' + new THREE.Color('#030712').lerp(new THREE.Color('#e87958'), f).getHexString()
+    } else if (t >= 7.0 && t < 9.5) {
+      // Morning transition to crisp daylight cyan
+      const f = (t - 7.0) / 2.5
+      return '#' + new THREE.Color('#e87958').lerp(new THREE.Color('#38bdf8'), f).getHexString()
+    } else if (t >= 9.5 && t < 16.5) {
+      // Pure daylight azure
+      return '#38bdf8'
+    } else if (t >= 16.5 && t < 19.5) {
+      // Golden Hour to Warm Sunset
+      const f = (t - 16.5) / 3.0
+      return '#' + new THREE.Color('#38bdf8').lerp(new THREE.Color('#e0833a'), f).getHexString()
+    } else {
+      // Dusk to Night
+      const f = (t - 19.5) / 2.0
+      return '#' + new THREE.Color('#e0833a').lerp(new THREE.Color('#030712'), f).getHexString()
     }
-    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) {
-      // Gentle dawn rose-gold
-      return '#e87958'
-    }
-    return '#38bdf8' // Crisp daylight cyan-blue
-  }, [weather, celestialData.isNight, timeOfDay])
+  }, [weather, timeOfDay])
 
   // Sync background color directly to scene to prevent canvas black void
   useEffect(() => {

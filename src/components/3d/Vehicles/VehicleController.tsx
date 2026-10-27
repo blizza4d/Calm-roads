@@ -19,6 +19,8 @@ export interface VehicleConfig {
   massKg: number
   wheelRadius: number
   rideHeight: number
+  wheelbase: number // Distance between front and rear axles (m)
+  maxSteerAngle: number // Maximum front wheel steer lock (rad)
   maxSpeedMs: number
   maxSpeedKmh: number
   peakAccel: number
@@ -43,6 +45,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     massKg: 1350,
     wheelRadius: 0.34, // Exactly calibrated to 0.34m visual radius of tuner_wheel.glb
     rideHeight: 0.36,  // GT stance, 11.6cm front splitter clearance, perfect asphalt alignment
+    wheelbase: 2.73,   // Authentic BMW M3 E46 2,731mm racing wheelbase
+    maxSteerAngle: 0.40, // ~23° maximum lock
     maxSpeedMs: 76.4, // ~275 km/h
     maxSpeedKmh: 275,
     peakAccel: 6.8, // Progressive GT power curve
@@ -65,6 +69,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     massKg: 1420,
     wheelRadius: 0.36,
     rideHeight: 0.38,
+    wheelbase: 2.65,
+    maxSteerAngle: 0.38,
     maxSpeedMs: 78.5, // ~282 km/h
     maxSpeedKmh: 282,
     peakAccel: 7.2, // Twin-turbo V8 power curve
@@ -87,6 +93,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     massKg: 980,
     wheelRadius: 0.32,
     rideHeight: 1.25,
+    wheelbase: 2.80,
+    maxSteerAngle: 0.35,
     maxSpeedMs: 86.1, // ~310 km/h
     maxSpeedKmh: 310,
     peakAccel: 7.6,
@@ -109,6 +117,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     massKg: 1950,
     wheelRadius: 0.38,
     rideHeight: 0.48,
+    wheelbase: 2.60,
+    maxSteerAngle: 0.44,
     maxSpeedMs: 40.3, // ~145 km/h
     maxSpeedKmh: 145,
     peakAccel: 3.2, // Heavy vintage inertia
@@ -131,6 +141,8 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     massKg: 1120,
     wheelRadius: 0.34,
     rideHeight: 0.38,
+    wheelbase: 2.30,
+    maxSteerAngle: 0.42,
     maxSpeedMs: 62.5, // ~225 km/h
     maxSpeedKmh: 225,
     peakAccel: 5.6,
@@ -154,10 +166,10 @@ const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
 const _tempCamForward = new THREE.Vector3()
 const _wheelCorners: [number, number][] = [
-  [-0.82, -1.38], // Front-Left
-  [0.82, -1.38],  // Front-Right
-  [-0.82, 1.28],  // Rear-Left
-  [0.82, 1.28],   // Rear-Right
+  [-0.83, -1.55], // Front-Left (aligned with wheel arch)
+  [0.83, -1.55],  // Front-Right (aligned with wheel arch)
+  [-0.83, 1.18],  // Rear-Left (aligned with rear arch)
+  [0.83, 1.18],   // Rear-Right (aligned with rear arch)
 ]
 
 export default function VehicleController() {
@@ -188,6 +200,7 @@ export default function VehicleController() {
   const forwardVel = useRef(0) // meters per second
   const lateralVel = useRef(0) // drift velocity (m/s)
   const yawAngle = useRef(0) // radians
+  const currentSteerAngle = useRef(0) // dynamic smoothed steering angle (radians)
   const steeringVisual = useRef(0)
   const wheelSpin = useRef(0)
   const bodyRoll = useRef(0)
@@ -265,6 +278,7 @@ export default function VehicleController() {
         forwardVel.current = 0
         lateralVel.current = 0
         yawAngle.current = 0
+        currentSteerAngle.current = 0
         wheelSpin.current = 0
         steeringVisual.current = 0
         currentGearIndex.current = 1
@@ -398,34 +412,68 @@ export default function VehicleController() {
         }
       }
 
-      // Natural Rolling Resistance & Coasting Drag
-      if (targetThrottle === 0 && targetBrake === 0) {
-        forwardVel.current *= Math.pow(effectiveDamping, dt * 60)
-        if (Math.abs(forwardVel.current) < 0.03) forwardVel.current = 0
-      }
-
-      // Speed-dependent Steering: high speeds progressively dampen steering angle
-      const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
-      const speedSteerFactor = Math.max(0.28, 1 - (currentSpeedKmh / 280) * 0.62)
-
-      if (Math.abs(forwardVel.current) > 0.06) {
-        const turnDir = forwardVel.current >= 0 ? 1 : -1
-        yawAngle.current += steerInput * config.turnRate * speedSteerFactor * turnDir * dt
-      }
-
-      // Lateral Grip & Antigravity Inertia Drift
-      if (isHoverMode) {
-        const targetLateral = -steerInput * (currentSpeedKmh / 140) * 8.2
-        lateralVel.current = THREE.MathUtils.lerp(lateralVel.current, targetLateral, dt * 3.6)
-      } else {
-        // High-speed cornering lateral slip
-        const maxCornerGrip = config.tireGrip * 9.81 * (1 + speedNorm * 0.35) // Downforce increases grip with v^2
-        const centripetalAccel = Math.pow(forwardVel.current, 2) * Math.abs(steerInput * 0.04)
-        if (centripetalAccel > maxCornerGrip) {
-          // Break into controlled drift
-          lateralVel.current += -Math.sign(steerInput) * (centripetalAccel - maxCornerGrip) * 0.15 * dt
+      // Natural Rolling Resistance, Braking Hold & Static Friction Clamping
+      if (targetThrottle === 0) {
+        if (targetBrake > 0) {
+          if (Math.abs(forwardVel.current) < 0.35) {
+            forwardVel.current = 0
+            lateralVel.current = 0
+          }
+        } else if (Math.abs(forwardVel.current) < 0.08) {
+          forwardVel.current = 0
+          lateralVel.current = 0
         }
-        lateralVel.current *= Math.pow(0.86, dt * 60)
+        forwardVel.current *= Math.pow(effectiveDamping, dt * 60)
+      }
+
+      // Dynamic Speed-Sensitive Steering Angle & Physical Rack Rate Limiting
+      const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
+      const speedSteerFactor = Math.max(0.18, 1.0 / (1.0 + Math.pow(currentSpeedKmh / 52.0, 0.95)))
+      const targetSteerAngle = steerInput * config.maxSteerAngle * speedSteerFactor
+      currentSteerAngle.current = THREE.MathUtils.lerp(currentSteerAngle.current, targetSteerAngle, dt * 14)
+
+      // Chassis Rotation: Kinematic Bicycle Model & Lateral Dynamic Traction
+      if (isHoverMode || vehicleModel === 'hovercraft') {
+        // Antigravity Thruster Vectoring & Air Cushion Drift
+        const hoverSpeedFactor = Math.max(0.38, 1.0 - (currentSpeedKmh / 320) * 0.45)
+        yawAngle.current += steerInput * config.turnRate * hoverSpeedFactor * dt
+
+        const targetLateral = -steerInput * Math.min(16, (currentSpeedKmh / 110) * 6.5)
+        lateralVel.current = THREE.MathUtils.lerp(lateralVel.current, targetLateral, dt * 3.2)
+        lateralVel.current *= Math.pow(0.985, dt * 60)
+      } else {
+        // Ground Vehicles: Yaw rate is strictly derived from forward movement and steer angle!
+        // When stationary (v == 0), yaw rate is MATHEMATICALLY ZERO!
+        const steerAngle = currentSteerAngle.current
+        const absVel = Math.abs(forwardVel.current)
+
+        if (absVel > 0.08) {
+          // Kinematic bicycle yaw rate: omega = (v / L) * tan(delta)
+          const kinematicYawRate = (forwardVel.current / config.wheelbase) * Math.tan(steerAngle)
+
+          // Maximum lateral centripetal acceleration supported by tire friction & aerodynamic downforce
+          const surfaceGrip = onRoad ? 1.0 : (activeBiomeConfig.id === 'tundra' ? 0.65 : 0.80)
+          const aeroDownforce = config.downforceCoeff * Math.min(1.4, Math.pow(absVel / config.maxSpeedMs, 2))
+          const maxLatAccel = config.tireGrip * 9.81 * (1.0 + aeroDownforce) * surfaceGrip
+
+          // Adhesion yaw rate limit before front tire scrub / drift
+          const maxYawRate = maxLatAccel / (absVel + 0.001)
+
+          let actualYawRate = kinematicYawRate
+          if (Math.abs(kinematicYawRate) > maxYawRate) {
+            // Tire adhesion limit exceeded: break into controlled progressive drift
+            actualYawRate = Math.sign(kinematicYawRate) * maxYawRate
+            const excessDemand = Math.abs(kinematicYawRate * forwardVel.current) - maxLatAccel
+            lateralVel.current += -Math.sign(steerAngle) * excessDemand * 0.28 * dt
+          }
+
+          yawAngle.current += actualYawRate * dt
+          // Tire lateral scrub damping
+          lateralVel.current *= Math.pow(0.72, dt * 60)
+        } else {
+          // Vehicle is at rest: complete damping of any lateral slide
+          lateralVel.current = 0
+        }
       }
 
       // Advance 3D World Position
@@ -440,6 +488,7 @@ export default function VehicleController() {
         forwardVel.current = 0
         lateralVel.current = 0
         yawAngle.current = 0
+        currentSteerAngle.current = 0
         wheelSpin.current = 0
         isFirstCamFrameRef.current = true
       }
@@ -449,7 +498,7 @@ export default function VehicleController() {
     // 4. Ground Alignment, Suspension & Dynamic Chassis Roll
     // ------------------------------------------------------------------------
     const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
-    steeringVisual.current = THREE.MathUtils.lerp(steeringVisual.current, steerInput * 0.38, frameDelta * 10)
+    steeringVisual.current = currentSteerAngle.current
     wheelSpin.current += (forwardVel.current / config.wheelRadius) * frameDelta
 
     const forwardX = -Math.sin(yawAngle.current)
