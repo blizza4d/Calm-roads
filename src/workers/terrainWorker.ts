@@ -102,31 +102,62 @@ self.onmessage = (e: MessageEvent<TerrainWorkerRequest>) => {
 
       // Continuous worldZ biome color sampling
       const vertexBiome = getActiveBiomeAt(worldZ, biomeId)
-      const isDesert = vertexBiome.id === 'desert'
-      const isTundra = vertexBiome.id === 'tundra'
-      const isAutumn = vertexBiome.id === 'autumn'
+      const bid = vertexBiome.id
 
       let cr = 0.18 * slope + 0.17 * (1 - slope)
       let cg = 0.24 * slope + 0.32 * (1 - slope)
       let cb = 0.28 * slope + 0.18 * (1 - slope)
 
-      if (isDesert) {
+      if (bid === 'twisted_mountains') {
+        // Slate rock on steep faces, pure soft powder snow on gentler slopes
+        cr = 0.28 * slope + 0.86 * (1 - slope)
+        cg = 0.33 * slope + 0.89 * (1 - slope)
+        cb = 0.42 * slope + 0.94 * (1 - slope)
+      } else if (bid === 'alpine') {
+        // Granite peaks on slopes, rich alpine meadow green on gentler slopes
+        cr = 0.32 * slope + 0.22 * (1 - slope)
+        cg = 0.35 * slope + 0.38 * (1 - slope)
+        cb = 0.38 * slope + 0.24 * (1 - slope)
+      } else if (bid === 'enchanted_forest') {
+        // Mossy weathered rock on slopes, deep emerald moss on ground
+        cr = 0.24 * slope + 0.12 * (1 - slope)
+        cg = 0.30 * slope + 0.32 * (1 - slope)
+        cb = 0.26 * slope + 0.14 * (1 - slope)
+      } else if (bid === 'coastal') {
+        // Sea-carved rock on slopes, vibrant ocean-view turf on flats
+        cr = 0.34 * slope + 0.28 * (1 - slope)
+        cg = 0.33 * slope + 0.48 * (1 - slope)
+        cb = 0.31 * slope + 0.12 * (1 - slope)
+      } else if (bid === 'desert') {
         cr = 0.62 * slope + 0.74 * (1 - slope)
         cg = 0.44 * slope + 0.52 * (1 - slope)
         cb = 0.25 * slope + 0.30 * (1 - slope)
-      } else if (isAutumn) {
+      } else if (bid === 'autumn') {
         cr = 0.42 * slope + 0.48 * (1 - slope)
         cg = 0.26 * slope + 0.32 * (1 - slope)
         cb = 0.18 * slope + 0.14 * (1 - slope)
-      } else if (isTundra) {
+      } else if (bid === 'tundra') {
         cr = 0.40 * slope + 0.68 * (1 - slope)
         cg = 0.44 * slope + 0.72 * (1 - slope)
         cb = 0.50 * slope + 0.76 * (1 - slope)
       }
 
       // Smooth alpine summit snow transition
-      if (isTundra && py > 22) {
+      if (bid === 'twisted_mountains') {
+        // Glistening alpine snow transitions on summits
+        if (py > 16) {
+          const snowT = Math.min(1.0, (py - 16) / 22.0)
+          cr = cr * (1 - snowT) + 0.96 * snowT
+          cg = cg * (1 - snowT) + 0.97 * snowT
+          cb = cb * (1 - snowT) + 0.99 * snowT
+        }
+      } else if (bid === 'tundra' && py > 22) {
         const snowT = Math.min(1.0, (py - 22) / 20.0)
+        cr = cr * (1 - snowT) + 0.94 * snowT
+        cg = cg * (1 - snowT) + 0.96 * snowT
+        cb = cb * (1 - snowT) + 0.98 * snowT
+      } else if (bid === 'alpine' && py > 44) {
+        const snowT = Math.min(1.0, (py - 44) / 24.0)
         cr = cr * (1 - snowT) + 0.94 * snowT
         cg = cg * (1 - snowT) + 0.96 * snowT
         cb = cb * (1 - snowT) + 0.98 * snowT

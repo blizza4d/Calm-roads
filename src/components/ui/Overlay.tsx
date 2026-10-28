@@ -23,6 +23,7 @@ import {
   Trees,
   Flame,
   Mountain,
+  Compass,
   Radio,
   Gamepad2,
   Activity,
@@ -217,6 +218,47 @@ function SpeedometerHUD() {
 }
 
 // ----------------------------------------------------------------
+// 2.5 Region Discovery Banner (Toast on entering new biome/region)
+// ----------------------------------------------------------------
+function RegionDiscoveryBanner() {
+  const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
+  const [visible, setVisible] = useState(false)
+  const [activeBiome, setActiveBiome] = useState(currentResolvedBiome)
+
+  useEffect(() => {
+    setActiveBiome(currentResolvedBiome)
+    setVisible(true)
+    const timer = setTimeout(() => {
+      setVisible(false)
+    }, 4500)
+    return () => clearTimeout(timer)
+  }, [currentResolvedBiome])
+
+  const info = BIOMES[activeBiome] || BIOMES.twisted_mountains
+
+  return (
+    <div
+      className={`fixed top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
+        visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'
+      }`}
+    >
+      <div className="backdrop-blur-2xl bg-black/75 border border-white/20 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3.5 text-white">
+        <span className="text-amber-400 font-mono font-bold text-[10px] tracking-widest uppercase bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/25">
+          DISCOVERED REGION
+        </span>
+        <span className="h-4 w-px bg-white/20" />
+        <span className="font-bold text-sm tracking-wide text-white">{info.name}</span>
+        {info.tagline && (
+          <span className="text-xs text-white/50 hidden sm:inline font-medium">
+            • {info.tagline}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
 // 3. Consolidated Master Menu Modal
 // ----------------------------------------------------------------
 function MasterMenuModal({
@@ -286,10 +328,14 @@ function MasterMenuModal({
 
   const biomes: { id: BiomeSelection; name: string; icon: React.ReactNode }[] = [
     { id: 'dynamic', name: 'Dynamic (Cycle)', icon: <Sparkles size={14} /> },
+    { id: 'twisted_mountains', name: 'Twisted Mountains', icon: <Snowflake size={14} /> },
+    { id: 'alpine', name: 'Alpine Highlands', icon: <Mountain size={14} /> },
+    { id: 'enchanted_forest', name: 'Enchanted Forest', icon: <Trees size={14} /> },
+    { id: 'coastal', name: 'Coastal Highlands', icon: <Compass size={14} /> },
+    { id: 'autumn', name: 'Autumn Valley', icon: <Flame size={14} /> },
+    { id: 'desert', name: 'Desert Canyon', icon: <Sun size={14} /> },
+    { id: 'tundra', name: 'Snowy Tundra', icon: <Wind size={14} /> },
     { id: 'forest', name: 'Lush Forest', icon: <Trees size={14} /> },
-    { id: 'autumn', name: 'Autumn Mountains', icon: <Flame size={14} /> },
-    { id: 'tundra', name: 'Snowy Tundra', icon: <Snowflake size={14} /> },
-    { id: 'desert', name: 'Desert Dunes', icon: <Mountain size={14} /> },
   ]
 
   const weathers: { id: WeatherType; name: string; icon: React.ReactNode }[] = [
@@ -1114,6 +1160,9 @@ export default function Overlay() {
 
   return (
     <div className="w-full h-full p-4 md:p-6 flex flex-col justify-between pointer-events-none select-none font-sans">
+      {/* ----------------- REGION DISCOVERY BANNER ----------------- */}
+      <RegionDiscoveryBanner />
+
       {/* ----------------- TOP NAVBAR: DECLUTTERED & STREAMLINED ----------------- */}
       <div className="flex items-center justify-between w-full pointer-events-auto">
         {/* Brand Badge */}

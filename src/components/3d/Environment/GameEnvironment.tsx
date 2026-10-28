@@ -551,7 +551,9 @@ export default function GameEnvironment() {
   // Dynamic Sky & Atmosphere Background Color with smooth 24h chromatic interpolation
   const skyColor = useMemo(() => {
     const isNight = celestialData.isNight
-    if (weather === 'snow') return isNight ? '#141824' : '#cbd5e1'
+    if (weather === 'snow' || (weather === 'clear' && (currentResolvedBiome === 'twisted_mountains' || currentResolvedBiome === 'tundra'))) {
+      return isNight ? '#141824' : '#cbd5e1'
+    }
     if (weather === 'rain') return isNight ? '#0b0f19' : '#1e293b'
     if (weather === 'mist') return isNight ? '#0f172a' : '#64748b'
 
@@ -564,32 +566,34 @@ export default function GameEnvironment() {
       const f = (t - 5.0) / 2.0
       return '#' + new THREE.Color('#030712').lerp(new THREE.Color('#e87958'), f).getHexString()
     } else if (t >= 7.0 && t < 9.5) {
-      // Morning transition to crisp daylight cyan
+      // Morning transition to crisp daylight
       const f = (t - 7.0) / 2.5
-      return '#' + new THREE.Color('#e87958').lerp(new THREE.Color('#38bdf8'), f).getHexString()
+      return '#' + new THREE.Color('#e87958').lerp(new THREE.Color(biomeConfig.skyHemiSky || '#38bdf8'), f).getHexString()
     } else if (t >= 9.5 && t < 16.5) {
-      // Pure daylight azure
-      return '#38bdf8'
+      // Pure daylight tuned to biome palette
+      return biomeConfig.skyHemiSky || '#38bdf8'
     } else if (t >= 16.5 && t < 19.5) {
       // Golden Hour to Warm Sunset
       const f = (t - 16.5) / 3.0
-      return '#' + new THREE.Color('#38bdf8').lerp(new THREE.Color('#e0833a'), f).getHexString()
+      return '#' + new THREE.Color(biomeConfig.skyHemiSky || '#38bdf8').lerp(new THREE.Color('#e0833a'), f).getHexString()
     } else {
       // Dusk to Night
       const f = (t - 19.5) / 2.0
       return '#' + new THREE.Color('#e0833a').lerp(new THREE.Color('#030712'), f).getHexString()
     }
-  }, [weather, timeOfDay, celestialData.isNight])
+  }, [weather, timeOfDay, celestialData.isNight, currentResolvedBiome, biomeConfig.skyHemiSky])
 
   // Calibrated atmospheric aerial perspective exponential fog density
   const fogDensity = useMemo(() => {
     if (weather === 'snow') return 0.0028
     if (weather === 'mist') return 0.0035
     if (weather === 'rain') return 0.0016
-    if (biomeConfig.id === 'tundra') return 0.0024
+    if (biomeConfig.fogDensity) {
+      return celestialData.isNight ? biomeConfig.fogDensity * 0.75 : biomeConfig.fogDensity
+    }
     if (celestialData.isNight) return 0.00085
     return 0.00045
-  }, [weather, biomeConfig.id, celestialData.isNight])
+  }, [weather, biomeConfig.fogDensity, celestialData.isNight])
 
   // Sync background color directly to scene to prevent canvas black void
   useEffect(() => {
@@ -635,7 +639,9 @@ export default function GameEnvironment() {
 
   // Precipitation Particles (Rain streaks or gentle drifting snow)
   const isRain = weather === 'rain'
-  const isSnow = weather === 'snow' || (weather === 'clear' && currentResolvedBiome === 'tundra')
+  const isSnow =
+    weather === 'snow' ||
+    (weather === 'clear' && (currentResolvedBiome === 'twisted_mountains' || currentResolvedBiome === 'tundra'))
   const isPrecip = isRain || isSnow
   const particleCount = isSnow ? 2800 : 2000
 
@@ -785,7 +791,7 @@ export default function GameEnvironment() {
       {/* Atmospheric Fill Ambient / Hemisphere Lighting with Softened Ground Bounce */}
       <hemisphereLight
         color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
-        groundColor={celestialData.isNight ? '#334155' : '#64748b'}
+        groundColor={celestialData.isNight ? '#334155' : (biomeConfig.skyHemiGround || '#64748b')}
         intensity={celestialData.isNight ? 0.65 : 1.25}
       />
 

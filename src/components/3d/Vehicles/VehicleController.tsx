@@ -165,6 +165,41 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
 const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
 const _tempCamForward = new THREE.Vector3()
+const _tempParticleColor = new THREE.Color()
+const _wheelWorldPos = new THREE.Vector3()
+const _particleDummy = new THREE.Object3D()
+const _particleGeo = new THREE.PlaneGeometry(0.42, 0.42)
+
+const PARTICLE_COUNT = 40
+
+// Offscreen canvas-generated soft circular radial gradient for tire smoke / snow / dust particles
+function createTireParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30)
+    grad.addColorStop(0, 'rgba(255, 255, 255, 0.88)')
+    grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.42)')
+    grad.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 64, 64)
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+const _particleTexture = typeof document !== 'undefined' ? createTireParticleTexture() : new THREE.Texture()
+const _particleMaterial = new THREE.MeshBasicMaterial({
+  map: _particleTexture,
+  transparent: true,
+  opacity: 0.58,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+})
+
 const _wheelCorners: [number, number][] = [
   [-0.83, -1.55], // Front-Left (aligned with wheel arch)
   [0.83, -1.55],  // Front-Right (aligned with wheel arch)
@@ -209,6 +244,31 @@ export default function VehicleController() {
   const hoverAltitude = useRef(isHoverMode ? 1.25 : config.rideHeight)
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
   const prevThrottleVal = useRef(0)
+
+  // Tire Particle System Ref & Pool (Snow flurries, tire smoke & off-road dust)
+  const tireParticleMeshRef = useRef<THREE.InstancedMesh>(null)
+  const particlePool = useRef<
+    Array<{
+      pos: THREE.Vector3
+      vel: THREE.Vector3
+      life: number
+      maxLife: number
+      size: number
+      color: THREE.Color
+      active: boolean
+    }>
+  >(
+    Array.from({ length: PARTICLE_COUNT }, () => ({
+      pos: new THREE.Vector3(0, -999, 0),
+      vel: new THREE.Vector3(),
+      life: 0,
+      maxLife: 0.8,
+      size: 0.35,
+      color: new THREE.Color('#ffffff'),
+      active: false,
+    }))
+  )
+  const particleSpawnCounter = useRef(0)
 
   // Telemetry throttling and biome change tracking
   const prevResolvedBiome = useRef<string>('')
@@ -310,18 +370,19 @@ export default function VehicleController() {
     let steerInput = 0
 
     if (store.autoDrive) {
-      // Relaxing cruising along the highway centerline
+      // Relaxing cruising along the highway centerline with dynamic curve look-ahead
       const targetCruise = 26 // m/s (~94 km/h)
       if (forwardVel.current < targetCruise) targetThrottle = 0.55
       else targetThrottle = 0.06
 
       const roadX = getRoadCenter(pos.current.z)
-      const lookAheadRoadX = getRoadCenter(pos.current.z - 24)
+      const lookAheadDist = Math.max(16, Math.min(32, Math.abs(forwardVel.current) * 0.95))
+      const lookAheadRoadX = getRoadCenter(pos.current.z - lookAheadDist)
       const errorX = pos.current.x - roadX
       const curveAhead = lookAheadRoadX - roadX
 
-      const autoSteer = errorX * 0.14 - curveAhead * 0.08
-      steerInput = Math.max(-0.65, Math.min(0.65, autoSteer))
+      const autoSteer = THREE.MathUtils.clamp(errorX * 0.16 - curveAhead * 0.12, -0.75, 0.75)
+      steerInput = autoSteer
     } else {
       if (keys.forward || store.virtualThrottle) targetThrottle = 1
       if (keys.backward || store.virtualBrake) {
@@ -452,7 +513,10 @@ export default function VehicleController() {
           const kinematicYawRate = (forwardVel.current / config.wheelbase) * Math.tan(steerAngle)
 
           // Maximum lateral centripetal acceleration supported by tire friction & aerodynamic downforce
-          const surfaceGrip = onRoad ? 1.0 : (activeBiomeConfig.id === 'tundra' ? 0.65 : 0.80)
+          const baseFriction = activeBiomeConfig.friction ?? 1.0
+          const surfaceGrip = onRoad
+            ? baseFriction
+            : (activeBiomeConfig.id === 'tundra' || activeBiomeConfig.id === 'twisted_mountains' ? 0.65 : 0.80)
           const aeroDownforce = config.downforceCoeff * Math.min(1.4, Math.pow(absVel / config.maxSpeedMs, 2))
           const maxLatAccel = config.tireGrip * 9.81 * (1.0 + aeroDownforce) * surfaceGrip
 
@@ -722,11 +786,136 @@ export default function VehicleController() {
     }
 
     // ------------------------------------------------------------------------
-    // 7. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
+    // 7. Dynamic Tire Particles (Snow Spray Flurries, Drift Smoke & Terrain Dust)
     // ------------------------------------------------------------------------
     const carPos = pos.current
     const carQuat = carGroupRef.current.quaternion
 
+    particleSpawnCounter.current++
+    const absVel = Math.abs(forwardVel.current)
+    const isSnowyRegion = activeBiomeConfig.id === 'twisted_mountains' || activeBiomeConfig.id === 'tundra'
+    const isDrifting = Math.abs(lateralVel.current) > 1.15 || (targetBrake > 0.3 && absVel > 6.0)
+    const isOffroadDust = !onRoad && absVel > 3.0
+
+    if (
+      !isHoverMode &&
+      vehicleModel !== 'hovercraft' &&
+      absVel > 2.5 &&
+      (isSnowyRegion || isDrifting || isOffroadDust) &&
+      particleSpawnCounter.current % 2 === 0
+    ) {
+      // Find inactive or oldest particle
+      let bestP = particlePool.current[0]
+      let maxLifeNorm = -1
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const p = particlePool.current[i]
+        if (!p.active) {
+          bestP = p
+          break
+        }
+        const norm = p.life / p.maxLife
+        if (norm > maxLifeNorm) {
+          maxLifeNorm = norm
+          bestP = p
+        }
+      }
+
+      // Spawn at rear wheel contact patch in world coordinates
+      const isRightWheel = Math.random() > 0.5
+      const wheelLocalX = isRightWheel ? 0.78 : -0.78
+      const wheelLocalY = -config.rideHeight + 0.08
+      const wheelLocalZ = 1.18
+
+      _wheelWorldPos.set(wheelLocalX, wheelLocalY, wheelLocalZ).applyQuaternion(carQuat).add(carPos)
+      bestP.pos.copy(_wheelWorldPos)
+      bestP.active = true
+      bestP.life = 0
+
+      if (isDrifting) {
+        // High density tire drift smoke
+        bestP.maxLife = 0.85
+        bestP.size = 0.42
+        bestP.color.set('#f1f5f9')
+        bestP.vel.set(
+          (Math.random() - 0.5) * 1.2 + lateralVel.current * 0.25,
+          Math.random() * 0.9 + 0.3,
+          -forwardVel.current * 0.12 + (Math.random() - 0.5) * 0.8
+        )
+      } else if (isSnowyRegion) {
+        // Crisp snow spray flurries behind wheels
+        bestP.maxLife = 0.65
+        bestP.size = 0.32
+        bestP.color.set('#e2e8f0')
+        bestP.vel.set(
+          (Math.random() - 0.5) * 0.9,
+          Math.random() * 1.1 + 0.4,
+          -forwardVel.current * 0.16 + (Math.random() - 0.5) * 0.6
+        )
+      } else {
+        // Off-road loose terrain dust
+        bestP.maxLife = 0.75
+        bestP.size = 0.45
+        bestP.color.set(activeBiomeConfig.id === 'desert' ? '#d4a373' : '#8d7b68')
+        bestP.vel.set(
+          (Math.random() - 0.5) * 1.0,
+          Math.random() * 0.7 + 0.2,
+          -forwardVel.current * 0.14 + (Math.random() - 0.5) * 0.6
+        )
+      }
+    }
+
+    // Update active particle instances
+    if (tireParticleMeshRef.current) {
+      const pMesh = tireParticleMeshRef.current
+      if (!pMesh.instanceColor) {
+        pMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLE_COUNT * 3), 3)
+      }
+
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const p = particlePool.current[i]
+        if (!p.active) {
+          _particleDummy.position.set(0, -999, 0)
+          _particleDummy.scale.set(0, 0, 0)
+          _particleDummy.updateMatrix()
+          pMesh.setMatrixAt(i, _particleDummy.matrix)
+          continue
+        }
+
+        p.life += frameDelta
+        if (p.life >= p.maxLife) {
+          p.active = false
+          _particleDummy.position.set(0, -999, 0)
+          _particleDummy.scale.set(0, 0, 0)
+          _particleDummy.updateMatrix()
+          pMesh.setMatrixAt(i, _particleDummy.matrix)
+          continue
+        }
+
+        p.pos.addScaledVector(p.vel, frameDelta)
+        p.vel.y += 0.25 * frameDelta
+        p.vel.x *= 0.94
+        p.vel.z *= 0.94
+
+        const progress = p.life / p.maxLife
+        const currentScale = p.size * (1.0 + progress * 1.8)
+
+        _particleDummy.position.copy(p.pos)
+        _particleDummy.quaternion.copy(state.camera.quaternion)
+        _particleDummy.scale.set(currentScale, currentScale, currentScale)
+        _particleDummy.updateMatrix()
+        pMesh.setMatrixAt(i, _particleDummy.matrix)
+
+        _tempParticleColor.copy(p.color).multiplyScalar(Math.max(0, 1.0 - progress * 0.75))
+        pMesh.setColorAt(i, _tempParticleColor)
+      }
+
+      pMesh.instanceMatrix.needsUpdate = true
+      if (pMesh.instanceColor) pMesh.instanceColor.needsUpdate = true
+    }
+
+    // ------------------------------------------------------------------------
+    // 8. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
+    // ------------------------------------------------------------------------
     // Dynamic FOV: expands smoothly at high speed (from 60° up to 74°) for sensation of speed
     const persCam = state.camera as THREE.PerspectiveCamera
     if (persCam.isPerspectiveCamera) {
@@ -743,6 +932,11 @@ export default function VehicleController() {
       const lookAhead = Math.min(18, Math.max(0, forwardVel.current * 0.22))
       _tempCamOffset.set(0, 1.82, 4.85).applyQuaternion(carQuat).add(carPos)
       _tempCamLookAt.set(0, 0.86, -lookAhead - 2.8).applyQuaternion(carQuat).add(carPos)
+
+      // Dynamic curve anticipation: look through the apex of upcoming road curves
+      const upcomingZ = carPos.z - lookAhead - 14
+      const curveDelta = getRoadCenter(upcomingZ) - getRoadCenter(carPos.z)
+      _tempCamLookAt.x += THREE.MathUtils.clamp(curveDelta * 0.35, -4.5, 4.5)
 
       // Subtle high-speed micro-vibration
       if (currentSpeedKmh > 80) {
@@ -781,21 +975,28 @@ export default function VehicleController() {
   })
 
   return (
-    <group ref={carGroupRef}>
-      <group ref={chassisMeshRef}>
-        <ActiveCarModel
-          type={vehicleModel}
-          paintColor={paintColor}
-          metallic={metallic}
-          roughness={roughness}
-          steeringAngle={steeringVisual.current}
-          wheelRotation={wheelSpin.current}
-          isBraking={useGameStore.getState().brake > 0}
-          headlightsOn={headlights}
-          isHoverMode={isHoverMode}
-          wheelSuspensions={wheelSuspensions.current}
-        />
+    <>
+      <group ref={carGroupRef}>
+        <group ref={chassisMeshRef}>
+          <ActiveCarModel
+            type={vehicleModel}
+            paintColor={paintColor}
+            metallic={metallic}
+            roughness={roughness}
+            steeringAngle={steeringVisual.current}
+            wheelRotation={wheelSpin.current}
+            isBraking={useGameStore.getState().brake > 0}
+            headlightsOn={headlights}
+            isHoverMode={isHoverMode}
+            wheelSuspensions={wheelSuspensions.current}
+          />
+        </group>
       </group>
-    </group>
+      <instancedMesh
+        ref={tireParticleMeshRef}
+        args={[_particleGeo, _particleMaterial, PARTICLE_COUNT]}
+        frustumCulled={false}
+      />
+    </>
   )
 }

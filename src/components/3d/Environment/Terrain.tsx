@@ -6,6 +6,7 @@ import {
   getRoadCenter,
   getRoadElevation,
   getRoadTangent,
+  getRoadBanking,
   getTerrainHeight,
   ROAD_WIDTH,
   getActiveBiomeAt,
@@ -195,6 +196,37 @@ const poleGeo = (() => {
 const delineatorPostGeo = new THREE.CylinderGeometry(0.065, 0.075, 1.15, 12).translate(0, 0.575, 0)
 const delineatorReflectorGeo = new THREE.CylinderGeometry(0.076, 0.076, 0.16, 12).translate(0, 0.92, 0)
 
+// 9. Cozy Alpine Timber Cabin with Steep Snow-Covered Gable Roof & Stone Chimney
+const cabinGeo = (() => {
+  const body = new THREE.BoxGeometry(5.2, 3.0, 5.8).translate(0, 1.5, 0)
+  const roofL = new THREE.BoxGeometry(3.4, 0.22, 6.4).rotateZ(0.68).translate(-1.32, 3.65, 0)
+  const roofR = new THREE.BoxGeometry(3.4, 0.22, 6.4).rotateZ(-0.68).translate(1.32, 3.65, 0)
+  const snowRoofL = new THREE.BoxGeometry(3.5, 0.32, 6.5).rotateZ(0.68).translate(-1.32, 3.82, 0)
+  const snowRoofR = new THREE.BoxGeometry(3.5, 0.32, 6.5).rotateZ(-0.68).translate(1.32, 3.82, 0)
+  const chimney = new THREE.BoxGeometry(0.78, 4.6, 0.78).translate(1.5, 2.3, 1.5)
+  const porchFloor = new THREE.BoxGeometry(4.8, 0.25, 1.8).translate(0, 0.125, -3.2)
+  const porchRoof = new THREE.BoxGeometry(5.0, 0.18, 2.0).translate(0, 2.5, -3.2)
+  const postL = new THREE.CylinderGeometry(0.1, 0.1, 2.5, 8).translate(-2.0, 1.25, -3.4)
+  const postR = new THREE.CylinderGeometry(0.1, 0.1, 2.5, 8).translate(2.0, 1.25, -3.4)
+
+  const merged = mergeBufferGeometries([
+    body, roofL, roofR, snowRoofL, snowRoofR, chimney, porchFloor, porchRoof, postL, postR
+  ])
+  merged.computeVertexNormals()
+  return merged
+})()
+
+const cabinWindowGeo = (() => {
+  const wFrontL = new THREE.PlaneGeometry(0.85, 0.85).translate(-1.2, 1.8, -2.91)
+  const wFrontR = new THREE.PlaneGeometry(0.85, 0.85).translate(1.2, 1.8, -2.91)
+  const wSideL = new THREE.PlaneGeometry(0.85, 0.85).rotateY(Math.PI / 2).translate(-2.61, 1.8, 0)
+  const wSideR = new THREE.PlaneGeometry(0.85, 0.85).rotateY(-Math.PI / 2).translate(2.61, 1.8, 0)
+
+  const merged = mergeBufferGeometries([wFrontL, wFrontR, wSideL, wSideR])
+  merged.computeVertexNormals()
+  return merged
+})()
+
 // Pre-assign chunk-spanning bounding spheres to all instanced geometries to enable
 // hardware-accelerated frustum culling without edge-of-screen false-culling pops
 const CHUNK_SPHERE = new THREE.Sphere(new THREE.Vector3(0, 30, 0), 220)
@@ -209,6 +241,8 @@ grassTuftGeo.boundingSphere = CHUNK_SPHERE
 poleGeo.boundingSphere = CHUNK_SPHERE
 delineatorPostGeo.boundingSphere = CHUNK_SPHERE
 delineatorReflectorGeo.boundingSphere = CHUNK_SPHERE
+cabinGeo.boundingSphere = CHUNK_SPHERE
+cabinWindowGeo.boundingSphere = CHUNK_SPHERE
 
 // ----------------------------------------------------------------------------
 // Shared Static Materials: Pre-allocated once to eliminate 200+ redundant WebGL material state changes
@@ -254,6 +288,20 @@ const sharedPoleMat = new THREE.MeshStandardMaterial({
   bumpMap: getWoodBumpTexture(),
   bumpScale: 0.024,
   roughness: 0.92,
+})
+
+const sharedCabinMat = new THREE.MeshStandardMaterial({
+  color: '#452a1a', // Rich dark timber log cabin
+  roughness: 0.86,
+  metalness: 0.05,
+})
+
+const sharedCabinWindowMat = new THREE.MeshStandardMaterial({
+  color: '#fef08a',
+  emissive: new THREE.Color('#f59e0b'),
+  emissiveIntensity: 3.5,
+  roughness: 0.12,
+  toneMapped: false,
 })
 
 // Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
@@ -686,12 +734,14 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cx = getRoadCenter(worldZ)
       const cy = getRoadElevation(worldZ) + 0.085
       const { nx, nz } = getRoadTangent(worldZ)
+      const banking = getRoadBanking(worldZ)
+      const bankY = Math.tan(banking) * halfW
       const v = worldZ / 24.0
 
       const baseIdx = i * 9
       // Left edge
       pos[baseIdx] = cx - nx * halfW
-      pos[baseIdx + 1] = cy - 0.015
+      pos[baseIdx + 1] = cy - 0.015 - bankY
       pos[baseIdx + 2] = localZ - nz * halfW
       norm[baseIdx] = -nx * 0.1
       norm[baseIdx + 1] = 0.98
@@ -707,7 +757,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
       // Right edge
       pos[baseIdx + 6] = cx + nx * halfW
-      pos[baseIdx + 7] = cy - 0.015
+      pos[baseIdx + 7] = cy - 0.015 + bankY
       pos[baseIdx + 8] = localZ + nz * halfW
       norm[baseIdx + 6] = nx * 0.1
       norm[baseIdx + 7] = 0.98
@@ -769,24 +819,27 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cx = getRoadCenter(worldZ)
       const cy = getRoadElevation(worldZ) + 0.065
       const { nx, nz } = getRoadTangent(worldZ)
+      const banking = getRoadBanking(worldZ)
+      const bankY = Math.tan(banking) * innerW
+      const bankOuterY = Math.tan(banking) * outerW
 
       const baseIdx = i * 12
       // Left shoulder (inner to outer)
       pos[baseIdx] = cx - nx * innerW
-      pos[baseIdx + 1] = cy
+      pos[baseIdx + 1] = cy - bankY
       pos[baseIdx + 2] = localZ - nz * innerW
 
       pos[baseIdx + 3] = cx - nx * outerW
-      pos[baseIdx + 4] = cy - 0.05
+      pos[baseIdx + 4] = cy - 0.05 - bankOuterY
       pos[baseIdx + 5] = localZ - nz * outerW
 
       // Right shoulder (inner to outer)
       pos[baseIdx + 6] = cx + nx * innerW
-      pos[baseIdx + 7] = cy
+      pos[baseIdx + 7] = cy + bankY
       pos[baseIdx + 8] = localZ + nz * innerW
 
       pos[baseIdx + 9] = cx + nx * outerW
-      pos[baseIdx + 10] = cy - 0.05
+      pos[baseIdx + 10] = cy - 0.05 + bankOuterY
       pos[baseIdx + 11] = localZ + nz * outerW
     }
     shoulderGeo.attributes.position.needsUpdate = true
@@ -901,25 +954,27 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const cx = getRoadCenter(worldZ)
       const cy = getRoadElevation(worldZ) + 0.078
       const { nx, nz } = getRoadTangent(worldZ)
+      const banking = getRoadBanking(worldZ)
+      const bankY = Math.tan(banking) * edgeOffset
 
       const lx = cx - nx * edgeOffset
       const lz = localZ - nz * edgeOffset
       pos[vOffset] = lx - nx * edgeHalfW
-      pos[vOffset + 1] = cy
+      pos[vOffset + 1] = cy - bankY
       pos[vOffset + 2] = lz - nz * edgeHalfW
 
       pos[vOffset + 3] = lx + nx * edgeHalfW
-      pos[vOffset + 4] = cy
+      pos[vOffset + 4] = cy - bankY
       pos[vOffset + 5] = lz + nz * edgeHalfW
 
       const rx = cx + nx * edgeOffset
       const rz = localZ + nz * edgeOffset
       pos[vOffset + 6] = rx - nx * edgeHalfW
-      pos[vOffset + 7] = cy
+      pos[vOffset + 7] = cy + bankY
       pos[vOffset + 8] = rz - nz * edgeHalfW
 
       pos[vOffset + 9] = rx + nx * edgeHalfW
-      pos[vOffset + 10] = cy
+      pos[vOffset + 10] = cy + bankY
       pos[vOffset + 11] = rz + nz * edgeHalfW
 
       vOffset += 12
@@ -1020,7 +1075,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
   }, [chunkZ, guardrailGeo])
 
-  // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles)
+  // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles, Alpine Cabins)
   const sceneryData = useMemo(() => {
     const pines: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const broadleafs: { pos: [number, number, number]; scale: number; rotY: number }[] = []
@@ -1030,10 +1085,14 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const grassTufts: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const poles: { pos: [number, number, number] }[] = []
     const delineators: { pos: [number, number, number]; rotY: number }[] = []
+    const cabins: { pos: [number, number, number]; rotY: number }[] = []
 
-    const isDesert = biomeConfig.id === 'desert'
-    const isTundra = biomeConfig.id === 'tundra'
-    const isAutumn = biomeConfig.id === 'autumn'
+    const bid = biomeConfig.id
+    const isDesert = bid === 'desert'
+    const isSnowy = bid === 'tundra' || bid === 'twisted_mountains'
+    const isAlpine = bid === 'alpine'
+    const isTwisted = bid === 'twisted_mountains'
+    const isEnchanted = bid === 'enchanted_forest'
 
     const numClusters = 6
     const clusterStep = CHUNK_LEN / numClusters
@@ -1054,8 +1113,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         poles.push({ pos: [poleX, poleY, clusterZ] })
       }
 
-      // Roadside grass tufts along shoulder borders (suppressed in desert and tundra/snow biomes)
-      if (biomeConfig.id !== 'desert' && biomeConfig.id !== 'tundra') {
+      // Roadside grass tufts along shoulder borders (suppressed in desert and snowy biomes)
+      if (!isDesert && !isSnowy) {
         const sides = [-1, 1]
         sides.forEach((side) => {
           const grassDist = ROAD_WIDTH / 2 + 1.6 + hash1 * 1.8
@@ -1068,6 +1127,21 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             scale: 0.8 + hash3 * 0.5,
             rotY: hash1 * Math.PI * 2,
           })
+        })
+      }
+
+      // Cozy roadside log cabins in Twisted Mountains (at scenic roadside pullouts)
+      if (isTwisted && c === 2 && hash1 > 0.35) {
+        const cabinSide = hash2 > 0.5 ? 1 : -1
+        const cabinDist = ROAD_WIDTH / 2 + 13.0 + hash3 * 6.0
+        const cabinX = roadCx + cabinSide * cabinDist
+        const cabinZ = clusterZ
+        const cabinWorldZ = chunkZ + cabinZ
+        const cabinY = getTerrainHeight(cabinX, cabinWorldZ, biomeConfig.id)
+        const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
+        cabins.push({
+          pos: [cabinX, cabinY, cabinZ],
+          rotY,
         })
       }
 
@@ -1121,7 +1195,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 4.2) {
               const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
               const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
-              const isPine = isTundra ? true : isAutumn ? (i % 3 === 0) : (i % 2 === 0)
+              const isPine = (isTwisted || isAlpine || isSnowy)
+                ? true
+                : isDesert
+                ? false
+                : isEnchanted
+                ? (i % 2 === 0)
+                : bid === 'autumn'
+                ? (i % 3 === 0)
+                : (i % 2 === 0)
 
               if (isPine) {
                 pines.push({
@@ -1193,7 +1275,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       })
     }
 
-    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators }
+    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators, cabins }
   }, [chunkZ, biomeConfig.id])
 
   // Instanced Meshes for Vegetation & Scenery Props
@@ -1208,6 +1290,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const poleRef = useRef<THREE.InstancedMesh>(null)
   const delineatorPostRef = useRef<THREE.InstancedMesh>(null)
   const delineatorReflectorRef = useRef<THREE.InstancedMesh>(null)
+  const cabinRef = useRef<THREE.InstancedMesh>(null)
+  const cabinWindowRef = useRef<THREE.InstancedMesh>(null)
 
   // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
   useLayoutEffect(() => {
@@ -1312,6 +1396,20 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       delineatorPostRef.current.instanceMatrix.needsUpdate = true
       delineatorReflectorRef.current.instanceMatrix.needsUpdate = true
     }
+
+    // 9. Cozy Alpine Cabins
+    if (cabinRef.current && cabinWindowRef.current) {
+      sceneryData.cabins.forEach((c, i) => {
+        _dummy.position.set(c.pos[0], c.pos[1], c.pos[2])
+        _dummy.scale.set(1, 1, 1)
+        _dummy.rotation.set(0, c.rotY, 0)
+        _dummy.updateMatrix()
+        cabinRef.current?.setMatrixAt(i, _dummy.matrix)
+        cabinWindowRef.current?.setMatrixAt(i, _dummy.matrix)
+      })
+      cabinRef.current.instanceMatrix.needsUpdate = true
+      cabinWindowRef.current.instanceMatrix.needsUpdate = true
+    }
   }, [sceneryData])
 
   // Distance-Based Level of Detail (LOD) Culling:
@@ -1350,6 +1448,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       if (broadleafTrunkRef.current) broadleafTrunkRef.current.count = sceneryData.broadleafs.length * macroMult
       if (broadleafCanopyRef.current) broadleafCanopyRef.current.count = sceneryData.broadleafs.length * macroMult
       if (saguaroRef.current) saguaroRef.current.count = sceneryData.saguaros.length * macroMult
+      if (cabinRef.current) cabinRef.current.count = sceneryData.cabins.length * macroMult
+      if (cabinWindowRef.current) cabinWindowRef.current.count = sceneryData.cabins.length * macroMult
     }
   })
 
@@ -1488,6 +1588,22 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         ref={delineatorReflectorRef}
         args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
         count={sceneryData.delineators.length}
+        frustumCulled={true}
+      />
+
+      {/* 15. Cozy Alpine Timber Cabins & Roadside Shelters */}
+      <instancedMesh
+        ref={cabinRef}
+        args={[cabinGeo, sharedCabinMat, 4]}
+        count={sceneryData.cabins.length}
+        castShadow
+        receiveShadow
+        frustumCulled={true}
+      />
+      <instancedMesh
+        ref={cabinWindowRef}
+        args={[cabinWindowGeo, sharedCabinWindowMat, 4]}
+        count={sceneryData.cabins.length}
         frustumCulled={true}
       />
     </group>

@@ -165,12 +165,28 @@ function BmwGtrWheel({
     <group position={[position[0], position[1] + suspension, position[2]]}>
       {/* Antigravity hover fold angle */}
       <group rotation={[0, 0, side === 1 ? -hoverFold : hoverFold]}>
-        {/* Steering angle */}
+        {/* Steering angle (wheel knuckle) */}
         <group rotation={[0, steeringAngle, 0]}>
+          {/* Non-spinning Brembo racing brake caliper fixed to wheel knuckle */}
+          <mesh
+            position={[side === 1 ? 0.05 : -0.05, 0.13, -0.11]}
+            rotation={[0, 0, side === 1 ? -0.38 : 0.38]}
+            castShadow
+          >
+            <boxGeometry args={[0.075, 0.11, 0.08]} />
+            <meshStandardMaterial color="#d97706" metalness={0.85} roughness={0.22} />
+          </mesh>
+
           {/* Outboard wheel rim face alignment: Left wheel side===1 rotates 180° around Y to face outboard (-X) */}
           <group rotation={[0, side === 1 ? Math.PI : 0, 0]}>
             {/* Wheel spin around axle (X). Rolls forward synchronized with car motion */}
             <group rotation={[side === 1 ? wheelRotation : -wheelRotation, 0, 0]}>
+              {/* Ventilated Drilled Steel Racing Brake Rotor */}
+              <mesh rotation={[0, 0, Math.PI / 2]} position={[-0.028, 0, 0]}>
+                <cylinderGeometry args={[0.23, 0.23, 0.022, 28]} />
+                <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.25} />
+              </mesh>
+
               {/* Scaled from 5.0m mesh diameter to exact 0.68m visual wheel diameter (0.34m radius) */}
               <group scale={0.136}>
                 <primitive object={cloned} />
@@ -718,19 +734,29 @@ export function CamperVanModel({
   const renderVanWheel = (isFront: boolean, isLeft: boolean) => (
     <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
       <group rotation={[-wheelRotation, 0, 0]}>
-        {/* Rubber Tire */}
-        <mesh rotation={[0, 0, Math.PI / 2]}>
+        {/* Rubber Tire with Tread */}
+        <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
           <cylinderGeometry args={[0.38, 0.38, 0.28, 24]} />
-          <meshStandardMaterial color="#27272a" roughness={0.88} />
+          <meshStandardMaterial color="#1f2937" roughness={0.90} metalness={0.04} />
+        </mesh>
+        {/* Rounded Tire Outer Shoulders */}
+        <mesh rotation={[0, Math.PI / 2, 0]} position={[isLeft ? -0.11 : 0.11, 0, 0]}>
+          <torusGeometry args={[0.30, 0.08, 12, 24]} />
+          <meshStandardMaterial color="#1f2937" roughness={0.90} metalness={0.04} />
         </mesh>
         {/* White-wall ring */}
-        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.12 : 0.12, 0, 0]}>
-          <cylinderGeometry args={[0.32, 0.32, 0.02, 22]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.3} />
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.13 : 0.13, 0, 0]}>
+          <cylinderGeometry args={[0.31, 0.31, 0.02, 24]} />
+          <meshStandardMaterial color="#f8fafc" roughness={0.35} />
+        </mesh>
+        {/* Vintage Steel Wheel Rim Lip */}
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.135 : 0.135, 0, 0]}>
+          <cylinderGeometry args={[0.26, 0.26, 0.03, 22]} />
+          <meshStandardMaterial color="#334155" roughness={0.4} metalness={0.6} />
         </mesh>
         {/* Chrome Baby Moon Dome Hubcap */}
-        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.14 : 0.14, 0, 0]}>
-          <cylinderGeometry args={[0.22, 0.22, 0.04, 18]} />
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.15 : 0.15, 0, 0]}>
+          <cylinderGeometry args={[0.18, 0.18, 0.045, 20]} />
           {chromeMat}
         </mesh>
       </group>
@@ -1053,13 +1079,35 @@ export function VintageHatchbackModel({
 
   const renderHatchWheel = (isFront: boolean, isLeft: boolean) => (
     <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
+      {/* Non-spinning Red Racing Brake Caliper on knuckle */}
+      <mesh
+        position={[isLeft ? 0.04 : -0.04, 0.12, -0.1]}
+        rotation={[0, 0, isLeft ? -0.4 : 0.4]}
+        castShadow
+      >
+        <boxGeometry args={[0.065, 0.09, 0.07]} />
+        <meshStandardMaterial color="#dc2626" metalness={0.78} roughness={0.25} />
+      </mesh>
+
       <group rotation={[-wheelRotation, 0, 0]}>
-        <mesh rotation={[0, 0, Math.PI / 2]}>
+        {/* Rubber Tire with Rounded Tread Profile */}
+        <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
           <cylinderGeometry args={[0.34, 0.34, 0.25, 24]} />
-          <meshStandardMaterial color="#18181b" roughness={0.9} />
+          <meshStandardMaterial color="#1c1d20" roughness={0.88} metalness={0.05} />
         </mesh>
+        {/* Rounded Tire Outer Shoulders */}
+        <mesh rotation={[0, Math.PI / 2, 0]} position={[isLeft ? -0.1 : 0.1, 0, 0]}>
+          <torusGeometry args={[0.26, 0.08, 12, 24]} />
+          <meshStandardMaterial color="#1c1d20" roughness={0.88} metalness={0.05} />
+        </mesh>
+        {/* Drilled Steel Brake Rotor */}
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.22, 0.22, 0.02, 24]} />
+          <meshStandardMaterial color="#cbd5e1" metalness={0.9} roughness={0.28} />
+        </mesh>
+        {/* White OZ Rally Racing Rim with Dish */}
         <mesh rotation={[0, 0, Math.PI / 2]} position={[isLeft ? -0.11 : 0.11, 0, 0]}>
-          <cylinderGeometry args={[0.24, 0.24, 0.05, 18]} />
+          <cylinderGeometry args={[0.24, 0.24, 0.04, 20]} />
           {whiteRimMat}
         </mesh>
       </group>
