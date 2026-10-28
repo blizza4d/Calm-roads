@@ -12,6 +12,7 @@ const keyboardMap = [
   { name: 'left', keys: ['ArrowLeft', 'a', 'A'] },
   { name: 'right', keys: ['ArrowRight', 'd', 'D'] },
   { name: 'brake', keys: ['Space'] },
+  { name: 'burnout', keys: ['KeyB', 'b', 'B'] },
 ]
 
 export default function App() {

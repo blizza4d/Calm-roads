@@ -400,6 +400,56 @@ function PanoramicMountainHorizon({
 }
 
 // ------------------------------------------------------------------------
+// Realistic Coastal Beach Ocean Surface: Dynamic animated sea surface with wave swells & specular highlights
+// ------------------------------------------------------------------------
+function CoastalOcean({ isNight }: { isNight: boolean }) {
+  const { camera } = useThree()
+  const oceanRef = useRef<THREE.Mesh>(null)
+
+  const oceanGeo = useMemo(() => {
+    // Spans 2,600m in X and 3,800m in Z with subdivisions for natural undulating swells
+    const geo = new THREE.PlaneGeometry(2600, 3800, 48, 48)
+    geo.rotateX(-Math.PI / 2)
+    return geo
+  }, [])
+
+  useFrame((state) => {
+    if (oceanRef.current) {
+      // Anchored at sea level Y = 0.0, centered on seaward side (X = -1300) relative to road
+      oceanRef.current.position.set(-1280, 0.0, camera.position.z)
+
+      const time = state.clock.getElapsedTime() * 1.15
+      const pos = oceanGeo.attributes.position
+      const count = pos.count
+
+      for (let i = 0; i < count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        const wave =
+          Math.sin(x * 0.015 + time * 1.4) * 0.28 +
+          Math.cos(z * 0.022 + time * 0.95) * 0.22 +
+          Math.sin((x + z) * 0.035 + time * 2.1) * 0.12
+        pos.setY(i, wave)
+      }
+      pos.needsUpdate = true
+    }
+  })
+
+  return (
+    <mesh ref={oceanRef} geometry={oceanGeo} position={[-1280, 0, 0]} receiveShadow>
+      <meshStandardMaterial
+        color={isNight ? '#0b1d3a' : '#0284c7'}
+        roughness={0.08}
+        metalness={0.25}
+        envMapIntensity={2.8}
+        transparent
+        opacity={0.92}
+      />
+    </mesh>
+  )
+}
+
+// ------------------------------------------------------------------------
 // Procedural Precipitation Textures (Soft Circular Alpha Maps)
 // ------------------------------------------------------------------------
 function createSnowflakeTexture(): THREE.CanvasTexture {
@@ -736,6 +786,9 @@ export default function GameEnvironment() {
         moonPosition={celestialData.moonPos}
         isNight={celestialData.isNight}
       />
+
+      {/* Expansive Animated Coastal Beach Ocean Surface */}
+      <CoastalOcean isNight={celestialData.isNight} />
 
       {/* Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt */}
       <PanoramicMountainHorizon

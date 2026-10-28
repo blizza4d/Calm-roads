@@ -653,6 +653,7 @@ export class RealisticVehicleAudioEngine {
     vehicleModel?: string
     isDecelerating?: boolean
     lateralSlip?: number
+    isBurnout?: boolean
   }): void {
     if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
@@ -665,6 +666,7 @@ export class RealisticVehicleAudioEngine {
       isHoverMode = false,
       vehicleModel = 'bmw_m3',
       lateralSlip = 0,
+      isBurnout = false,
     } = params
 
     // 1. Hover mode: Mute combustion engines and spool repulsor hum
@@ -710,17 +712,19 @@ export class RealisticVehicleAudioEngine {
       }
     }
 
-    // 4. Lateral Slip Tire Squeal (Drifting & High-G cornering)
+    // 4. Lateral Slip Tire Squeal & Burnout Screech
     if (this.tireSquealGain && this.tireSquealFilter) {
-      if (speedKmh < 15 || lateralSlip < 0.08) {
+      if (!isBurnout && (speedKmh < 15 || lateralSlip < 0.08)) {
         this.tireSquealGain.gain.setTargetAtTime(0.0001, now, 0.05)
       } else {
-        const slipIntensity = Math.min(1.0, (lateralSlip - 0.08) * 2.8)
-        const speedFactor = Math.min(1.0, speedKmh / 50)
-        const targetSquealGain = slipIntensity * speedFactor * 0.38
+        const slipIntensity = isBurnout ? 1.0 : Math.min(1.0, (lateralSlip - 0.08) * 2.8)
+        const speedFactor = isBurnout ? 1.0 : Math.min(1.0, speedKmh / 50)
+        const targetSquealGain = slipIntensity * speedFactor * (isBurnout ? 0.46 : 0.38)
         this.tireSquealGain.gain.setTargetAtTime(targetSquealGain, now, 0.03)
 
-        const squealFreq = 1000 + (speedKmh / 220) * 450 + slipIntensity * 320
+        const squealFreq = isBurnout
+          ? 1750 + Math.random() * 250
+          : 1000 + (speedKmh / 220) * 450 + slipIntensity * 320
         this.tireSquealFilter.frequency.setTargetAtTime(squealFreq, now, 0.04)
       }
     }

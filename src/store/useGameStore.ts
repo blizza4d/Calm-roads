@@ -75,7 +75,10 @@ interface GameState {
   setVirtualSteerLeft: (v: boolean) => void
   virtualSteerRight: boolean
   setVirtualSteerRight: (v: boolean) => void
-
+  isBurnout: boolean
+  setIsBurnout: (b: boolean) => void
+  virtualBurnout: boolean
+  setVirtualBurnout: (b: boolean) => void
 
   // 7. Audio System
   isMusicPlaying: boolean
@@ -113,8 +116,21 @@ interface GameState {
     activeChunks: number
     frontierBuffer: number
     drawDistance: number
+    speedKmh: number
+    chunksAhead: number
+    prepTimeMs: number
   }
-  setDiagnostics: (d: Partial<{ fps: number; activeChunks: number; frontierBuffer: number; drawDistance: number }>) => void
+  setDiagnostics: (
+    d: Partial<{
+      fps: number
+      activeChunks: number
+      frontierBuffer: number
+      drawDistance: number
+      speedKmh: number
+      chunksAhead: number
+      prepTimeMs: number
+    }>
+  ) => void
 }
 
 const WEATHERS: WeatherType[] = ['clear', 'rain', 'snow', 'mist']
@@ -202,7 +218,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   setVirtualSteerLeft: (virtualSteerLeft) => set({ virtualSteerLeft }),
   virtualSteerRight: false,
   setVirtualSteerRight: (virtualSteerRight) => set({ virtualSteerRight }),
-
+  isBurnout: false,
+  setIsBurnout: (isBurnout) => set({ isBurnout }),
+  virtualBurnout: false,
+  setVirtualBurnout: (virtualBurnout) => set({ virtualBurnout }),
 
   // Audio
   isMusicPlaying: false,
@@ -245,9 +264,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleDiagnostics: () => set((s) => ({ showDiagnostics: !s.showDiagnostics })),
   diagnostics: {
     fps: 60,
-    activeChunks: 19,
-    frontierBuffer: 3000,
-    drawDistance: 3800,
+    activeChunks: 28,
+    frontierBuffer: 4800,
+    drawDistance: 5600,
+    speedKmh: 0,
+    chunksAhead: 24,
+    prepTimeMs: 1.2,
   },
   setDiagnostics: (d) => set((s) => ({ diagnostics: { ...s.diagnostics, ...d } })),
 }))
@@ -264,6 +286,8 @@ export interface TelemetryState {
   distance: number
   throttle: number
   brake: number
+  isBurnout?: boolean
+  wheelSlip?: number
   setTelemetry: (data: Partial<TelemetryState>) => void
 }
 
@@ -274,5 +298,7 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   distance: 0,
   throttle: 0,
   brake: 0,
+  isBurnout: false,
+  wheelSlip: 0,
   setTelemetry: (data) => set((s) => ({ ...s, ...data })),
 }))

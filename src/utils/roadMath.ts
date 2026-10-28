@@ -109,20 +109,20 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
   },
   coastal: {
     id: 'coastal',
-    name: 'Coastal Highlands',
-    tagline: 'Rolling Cliffs • Ocean Horizon Haze',
-    grassColor: '#4d7c0f', // Vibrant ocean-spray turf
+    name: 'Coastal Beach Highway',
+    tagline: 'Ocean Waves • Sandy Dunes & Scenic Coastal Curves',
+    grassColor: '#3b754a', // Seaside dune grass
     rockColor: '#57534e', // Sea-carved coastal headlands
-    roadColor: '#292524',
-    shoulderColor: '#78716c', // Crushed shell gravel
+    roadColor: '#282c35',
+    shoulderColor: '#d6b885', // Warm coastal sand shoulder
     treeFoliageColor: '#15803d', // Wind-swept coastal pines
     treeTrunkColor: '#44403c',
-    skyHemiSky: '#e0f2fe',
-    skyHemiGround: '#3b82f6', // Sea-water blue bounce
-    fogColor: '#cbd5e1', // Atmospheric sea spray haze
-    fogDensity: 0.00085,
+    skyHemiSky: '#7dd3fc', // Brilliant clear ocean sky
+    skyHemiGround: '#0284c7', // Azure ocean reflection bounce
+    fogColor: '#93c5fd', // Atmospheric sea spray haze
+    fogDensity: 0.00065,
     hillHeightMultiplier: 0.92,
-    roughness: 0.86,
+    roughness: 0.82,
     friction: 0.99,
     weatherPreset: 'clear',
   },
@@ -311,7 +311,8 @@ export function getRoadElevation(z: number): number {
   const microWave = Math.sin(z * 0.013) * 2.2
 
   const regionElevMult = getBiomeElevationMultiplier(z)
-  return (passWave + valleyWave + microWave) * regionElevMult
+  // Baseline elevation of 12.0m guarantees road remains elevated safely above coastal sea level (Y = 0)
+  return 12.0 + (passWave + valleyWave + microWave) * regionElevMult
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (for constant width & banking)
@@ -419,6 +420,15 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   // Strictly flat threshold depressed safely below the road ribbon (which sits at roadY + 0.07 to +0.11)
   if (distFromRoad <= 16.0) {
     return roadY - 0.22
+  }
+
+  // Coastal beach & sandy dune slope on seaward side (X < roadX - 16m)
+  if (biomeId === 'coastal' && x < roadX - 16.0) {
+    const beachDist = (roadX - 16.0) - x
+    const duneRipples = Math.sin(x * 0.08 + z * 0.04) * 0.35 + Math.cos(x * 0.03 - z * 0.02) * 0.55
+    // Gently slope from roadbed down across broad sandy beach into sea level (Y = 0)
+    const targetY = Math.max(-1.8, (roadY - 0.22) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
+    return targetY
   }
 
   // 2. Roadside drainage swale & flat outer corridor buffer (16m to 36m)

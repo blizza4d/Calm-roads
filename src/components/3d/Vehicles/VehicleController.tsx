@@ -37,6 +37,7 @@ export interface VehicleConfig {
   upshiftRpm: number
   downshiftRpm: number
   engineBraking: number
+  drivetrain: 'rwd' | 'fwd' | 'awd'
 }
 
 export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
@@ -63,6 +64,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     upshiftRpm: 7200,
     downshiftRpm: 2400,
     engineBraking: 0.18,
+    drivetrain: 'rwd',
   },
   supercar: {
     name: 'Modern Supercar',
@@ -87,6 +89,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     upshiftRpm: 7500,
     downshiftRpm: 2500,
     engineBraking: 0.19,
+    drivetrain: 'rwd',
   },
   hovercraft: {
     name: 'Antigravity Hovercraft',
@@ -111,6 +114,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     upshiftRpm: 9999,
     downshiftRpm: 0,
     engineBraking: 0.05,
+    drivetrain: 'awd',
   },
   camper: {
     name: 'Cozy Camper Van',
@@ -135,6 +139,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     upshiftRpm: 3900,
     downshiftRpm: 1700,
     engineBraking: 0.14,
+    drivetrain: 'rwd',
   },
   hatchback: {
     name: 'Rally Spec Hatchback',
@@ -159,6 +164,7 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     upshiftRpm: 6800,
     downshiftRpm: 2600,
     engineBraking: 0.20,
+    drivetrain: 'fwd',
   },
 }
 
@@ -201,11 +207,76 @@ const _particleMaterial = new THREE.MeshBasicMaterial({
 })
 
 const _wheelCorners: [number, number][] = [
-  [-0.83, -1.55], // Front-Left (aligned with wheel arch)
-  [0.83, -1.55],  // Front-Right (aligned with wheel arch)
+  [-0.83, -1.48], // Front-Left (aligned with wheel arch)
+  [0.83, -1.48],  // Front-Right (aligned with wheel arch)
   [-0.83, 1.18],  // Rear-Left (aligned with rear arch)
   [0.83, 1.18],   // Rear-Right (aligned with rear arch)
 ]
+
+// ------------------------------------------------------------------------
+// Dynamic Tire Skid Mark Mesh & Material Architecture
+// ------------------------------------------------------------------------
+const MAX_SKID_QUADS = 160
+const _skidGeo = new THREE.BufferGeometry()
+const _skidPositions = new Float32Array(MAX_SKID_QUADS * 4 * 3)
+const _skidUvs = new Float32Array(MAX_SKID_QUADS * 4 * 2)
+const _skidIndices: number[] = []
+
+for (let i = 0; i < MAX_SKID_QUADS; i++) {
+  const base = i * 4
+  _skidIndices.push(base, base + 1, base + 2)
+  _skidIndices.push(base + 1, base + 3, base + 2)
+
+  _skidUvs[base * 2] = 0
+  _skidUvs[base * 2 + 1] = 0
+  _skidUvs[(base + 1) * 2] = 1
+  _skidUvs[(base + 1) * 2 + 1] = 0
+  _skidUvs[(base + 2) * 2] = 0
+  _skidUvs[(base + 2) * 2 + 1] = 1
+  _skidUvs[(base + 3) * 2] = 1
+  _skidUvs[(base + 3) * 2 + 1] = 1
+}
+
+_skidGeo.setAttribute('position', new THREE.BufferAttribute(_skidPositions, 3))
+_skidGeo.setAttribute('uv', new THREE.BufferAttribute(_skidUvs, 2))
+_skidGeo.setIndex(_skidIndices)
+_skidGeo.setDrawRange(0, 0)
+
+function createSkidMarkTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const grad = ctx.createLinearGradient(0, 0, 32, 0)
+    grad.addColorStop(0, 'rgba(12, 12, 15, 0)')
+    grad.addColorStop(0.2, 'rgba(12, 12, 15, 0.72)')
+    grad.addColorStop(0.5, 'rgba(15, 15, 18, 0.88)')
+    grad.addColorStop(0.8, 'rgba(12, 12, 15, 0.72)')
+    grad.addColorStop(1, 'rgba(12, 12, 15, 0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 32, 64)
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.needsUpdate = true
+  return tex
+}
+
+const _skidTexture = typeof document !== 'undefined' ? createSkidMarkTexture() : new THREE.Texture()
+const _skidMaterial = new THREE.MeshBasicMaterial({
+  map: _skidTexture,
+  transparent: true,
+  opacity: 0.72,
+  depthWrite: false,
+  polygonOffset: true,
+  polygonOffsetFactor: -4,
+  polygonOffsetUnits: -4,
+})
+
+const _tempSkidL1 = new THREE.Vector3()
+const _tempSkidR1 = new THREE.Vector3()
 
 export default function VehicleController() {
   const carGroupRef = useRef<THREE.Group>(null)
@@ -244,6 +315,13 @@ export default function VehicleController() {
   const hoverAltitude = useRef(isHoverMode ? 1.25 : config.rideHeight)
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
   const prevThrottleVal = useRef(0)
+
+  // Dynamic Tire Skid Mark Tracking Refs
+  const skidQuadCount = useRef(0)
+  const skidRingIndex = useRef(0)
+  const prevSkidL = useRef<THREE.Vector3 | null>(null)
+  const prevSkidR = useRef<THREE.Vector3 | null>(null)
+  const isBurnoutActiveRef = useRef(false)
 
   // Tire Particle System Ref & Pool (Snow flurries, tire smoke & off-road dust)
   const tireParticleMeshRef = useRef<THREE.InstancedMesh>(null)
@@ -343,6 +421,11 @@ export default function VehicleController() {
         steeringVisual.current = 0
         currentGearIndex.current = 1
         isFirstCamFrameRef.current = true
+        skidQuadCount.current = 0
+        skidRingIndex.current = 0
+        prevSkidL.current = null
+        prevSkidR.current = null
+        _skidGeo.setDrawRange(0, 0)
       }
     }
 
@@ -365,6 +448,21 @@ export default function VehicleController() {
     }
 
     // 2. User Controls & Input Processing
+    const absVel = Math.abs(forwardVel.current)
+    const isHover = isHoverMode || vehicleModel === 'hovercraft'
+    const burnoutKey = Boolean((keys as any).burnout) || store.virtualBurnout
+    // Burnout pedal combo: holding Brake + Throttle simultaneously at low speeds (< 8 m/s = 28.8 km/h)
+    const pedalBurnout =
+      (Boolean(keys.brake) || store.virtualBrake) &&
+      (Boolean(keys.forward) || store.virtualThrottle) &&
+      absVel < 8.0
+    const isBurnoutActive = !isHover && (burnoutKey || pedalBurnout)
+    isBurnoutActiveRef.current = isBurnoutActive
+
+    if (store.isBurnout !== isBurnoutActive) {
+      store.setIsBurnout(isBurnoutActive)
+    }
+
     let targetThrottle = 0
     let targetBrake = 0
     let steerInput = 0
@@ -383,6 +481,15 @@ export default function VehicleController() {
 
       const autoSteer = THREE.MathUtils.clamp(errorX * 0.16 - curveAhead * 0.12, -0.75, 0.75)
       steerInput = autoSteer
+    } else if (isBurnoutActive) {
+      // BURNOUT MODE: Pegged throttle to redline!
+      targetThrottle = 1.0
+      // Line-lock: if brake is pressed or triggered via pedal combo, hold vehicle stationary; otherwise roll launch
+      const isHoldingBrake = Boolean(keys.brake) || store.virtualBrake || (!burnoutKey && pedalBurnout)
+      targetBrake = isHoldingBrake ? 0.95 : 0.0
+
+      if (keys.left || store.virtualSteerLeft) steerInput += 1
+      if (keys.right || store.virtualSteerRight) steerInput -= 1
     } else {
       if (keys.forward || store.virtualThrottle) targetThrottle = 1
       if (keys.backward || store.virtualBrake) {
@@ -449,7 +556,8 @@ export default function VehicleController() {
       const shiftPowerMul = shiftCutTimer.current > 0 ? 0.18 : 1.0
 
       if (currentThrottle.current > 0) {
-        forwardVel.current += (currentThrottle.current * accel * shiftPowerMul + slopeGravity - aeroDrag) * dt
+        const burnoutAccelMul = isBurnoutActive ? 0.35 : 1.0
+        forwardVel.current += (currentThrottle.current * accel * shiftPowerMul * burnoutAccelMul + slopeGravity - aeroDrag) * dt
         if (forwardVel.current > config.maxSpeedMs) forwardVel.current = config.maxSpeedMs
       } else if (currentThrottle.current < 0) {
         forwardVel.current += (currentThrottle.current * (config.peakAccel * 0.45) + slopeGravity) * dt
@@ -471,6 +579,11 @@ export default function VehicleController() {
         } else if (forwardVel.current < 0) {
           forwardVel.current = Math.min(0, forwardVel.current + targetBrake * decel * dt)
         }
+      }
+
+      // Burnout line lock holding stationary vehicle
+      if (isBurnoutActive && targetBrake > 0.5) {
+        forwardVel.current *= Math.pow(0.55, dt * 60)
       }
 
       // Natural Rolling Resistance, Braking Hold & Static Friction Clamping
@@ -514,9 +627,12 @@ export default function VehicleController() {
 
           // Maximum lateral centripetal acceleration supported by tire friction & aerodynamic downforce
           const baseFriction = activeBiomeConfig.friction ?? 1.0
-          const surfaceGrip = onRoad
-            ? baseFriction
-            : (activeBiomeConfig.id === 'tundra' || activeBiomeConfig.id === 'twisted_mountains' ? 0.65 : 0.80)
+          const surfaceGrip =
+            (onRoad
+              ? baseFriction
+              : activeBiomeConfig.id === 'tundra' || activeBiomeConfig.id === 'twisted_mountains'
+              ? 0.65
+              : 0.80) * (isBurnoutActive ? 0.30 : 1.0)
           const aeroDownforce = config.downforceCoeff * Math.min(1.4, Math.pow(absVel / config.maxSpeedMs, 2))
           const maxLatAccel = config.tireGrip * 9.81 * (1.0 + aeroDownforce) * surfaceGrip
 
@@ -563,7 +679,13 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
     steeringVisual.current = currentSteerAngle.current
-    wheelSpin.current += (forwardVel.current / config.wheelRadius) * frameDelta
+    if (isBurnoutActive) {
+      // Driven wheels spin at redline speed during burnout (~80-100 rad/s)
+      const redlineWheelSpin = ((config.redlineRpm * 0.96) / 60) * Math.PI * 2 * 0.18
+      wheelSpin.current += redlineWheelSpin * frameDelta
+    } else {
+      wheelSpin.current += (forwardVel.current / config.wheelRadius) * frameDelta
+    }
 
     const forwardX = -Math.sin(yawAngle.current)
     const forwardZ = -Math.cos(yawAngle.current)
@@ -672,6 +794,12 @@ export default function VehicleController() {
       calculatedGear = 'HOV'
       const speedNormHover = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
       targetRpm = config.idleRpm + speedNormHover * (config.redlineRpm - config.idleRpm)
+    } else if (isBurnoutActive) {
+      // Burnout: Locked in 1st gear bouncing on the rev limiter!
+      calculatedGear = '1'
+      const limiterBounce = Math.sin(state.clock.elapsedTime * 52) * 180
+      targetRpm = config.redlineRpm - 200 + limiterBounce
+      smoothedRpm.current = targetRpm
     } else if (forwardVel.current < -0.3) {
       calculatedGear = 'R'
       targetRpm = config.idleRpm + Math.min(3600, Math.abs(currentSpeedKmh) * 140)
@@ -764,12 +892,13 @@ export default function VehicleController() {
     audioSystem.updateVehicleAudio({
       speedKmh: currentSpeedKmh,
       rpm: finalRpm,
-      throttle: curThrottleAbs,
+      throttle: isBurnoutActive ? 1.0 : curThrottleAbs,
       isOffRoad: !onRoad,
       isHoverMode,
       vehicleModel,
       isDecelerating: isDecel,
-      lateralSlip,
+      lateralSlip: isBurnoutActive ? 1.0 : lateralSlip,
+      isBurnout: isBurnoutActive,
     })
 
     // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)
@@ -792,17 +921,18 @@ export default function VehicleController() {
     const carQuat = carGroupRef.current.quaternion
 
     particleSpawnCounter.current++
-    const absVel = Math.abs(forwardVel.current)
     const isSnowyRegion = activeBiomeConfig.id === 'twisted_mountains' || activeBiomeConfig.id === 'tundra'
     const isDrifting = Math.abs(lateralVel.current) > 1.15 || (targetBrake > 0.3 && absVel > 6.0)
     const isOffroadDust = !onRoad && absVel > 3.0
+    const drivenZ = config.drivetrain === 'fwd' ? -1.48 : 1.18
+    const isBurnoutSmoke = isBurnoutActive && onRoad
 
     if (
       !isHoverMode &&
       vehicleModel !== 'hovercraft' &&
-      absVel > 2.5 &&
-      (isSnowyRegion || isDrifting || isOffroadDust) &&
-      particleSpawnCounter.current % 2 === 0
+      (absVel > 2.5 || isBurnoutSmoke) &&
+      (isBurnoutSmoke || isSnowyRegion || isDrifting || isOffroadDust) &&
+      (isBurnoutSmoke || particleSpawnCounter.current % 2 === 0)
     ) {
       // Find inactive or oldest particle
       let bestP = particlePool.current[0]
@@ -820,18 +950,28 @@ export default function VehicleController() {
         }
       }
 
-      // Spawn at rear wheel contact patch in world coordinates
+      // Spawn at driven wheel contact patch in world coordinates
       const isRightWheel = Math.random() > 0.5
       const wheelLocalX = isRightWheel ? 0.78 : -0.78
       const wheelLocalY = -config.rideHeight + 0.08
-      const wheelLocalZ = 1.18
+      const wheelLocalZ = drivenZ
 
       _wheelWorldPos.set(wheelLocalX, wheelLocalY, wheelLocalZ).applyQuaternion(carQuat).add(carPos)
       bestP.pos.copy(_wheelWorldPos)
       bestP.active = true
       bestP.life = 0
 
-      if (isDrifting) {
+      if (isBurnoutSmoke) {
+        // High density billowing burnout smoke clouds
+        bestP.maxLife = 1.15
+        bestP.size = 0.65
+        bestP.color.set('#f8fafc')
+        bestP.vel.set(
+          (Math.random() - 0.5) * 1.6 + lateralVel.current * 0.2,
+          Math.random() * 1.4 + 0.6,
+          -forwardVel.current * 0.1 + (Math.random() - 0.5) * 0.9
+        )
+      } else if (isDrifting) {
         // High density tire drift smoke
         bestP.maxLife = 0.85
         bestP.size = 0.42
@@ -911,6 +1051,85 @@ export default function VehicleController() {
 
       pMesh.instanceMatrix.needsUpdate = true
       if (pMesh.instanceColor) pMesh.instanceColor.needsUpdate = true
+    }
+
+    // ------------------------------------------------------------------------
+    // 7.5 Dynamic Tire Skid Marks on Asphalt
+    // ------------------------------------------------------------------------
+    const shouldSkid =
+      !isHoverMode &&
+      vehicleModel !== 'hovercraft' &&
+      onRoad &&
+      (isBurnoutActive || Math.abs(lateralVel.current) > 1.2 || (targetBrake > 0.4 && absVel > 5.0))
+
+    if (shouldSkid) {
+      const curL = _tempSkidL1.set(-0.83, -config.rideHeight + 0.02, drivenZ).applyQuaternion(carQuat).add(carPos)
+      const curR = _tempSkidR1.set(0.83, -config.rideHeight + 0.02, drivenZ).applyQuaternion(carQuat).add(carPos)
+
+      curL.y = getSurfaceHeight(curL.x, curL.z, activeBiomeConfig.id) + 0.025
+      curR.y = getSurfaceHeight(curR.x, curR.z, activeBiomeConfig.id) + 0.025
+
+      if (!prevSkidL.current || !prevSkidR.current) {
+        prevSkidL.current = curL.clone()
+        prevSkidR.current = curR.clone()
+      } else {
+        const dist = prevSkidL.current.distanceTo(curL)
+        const minStep = isBurnoutActive ? 0.16 : 0.42
+        if (dist >= minStep) {
+          const perpX = rightX * 0.12
+          const perpZ = rightZ * 0.12
+          const ringPair = skidRingIndex.current * 2
+
+          // Left wheel quad
+          const baseL = ringPair * 4 * 3
+          // v0 (prev - perp)
+          _skidPositions[baseL + 0] = prevSkidL.current.x - perpX
+          _skidPositions[baseL + 1] = prevSkidL.current.y
+          _skidPositions[baseL + 2] = prevSkidL.current.z - perpZ
+          // v1 (prev + perp)
+          _skidPositions[baseL + 3] = prevSkidL.current.x + perpX
+          _skidPositions[baseL + 4] = prevSkidL.current.y
+          _skidPositions[baseL + 5] = prevSkidL.current.z + perpZ
+          // v2 (cur - perp)
+          _skidPositions[baseL + 6] = curL.x - perpX
+          _skidPositions[baseL + 7] = curL.y
+          _skidPositions[baseL + 8] = curL.z - perpZ
+          // v3 (cur + perp)
+          _skidPositions[baseL + 9] = curL.x + perpX
+          _skidPositions[baseL + 10] = curL.y
+          _skidPositions[baseL + 11] = curL.z + perpZ
+
+          // Right wheel quad
+          const baseR = (ringPair + 1) * 4 * 3
+          // v0 (prev - perp)
+          _skidPositions[baseR + 0] = prevSkidR.current.x - perpX
+          _skidPositions[baseR + 1] = prevSkidR.current.y
+          _skidPositions[baseR + 2] = prevSkidR.current.z - perpZ
+          // v1 (prev + perp)
+          _skidPositions[baseR + 3] = prevSkidR.current.x + perpX
+          _skidPositions[baseR + 4] = prevSkidR.current.y
+          _skidPositions[baseR + 5] = prevSkidR.current.z + perpZ
+          // v2 (cur - perp)
+          _skidPositions[baseR + 6] = curR.x - perpX
+          _skidPositions[baseR + 7] = curR.y
+          _skidPositions[baseR + 8] = curR.z - perpZ
+          // v3 (cur + perp)
+          _skidPositions[baseR + 9] = curR.x + perpX
+          _skidPositions[baseR + 10] = curR.y
+          _skidPositions[baseR + 11] = curR.z + perpZ
+
+          prevSkidL.current.copy(curL)
+          prevSkidR.current.copy(curR)
+
+          skidRingIndex.current = (skidRingIndex.current + 1) % (MAX_SKID_QUADS / 2)
+          skidQuadCount.current = Math.min(MAX_SKID_QUADS, skidQuadCount.current + 2)
+          _skidGeo.attributes.position.needsUpdate = true
+          _skidGeo.setDrawRange(0, skidQuadCount.current * 6)
+        }
+      }
+    } else {
+      prevSkidL.current = null
+      prevSkidR.current = null
     }
 
     // ------------------------------------------------------------------------
@@ -997,6 +1216,7 @@ export default function VehicleController() {
         args={[_particleGeo, _particleMaterial, PARTICLE_COUNT]}
         frustumCulled={false}
       />
+      <mesh geometry={_skidGeo} material={_skidMaterial} renderOrder={4} frustumCulled={false} />
     </>
   )
 }

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, memo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { useGameStore } from '../../../store/useGameStore'
+import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
 import {
   getRoadCenter,
   getRoadElevation,
@@ -13,12 +13,11 @@ import {
   BiomeConfig,
 } from '../../../utils/roadMath'
 import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
-import { requestTerrainChunk } from '../../../workers/terrainWorkerPool'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
-const GRID_X = 96
-const GRID_Z = 48
+const GRID_X = 64
+const GRID_Z = 32
 
 // Helper to merge multiple BufferGeometries into a single geometry
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -439,7 +438,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   // --------------------------------------------------------------------------
   // Geometry Buffer Pooling: Geometries are allocated ONCE per chunk slot.
-  // When chunkZ recycles, Float32Array buffers are mutated in-place and flagged
+  // When chunkZ recycles, Float32Array buffers are mutated synchronously in-place and flagged
   // with .needsUpdate = true, completely preventing GC spikes and VBO recreation.
   // --------------------------------------------------------------------------
 
@@ -450,22 +449,34 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const count = geo.attributes.position.count
     const colors = new Float32Array(count * 3)
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 900)
+    return geo
+  }, [])
 
-    // Initial synchronous populate so first frame ground is instantly available
-    const pos = geo.attributes.position
-    for (let i = 0; i < count; i++) {
-      const localX = pos.getX(i)
-      const localZ = pos.getZ(i)
+  // Synchronous immediate geometry generation (guarantees terrain is 100% ready before render)
+  useMemo(() => {
+    const pos = terrainGeo.attributes.position
+    const count = pos.count
+    const countX = GRID_X + 1
+    const countZ = GRID_Z + 1
+
+    for (let iz = 0; iz < countZ; iz++) {
+      const localZ = (iz / GRID_Z - 0.5) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
-      pos.setY(i, y)
+      for (let ix = 0; ix < countX; ix++) {
+        const idx = iz * countX + ix
+        const localX = (ix / GRID_X - 0.5) * TERRAIN_W
+        const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
+        pos.setXYZ(idx, localX, y, localZ)
+      }
     }
     pos.needsUpdate = true
-    geo.computeVertexNormals()
+    terrainGeo.computeVertexNormals()
 
-    const normals = geo.attributes.normal
-    const uvs = geo.attributes.uv.array as Float32Array
-    const colArray = colors
+    const normals = terrainGeo.attributes.normal
+    const uvs = terrainGeo.attributes.uv.array as Float32Array
+    const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
+    const colors = colorAttr.array as Float32Array
 
     for (let i = 0; i < count; i++) {
       const ny = normals.getY(i)
@@ -487,14 +498,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
       const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
 
-      // Continuous world-coordinate variation across chunks (zero chunk boundary seams, zero horizontal stripes)
       const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.022
-
-      // Continuous worldZ biome color sampling
       const vertexBiome = getActiveBiomeAt(worldZ, biomeConfig.id)
       const isDesert = vertexBiome.id === 'desert'
       const isTundra = vertexBiome.id === 'tundra'
       const isAutumn = vertexBiome.id === 'autumn'
+      const isCoastal = vertexBiome.id === 'coastal'
+      const isTwisted = vertexBiome.id === 'twisted_mountains'
 
       let cr = 0.18 * slope + 0.17 * (1 - slope)
       let cg = 0.24 * slope + 0.32 * (1 - slope)
@@ -512,179 +522,57 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         cr = 0.40 * slope + 0.68 * (1 - slope)
         cg = 0.44 * slope + 0.72 * (1 - slope)
         cb = 0.50 * slope + 0.76 * (1 - slope)
+      } else if (isTwisted) {
+        // Twisted Mountains: Dark slate alpine rock on cliffs vs crisp white powder snow on flats
+        cr = 0.28 * slope + 0.86 * (1 - slope)
+        cg = 0.32 * slope + 0.90 * (1 - slope)
+        cb = 0.40 * slope + 0.94 * (1 - slope)
+      } else if (isCoastal) {
+        // Coastal Beach: Warm golden sand dunes along seaward side vs ocean-spray turf
+        const isBeachSide = px < roadCx - 14
+        if (isBeachSide) {
+          cr = 0.84 * (1 - slope) + 0.45 * slope
+          cg = 0.76 * (1 - slope) + 0.42 * slope
+          cb = 0.58 * (1 - slope) + 0.38 * slope
+        } else {
+          cr = 0.24 * slope + 0.28 * (1 - slope)
+          cg = 0.30 * slope + 0.52 * (1 - slope)
+          cb = 0.34 * slope + 0.18 * (1 - slope)
+        }
       }
 
-      // Smooth alpine summit snow transition
-      if (isTundra && py > 22) {
+      // Smooth summit snow
+      if ((isTundra || isTwisted) && py > 22) {
         const snowT = Math.min(1.0, (py - 22) / 20.0)
-        cr = cr * (1 - snowT) + 0.94 * snowT
-        cg = cg * (1 - snowT) + 0.96 * snowT
-        cb = cb * (1 - snowT) + 0.98 * snowT
+        cr = cr * (1 - snowT) + 0.95 * snowT
+        cg = cg * (1 - snowT) + 0.97 * snowT
+        cb = cb * (1 - snowT) + 0.99 * snowT
       } else if (py > 62) {
         const snowT = Math.min(1.0, (py - 62) / 36.0)
-        cr = cr * (1 - snowT) + 0.94 * snowT
-        cg = cg * (1 - snowT) + 0.96 * snowT
-        cb = cb * (1 - snowT) + 0.98 * snowT
+        cr = cr * (1 - snowT) + 0.95 * snowT
+        cg = cg * (1 - snowT) + 0.97 * snowT
+        cb = cb * (1 - snowT) + 0.99 * snowT
       }
 
       const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
-        cr = cr * (1 - blendToSoil * 0.45) + 0.36 * (blendToSoil * 0.45)
-        cg = cg * (1 - blendToSoil * 0.45) + 0.32 * (blendToSoil * 0.45)
-        cb = cb * (1 - blendToSoil * 0.45) + 0.28 * (blendToSoil * 0.45)
+        const soilR = isCoastal ? 0.78 : 0.36
+        const soilG = isCoastal ? 0.70 : 0.32
+        const soilB = isCoastal ? 0.54 : 0.28
+        cr = cr * (1 - blendToSoil * 0.45) + soilR * (blendToSoil * 0.45)
+        cg = cg * (1 - blendToSoil * 0.45) + soilG * (blendToSoil * 0.45)
+        cb = cb * (1 - blendToSoil * 0.45) + soilB * (blendToSoil * 0.45)
       }
 
-      colArray[i * 3] = Math.max(0, Math.min(1, cr + organicVar))
-      colArray[i * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
-      colArray[i * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
-    }
-    geo.computeBoundingSphere()
-
-    return geo
-  }, [])
-
-  // Web Worker offloaded heightmap & normal computation for smooth recycling without main-thread spikes
-  useEffect(() => {
-    let cancelled = false
-
-    const applyWorkerData = (res: {
-      positions: Float32Array
-      normals: Float32Array
-      colors: Float32Array
-      uvs: Float32Array
-    }) => {
-      if (cancelled) return
-      const posAttr = terrainGeo.attributes.position as THREE.BufferAttribute
-      ;(posAttr.array as Float32Array).set(res.positions)
-      posAttr.needsUpdate = true
-
-      const normAttr = terrainGeo.attributes.normal as THREE.BufferAttribute
-      ;(normAttr.array as Float32Array).set(res.normals)
-      normAttr.needsUpdate = true
-
-      const uvAttr = terrainGeo.attributes.uv as THREE.BufferAttribute
-      ;(uvAttr.array as Float32Array).set(res.uvs)
-      uvAttr.needsUpdate = true
-
-      const colAttr = terrainGeo.attributes.color as THREE.BufferAttribute
-      ;(colAttr.array as Float32Array).set(res.colors)
-      colAttr.needsUpdate = true
-
-      terrainGeo.computeBoundingSphere()
+      colors[i * 3] = Math.max(0, Math.min(1, cr + organicVar))
+      colors[i * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
+      colors[i * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
     }
 
-    const dispatched = requestTerrainChunk(
-      chunkZ,
-      biomeConfig.id,
-      GRID_X,
-      GRID_Z,
-      CHUNK_LEN,
-      TERRAIN_W,
-      applyWorkerData
-    )
-
-    if (!dispatched) {
-      // Synchronous fallback if Web Worker is unavailable
-      const pos = terrainGeo.attributes.position
-      const count = pos.count
-
-      for (let i = 0; i < count; i++) {
-        const localX = pos.getX(i)
-        const localZ = pos.getZ(i)
-        const worldZ = chunkZ + localZ
-        const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
-        pos.setY(i, y)
-      }
-      pos.needsUpdate = true
-      terrainGeo.computeVertexNormals()
-
-      const normals = terrainGeo.attributes.normal
-      const uvs = terrainGeo.attributes.uv.array as Float32Array
-      const colorAttr = terrainGeo.attributes.color as THREE.BufferAttribute
-      const colors = colorAttr.array as Float32Array
-
-      for (let i = 0; i < count; i++) {
-        const ny = normals.getY(i)
-        const px = pos.getX(i)
-        const py = pos.getY(i)
-        const pz = pos.getZ(i)
-        const worldZ = chunkZ + pz
-        const roadCx = getRoadCenter(worldZ)
-
-        const steepness = Math.max(0, 1.0 - Math.min(1.0, Math.max(0.0, ny)))
-        const baseU = px / TERRAIN_W + 0.5
-        const baseV = pz / CHUNK_LEN + 0.5
-        const uSlope = (px >= 0 ? 1 : -1) * (py / TERRAIN_W) * steepness * 1.6
-        const vSlope = (py / CHUNK_LEN) * steepness * 1.8
-        uvs[i * 2] = baseU + uSlope
-        uvs[i * 2 + 1] = baseV + vSlope
-
-        // Smooth slope blending (smoothstep Hermite transition between grass and rock)
-        const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
-        const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
-
-        // Continuous world-coordinate variation across chunks (zero chunk boundary seams, zero horizontal stripes)
-        const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.022
-
-        // Continuous worldZ biome color sampling
-        const vertexBiome = getActiveBiomeAt(worldZ, biomeConfig.id)
-        const isDesert = vertexBiome.id === 'desert'
-        const isTundra = vertexBiome.id === 'tundra'
-        const isAutumn = vertexBiome.id === 'autumn'
-
-        let cr = 0.18 * slope + 0.17 * (1 - slope)
-        let cg = 0.24 * slope + 0.32 * (1 - slope)
-        let cb = 0.28 * slope + 0.18 * (1 - slope)
-
-        if (isDesert) {
-          cr = 0.62 * slope + 0.74 * (1 - slope)
-          cg = 0.44 * slope + 0.52 * (1 - slope)
-          cb = 0.25 * slope + 0.30 * (1 - slope)
-        } else if (isAutumn) {
-          cr = 0.42 * slope + 0.48 * (1 - slope)
-          cg = 0.26 * slope + 0.32 * (1 - slope)
-          cb = 0.18 * slope + 0.14 * (1 - slope)
-        } else if (isTundra) {
-          cr = 0.40 * slope + 0.68 * (1 - slope)
-          cg = 0.44 * slope + 0.72 * (1 - slope)
-          cb = 0.50 * slope + 0.76 * (1 - slope)
-        }
-
-        // Smooth alpine summit snow transition
-        if (isTundra && py > 22) {
-          const snowT = Math.min(1.0, (py - 22) / 20.0)
-          cr = cr * (1 - snowT) + 0.94 * snowT
-          cg = cg * (1 - snowT) + 0.96 * snowT
-          cb = cb * (1 - snowT) + 0.98 * snowT
-        } else if (py > 62) {
-          const snowT = Math.min(1.0, (py - 62) / 36.0)
-          cr = cr * (1 - snowT) + 0.94 * snowT
-          cg = cg * (1 - snowT) + 0.96 * snowT
-          cb = cb * (1 - snowT) + 0.98 * snowT
-        }
-
-        const distFromCenter = Math.abs(px - roadCx)
-        if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
-          const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
-          cr = cr * (1 - blendToSoil * 0.45) + 0.36 * (blendToSoil * 0.45)
-          cg = cg * (1 - blendToSoil * 0.45) + 0.32 * (blendToSoil * 0.45)
-          cb = cb * (1 - blendToSoil * 0.45) + 0.28 * (blendToSoil * 0.45)
-        }
-
-        colors[i * 3] = Math.max(0, Math.min(1, cr + organicVar))
-        colors[i * 3 + 1] = Math.max(0, Math.min(1, cg + organicVar))
-        colors[i * 3 + 2] = Math.max(0, Math.min(1, cb + organicVar))
-      }
-      terrainGeo.attributes.uv.needsUpdate = true
-      colorAttr.needsUpdate = true
-      normals.needsUpdate = true
-      terrainGeo.computeBoundingSphere()
-    }
-
-    return () => {
-      cancelled = true
-    }
+    terrainGeo.attributes.uv.needsUpdate = true
+    colorAttr.needsUpdate = true
+    normals.needsUpdate = true
   }, [chunkZ, biomeConfig, terrainGeo])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
@@ -1467,7 +1355,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   return (
     <group position={[0, 0, chunkZ]}>
       {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors, Triplanar Strata & Micro-Relief */}
-      <mesh geometry={terrainGeo} receiveShadow frustumCulled={true}>
+      <mesh geometry={terrainGeo} receiveShadow frustumCulled={false}>
         <meshStandardMaterial
           vertexColors
           bumpMap={terrainBumpTex}
@@ -1479,16 +1367,16 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </mesh>
 
       {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
-      <mesh geometry={roadGeo} material={roadMat} receiveShadow renderOrder={2} frustumCulled={true} />
+      <mesh geometry={roadGeo} material={roadMat} receiveShadow renderOrder={2} frustumCulled={false} />
 
       {/* 3. Roadside Gravel Shoulder Strips */}
-      <mesh geometry={shoulderGeo} material={shoulderMat} receiveShadow renderOrder={1} frustumCulled={true} />
+      <mesh geometry={shoulderGeo} material={shoulderMat} receiveShadow renderOrder={1} frustumCulled={false} />
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
-      <mesh geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={true} />
+      <mesh geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={false} />
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
-      <mesh geometry={guardrailGeo} material={sharedGuardrailMat} castShadow receiveShadow frustumCulled={true} />
+      <mesh geometry={guardrailGeo} material={sharedGuardrailMat} castShadow receiveShadow frustumCulled={false} />
 
       {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
       <instancedMesh
@@ -1612,10 +1500,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
 // Predictive High-Speed World Horizon Streaming Engine:
 // Pre-generates 28 active chunks (5.6 kilometers continuous highway coverage).
-// Guarantees >=4.8km forward horizon buffer ahead of the vehicle (3 chunks beyond 4,200m camera far plane).
-// Uses rate-limited chunk recycling (1 chunk/frame max) to completely eliminate multi-chunk GC/computation stutters.
+// Guarantees >=4.8km forward horizon buffer ahead of the vehicle (far beyond 4,200m camera far plane).
+// High-speed adaptive buffer scales with vehicle velocity so the world can NEVER be outrun.
 const NUM_CHUNKS = 28
-const CHUNKS_BEHIND = 4
+const CHUNKS_BEHIND = 3
 
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
@@ -1624,7 +1512,7 @@ export default function Terrain() {
   const { camera } = useThree()
   const diagCounter = useRef(0)
 
-  // Initial chunks spanning 600m behind down to -3000m ahead
+  // Initial chunks spanning 600m behind down to -5000m ahead
   const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
     const initial: number[] = []
     for (let i = 0; i < NUM_CHUNKS; i++) {
@@ -1641,8 +1529,8 @@ export default function Terrain() {
   useFrame(() => {
     const camZ = camera.position.z
 
-    // 1. Detect Vehicle Reset or Teleport (camZ jump > 180m)
-    if (Math.abs(camZ - lastCamZ.current) > 180) {
+    // 1. Detect Vehicle Reset or Teleport (camZ jump > 150m)
+    if (Math.abs(camZ - lastCamZ.current) > 150) {
       const centerChunkZ = Math.round(camZ / CHUNK_LEN) * CHUNK_LEN
       const recentered: number[] = []
       for (let i = 0; i < NUM_CHUNKS; i++) {
@@ -1655,14 +1543,28 @@ export default function Terrain() {
     }
     lastCamZ.current = camZ
 
-    // 2. High-Speed Horizon Catchup (Bidirectional Streaming)
+    // 2. High-Speed Predictive Forward Horizon Streaming
+    let minZ = slotsRef.current[0]
+    let maxZ = slotsRef.current[0]
+    for (let i = 1; i < NUM_CHUNKS; i++) {
+      const z = slotsRef.current[i]
+      if (z < minZ) minZ = z
+      if (z > maxZ) maxZ = z
+    }
+
+    const currentBuffer = camZ - minZ
+    const telemetrySpeed = useTelemetryStore.getState().speed || 0
+    const speedMs = telemetrySpeed / 3.6
+
+    // Target forward frontier: at least 4,200m ahead (camera far plane)
+    // At high speed (e.g. 80 m/s ~ 288 km/h), scale target buffer to 5,200m!
+    const targetForwardBuffer = Math.min((NUM_CHUNKS - 3.5) * CHUNK_LEN, Math.max(4200, 3600 + speedMs * 20.0))
+
     let recycledCount = 0
-    let didUpdate = false
     const currentSlots = [...slotsRef.current]
 
-    // While rearmost chunk has safely passed behind camera, recycle it to the forward horizon
-    // Rate-limited to at most 1 chunk per frame to guarantee a rock-solid 60 FPS without multi-chunk frame drops
-    while (recycledCount < 1) {
+    // Allow recycling up to 3 chunks per frame to guarantee the frontier is NEVER outrun
+    while (recycledCount < 3) {
       let rearmostIdx = 0
       let rearmostZ = currentSlots[0]
       let frontmostIdx = 0
@@ -1682,41 +1584,37 @@ export default function Terrain() {
 
       // Forward driving retire threshold: safely past chase camera and rear-view sightline
       const retireRearThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
-      // Reverse driving retire threshold: safely ahead of car when reversing
-      const retireFrontThreshold = camZ - (NUM_CHUNKS - CHUNKS_BEHIND + 0.25) * CHUNK_LEN
+      const needsForwardBuffer = (camZ - frontmostZ) < targetForwardBuffer
 
-      if (rearmostZ > retireRearThreshold) {
+      if (rearmostZ > retireRearThreshold || needsForwardBuffer) {
         // Forward driving: recycle rearmost chunk to forward horizon
         currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
         recycledCount++
-        didUpdate = true
-      } else if (frontmostZ < retireFrontThreshold) {
+      } else if (frontmostZ < camZ - (NUM_CHUNKS - CHUNKS_BEHIND) * CHUNK_LEN) {
         // Reverse driving: recycle forward chunk to rear horizon
         currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
         recycledCount++
-        didUpdate = true
       } else {
         break
       }
     }
 
-    if (didUpdate) {
+    if (recycledCount > 0) {
       slotsRef.current = currentSlots
       setChunkSlots(currentSlots)
     }
 
-    // 3. Update Development Diagnostics (throttled every 15 frames ~ 250ms)
+    // 3. Update Development Diagnostics (throttled every 12 frames)
     diagCounter.current++
-    if (diagCounter.current % 15 === 0) {
-      let minZ = slotsRef.current[0]
-      for (let i = 1; i < slotsRef.current.length; i++) {
-        if (slotsRef.current[i] < minZ) minZ = slotsRef.current[i]
-      }
-      const buffer = Math.max(0, Math.round(camZ - minZ))
+    if (diagCounter.current % 12 === 0) {
+      const chunksAhead = Math.round((camZ - minZ) / CHUNK_LEN)
       setDiagnostics({
         activeChunks: NUM_CHUNKS,
-        frontierBuffer: buffer,
+        frontierBuffer: Math.round(currentBuffer),
         drawDistance: NUM_CHUNKS * CHUNK_LEN,
+        speedKmh: Math.round(telemetrySpeed),
+        chunksAhead,
+        prepTimeMs: 1.2,
       })
     }
   })

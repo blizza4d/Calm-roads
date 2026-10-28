@@ -345,7 +345,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.83, -0.068, -1.55]}
+        position={[-0.83, -0.02, -1.48]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFl}
@@ -359,7 +359,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.83, -0.068, -1.55]}
+        position={[0.83, -0.02, -1.48]}
         steeringAngle={steeringAngle}
         wheelRotation={wheelRotation}
         suspension={suspFr}
@@ -373,7 +373,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={1}
-        position={[-0.83, -0.068, 1.18]}
+        position={[-0.83, -0.02, 1.18]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRl}
@@ -387,7 +387,7 @@ export function BmwM3GtrModel({
       <BmwGtrWheel
         wheelScene={wheelScene}
         side={-1}
-        position={[0.83, -0.068, 1.18]}
+        position={[0.83, -0.02, 1.18]}
         steeringAngle={0}
         wheelRotation={wheelRotation}
         suspension={suspRr}
@@ -550,6 +550,10 @@ export function SupercarModel({
           child.material = glassMaterial
         } else if (matName.includes('carbon') || meshName.includes('carbon')) {
           child.material = carbonFiberMaterial
+        } else if (matName.includes('tire') || matName.includes('rubber') || meshName.includes('tire') || meshName.includes('rubber')) {
+          child.material = sharedTireMat
+        } else if (matName.includes('rim') || matName.includes('wheel') || meshName.includes('rim') || meshName.includes('spoke')) {
+          child.material = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.85, roughness: 0.22 })
         } else if (
           matName.includes('taillight') ||
           meshName.includes('lights_red') ||

@@ -48,6 +48,7 @@ import { BIOMES } from '../../utils/roadMath'
 function TouchPedals() {
   const setVirtualThrottle = useGameStore((s) => s.setVirtualThrottle)
   const setVirtualBrake = useGameStore((s) => s.setVirtualBrake)
+  const setVirtualBurnout = useGameStore((s) => s.setVirtualBurnout)
   const setVirtualSteerLeft = useGameStore((s) => s.setVirtualSteerLeft)
   const setVirtualSteerRight = useGameStore((s) => s.setVirtualSteerRight)
   const autoDrive = useGameStore((s) => s.autoDrive)
@@ -76,8 +77,17 @@ function TouchPedals() {
         </button>
       </div>
 
-      {/* Pedals: Brake & Throttle (Right Side) */}
+      {/* Pedals: Burnout, Brake & Throttle (Right Side) */}
       <div className="flex gap-2 pointer-events-auto">
+        <button
+          onPointerDown={() => setVirtualBurnout(true)}
+          onPointerUp={() => setVirtualBurnout(false)}
+          onPointerLeave={() => setVirtualBurnout(false)}
+          className="px-3 h-14 rounded-2xl bg-amber-950/60 backdrop-blur-md border border-amber-500/40 text-amber-200 font-mono font-bold text-xs flex flex-col items-center justify-center active:bg-amber-800/70 transition-all shadow-xl"
+        >
+          <span>BURNOUT</span>
+          <span className="text-[8px] opacity-70">[B]</span>
+        </button>
         <button
           onPointerDown={() => setVirtualBrake(true)}
           onPointerUp={() => setVirtualBrake(false)}
@@ -116,6 +126,7 @@ function SpeedometerHUD() {
   const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
+  const isBurnout = useGameStore((s) => s.isBurnout)
 
   const displayedSpeed = speedUnit === 'mph' ? Math.round(speed * 0.621371) : Math.round(speed)
   const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
@@ -139,9 +150,16 @@ function SpeedometerHUD() {
             {transmissionMode.toUpperCase()}
           </span>
 
-          {/* Biome Status Pill */}
-          <div className="mt-2 text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-            {BIOMES[currentResolvedBiome]?.name?.split(' ')[0] || 'Road'}
+          {/* Biome Status Pill & Burnout Badge */}
+          <div className="flex flex-col items-center gap-1 mt-2">
+            {isBurnout && (
+              <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-300 font-black border border-amber-400 animate-pulse tracking-wider">
+                BURNOUT 🔥
+              </span>
+            )}
+            <div className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+              {BIOMES[currentResolvedBiome]?.name?.split(' ')[0] || 'Road'}
+            </div>
           </div>
         </div>
 
@@ -393,17 +411,19 @@ function MasterMenuModal({
     { key: 'W / ↑', action: 'Accelerate / Throttle' },
     { key: 'S / ↓', action: 'Brake / Reverse' },
     { key: 'A / D (← / →)', action: 'Steer Left / Right' },
+    { key: 'B / Space + W', action: 'Burnout (Tire Spin, Smoke & Skid Marks)' },
     { key: 'Space', action: 'Handbrake / Drift' },
+    { key: 'Shift L / R', action: 'Manual Upshift / Downshift Override' },
+    { key: 'R', action: 'Instant Reset to Road Centerline' },
     { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
     { key: 'H', action: 'Toggle Antigravity Hover Mode' },
-    { key: 'B', action: 'Sound Horn' },
     { key: 'V', action: 'Switch Vehicle' },
     { key: 'T', action: 'Cycle Weather' },
     { key: 'P', action: 'Photo Mode (Studio View)' },
     { key: 'Z', action: 'Zen Mode (Pure Driving, HUD Hidden)' },
     { key: 'M', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'F', action: 'Toggle Fullscreen' },
-    { key: 'F3', action: 'Toggle Telemetry & Frame HUD' },
+    { key: 'F3', action: 'Toggle Telemetry & Diagnostics HUD' },
     { key: 'Esc', action: 'Close / Open Menu' },
   ]
 
