@@ -191,9 +191,9 @@ const poleGeo = (() => {
   return merged
 })()
 
-// 8. Highway Reflector Delineator Posts (Guide Posts / Leitpfosten)
-const delineatorPostGeo = new THREE.BoxGeometry(0.12, 1.05, 0.08).translate(0, 0.525, 0)
-const delineatorReflectorGeo = new THREE.BoxGeometry(0.08, 0.18, 0.085).translate(0, 0.88, 0)
+// 8. Highway Reflector Delineator Posts (Guide Posts / Leitpfosten) - 3D Cylindrical Meshes
+const delineatorPostGeo = new THREE.CylinderGeometry(0.065, 0.075, 1.15, 12).translate(0, 0.575, 0)
+const delineatorReflectorGeo = new THREE.CylinderGeometry(0.076, 0.076, 0.16, 12).translate(0, 0.92, 0)
 
 // Pre-assign chunk-spanning bounding spheres to all instanced geometries to enable
 // hardware-accelerated frustum culling without edge-of-screen false-culling pops
@@ -1054,8 +1054,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         poles.push({ pos: [poleX, poleY, clusterZ] })
       }
 
-      // Roadside grass tufts along shoulder borders
-      if (!isDesert) {
+      // Roadside grass tufts along shoulder borders (suppressed in desert and tundra/snow biomes)
+      if (biomeConfig.id !== 'desert' && biomeConfig.id !== 'tundra') {
         const sides = [-1, 1]
         sides.forEach((side) => {
           const grassDist = ROAD_WIDTH / 2 + 1.6 + hash1 * 1.8
@@ -1478,6 +1478,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         ref={delineatorPostRef}
         args={[delineatorPostGeo, sharedDelineatorPostMat, 32]}
         count={sceneryData.delineators.length}
+        castShadow
         receiveShadow
         frustumCulled={true}
       />

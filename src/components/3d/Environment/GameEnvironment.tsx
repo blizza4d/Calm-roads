@@ -399,6 +399,52 @@ function PanoramicMountainHorizon({
   )
 }
 
+// ------------------------------------------------------------------------
+// Procedural Precipitation Textures (Soft Circular Alpha Maps)
+// ------------------------------------------------------------------------
+function createSnowflakeTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 30)
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)')
+    grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.88)')
+    grad.addColorStop(0.7, 'rgba(240, 248, 255, 0.35)')
+    grad.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)')
+
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.arc(32, 32, 30, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+function createRainTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const grad = ctx.createLinearGradient(16, 0, 16, 64)
+    grad.addColorStop(0, 'rgba(180, 220, 255, 0.0)')
+    grad.addColorStop(0.4, 'rgba(200, 230, 255, 0.75)')
+    grad.addColorStop(1.0, 'rgba(220, 245, 255, 0.95)')
+
+    ctx.fillStyle = grad
+    ctx.fillRect(13, 0, 6, 64)
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
 export default function GameEnvironment() {
   // Discrete Zustand selectors to prevent 60fps React re-renders from telemetry updates
   const timeOfDay = useGameStore((s) => s.timeOfDay)
@@ -504,9 +550,10 @@ export default function GameEnvironment() {
 
   // Dynamic Sky & Atmosphere Background Color with smooth 24h chromatic interpolation
   const skyColor = useMemo(() => {
-    if (weather === 'snow') return '#cbd5e1'
-    if (weather === 'rain') return '#1e293b'
-    if (weather === 'mist') return '#64748b'
+    const isNight = celestialData.isNight
+    if (weather === 'snow') return isNight ? '#141824' : '#cbd5e1'
+    if (weather === 'rain') return isNight ? '#0b0f19' : '#1e293b'
+    if (weather === 'mist') return isNight ? '#0f172a' : '#64748b'
 
     const t = timeOfDay // 0 to 24
     if (t < 5.0 || t > 21.5) {
@@ -532,7 +579,17 @@ export default function GameEnvironment() {
       const f = (t - 19.5) / 2.0
       return '#' + new THREE.Color('#e0833a').lerp(new THREE.Color('#030712'), f).getHexString()
     }
-  }, [weather, timeOfDay])
+  }, [weather, timeOfDay, celestialData.isNight])
+
+  // Calibrated atmospheric aerial perspective exponential fog density
+  const fogDensity = useMemo(() => {
+    if (weather === 'snow') return 0.0028
+    if (weather === 'mist') return 0.0035
+    if (weather === 'rain') return 0.0016
+    if (biomeConfig.id === 'tundra') return 0.0024
+    if (celestialData.isNight) return 0.00085
+    return 0.00045
+  }, [weather, biomeConfig.id, celestialData.isNight])
 
   // Sync background color directly to scene to prevent canvas black void
   useEffect(() => {
@@ -565,23 +622,34 @@ export default function GameEnvironment() {
     }
   })
 
+  // Procedurally generated circular alpha map textures for particles
+  const snowflakeTex = useMemo(() => createSnowflakeTexture(), [])
+  const rainTex = useMemo(() => createRainTexture(), [])
+
+  useEffect(() => {
+    return () => {
+      snowflakeTex.dispose()
+      rainTex.dispose()
+    }
+  }, [snowflakeTex, rainTex])
+
   // Precipitation Particles (Rain streaks or gentle drifting snow)
-  const particleCount = 2000
   const isRain = weather === 'rain'
-  const isSnow = weather === 'snow'
+  const isSnow = weather === 'snow' || (weather === 'clear' && currentResolvedBiome === 'tundra')
   const isPrecip = isRain || isSnow
+  const particleCount = isSnow ? 2800 : 2000
 
   const precipGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry()
     const pos = new Float32Array(particleCount * 3)
     for (let i = 0; i < particleCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 85
-      pos[i * 3 + 1] = Math.random() * 36
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 85
+      pos[i * 3] = (Math.random() - 0.5) * 80
+      pos[i * 3 + 1] = (Math.random() - 0.25) * 40 // -10 to +30 relative to camera
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 80
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     return geo
-  }, [])
+  }, [particleCount])
 
   useEffect(() => {
     return () => {
@@ -594,19 +662,34 @@ export default function GameEnvironment() {
     if (isPrecip && precipPointsRef.current) {
       const positions = precipPointsRef.current.geometry.attributes.position.array as Float32Array
       const camPos = camera.position
-      precipPointsRef.current.position.set(camPos.x, 0, camPos.z)
+      // Center particle emitter precisely on camera position (X, Y, Z) so it follows hills and elevation
+      precipPointsRef.current.position.set(camPos.x, camPos.y, camPos.z)
 
-      const fallSpeed = isSnow ? 7.2 : 36.0
-      const driftSpeed = isSnow ? 2.2 : 0.0
+      const fallSpeed = isSnow ? 6.5 : 36.0
+      const driftSpeed = isSnow ? 2.4 : 0.0
 
       for (let i = 0; i < particleCount; i++) {
-        positions[i * 3 + 1] -= fallSpeed * delta
+        const idx = i * 3
+        positions[idx + 1] -= fallSpeed * delta
+
         if (isSnow) {
-          positions[i * 3] += Math.sin(positions[i * 3 + 1] * 0.45) * driftSpeed * delta
+          // Dynamic organic drift & swirling around camera frustum
+          positions[idx] += Math.sin((positions[idx + 1] + i) * 0.35) * driftSpeed * delta
+          positions[idx + 2] += Math.cos((positions[idx + 1] + i) * 0.28) * (driftSpeed * 0.6) * delta
         }
-        if (positions[i * 3 + 1] < 0) {
-          positions[i * 3 + 1] = 36
+
+        // Loop vertically relative to camera: when particle falls below -10m relative to camera, wrap to +30m
+        if (positions[idx + 1] < -10) {
+          positions[idx + 1] += 40
+          positions[idx] = (Math.random() - 0.5) * 80
+          positions[idx + 2] = (Math.random() - 0.5) * 80
         }
+
+        // Horizontal boundary wrap within ±40m of camera
+        if (positions[idx] < -40) positions[idx] += 80
+        else if (positions[idx] > 40) positions[idx] -= 80
+        if (positions[idx + 2] < -40) positions[idx + 2] += 80
+        else if (positions[idx + 2] > 40) positions[idx + 2] -= 80
       }
       precipPointsRef.current.geometry.attributes.position.needsUpdate = true
     }
@@ -627,7 +710,7 @@ export default function GameEnvironment() {
       <color attach="background" args={[skyColor]} />
 
       {/* Calibrated atmospheric aerial perspective fog: preserves rich horizon depth up to 4km without flat walls */}
-      <fogExp2 attach="fog" args={[skyColor, 0.00042]} />
+      <fogExp2 attach="fog" args={[skyColor, fogDensity]} />
 
       {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
       <group ref={skyFollowRef}>
@@ -706,14 +789,16 @@ export default function GameEnvironment() {
         intensity={celestialData.isNight ? 0.65 : 1.25}
       />
 
-      {/* Rain or Snow Particles */}
+      {/* Rain or Snow Particles with Soft Circular Alpha Map */}
       {isPrecip && (
         <points ref={precipPointsRef} geometry={precipGeo}>
           <pointsMaterial
+            map={isSnow ? snowflakeTex : rainTex}
             color={isSnow ? '#ffffff' : '#93c5fd'}
-            size={isSnow ? 0.38 : 0.16}
-            transparent
-            opacity={isSnow ? 0.9 : 0.72}
+            size={isSnow ? 0.45 : 0.22}
+            transparent={true}
+            opacity={isSnow ? 0.92 : 0.75}
+            depthWrite={false}
             blending={THREE.AdditiveBlending}
           />
         </points>

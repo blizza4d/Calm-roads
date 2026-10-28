@@ -199,37 +199,30 @@ function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
 }
 
 // 5. Complete World Terrain Elevation at ANY (x, z)
-// Provides a guaranteed valley depression under and around the highway corridor (up to 26m out)
-// so coarse terrain grid triangles (12.5m pitch) never pierce or clip the road ribbon in any biome
+// Provides a guaranteed valley depression along the highway corridor (up to 36m out)
+// so coarse terrain grid triangles never pierce, submerge, or z-fight the road ribbon in any biome
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const roadX = getRoadCenter(z)
   const roadY = getRoadElevation(z)
   const distFromRoad = Math.abs(x - roadX)
 
-  // 1. Immediate roadbed zone (under asphalt ribbon and inner shoulder)
-  // Depressed safely below the road ribbon (which sits at roadY + 0.07 to +0.11)
-  if (distFromRoad <= 7.0) {
-    return roadY - 0.16
+  // 1. Immediate roadbed & shoulder valley floor (0m to 16m)
+  // Strictly flat threshold depressed safely below the road ribbon (which sits at roadY + 0.07 to +0.11)
+  if (distFromRoad <= 16.0) {
+    return roadY - 0.22
   }
 
-  // 2. Roadside drainage swale / ditch corridor (7m to 14m)
-  if (distFromRoad <= 14.0) {
-    const swaleT = (distFromRoad - 7.0) / 7.0 // 0 to 1
-    const ditchProfile = Math.sin(swaleT * Math.PI) * 0.12
-    return roadY - 0.16 - ditchProfile
-  }
-
-  // 3. Clear flat outer corridor buffer (14m to 26m)
+  // 2. Roadside drainage swale & flat outer corridor buffer (16m to 36m)
   // Ensures all coarse grid triangles (12.5m pitch) remain strictly below road level
-  if (distFromRoad <= 26.0) {
-    const corridorT = (distFromRoad - 14.0) / 12.0 // 0 to 1
-    // Smoothly rises from roadY - 0.16 to roadY - 0.05
-    return roadY - 0.16 + 0.11 * corridorT
+  if (distFromRoad <= 36.0) {
+    const corridorT = (distFromRoad - 16.0) / 20.0 // 0 to 1
+    // Smoothly rises from roadY - 0.22 to roadY - 0.10, remaining strictly below road surface
+    return roadY - 0.22 + 0.12 * corridorT
   }
 
-  // 4. Smooth Hermite smoothstep transition into mountains (26m to 70m)
-  const distPastCorridor = distFromRoad - 26.0
-  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / 44.0))
+  // 3. Smooth Hermite smoothstep transition into mountains (36m to 105m)
+  const distPastCorridor = distFromRoad - 36.0
+  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / 68.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at corridor boundary
 
   // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
@@ -262,7 +255,7 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const mountainRamp = Math.min(2.2, 0.12 + Math.pow(distPastCorridor / 95.0, 1.25) * 1.6)
   const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 520.0), 1.5) * 52.0
 
-  return (roadY - 0.05) + (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult
+  return (roadY - 0.10) + (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult
 }
 
 // 6. True drivable surface height (road surface with camber on road, shoulder, and natural terrain offroad)

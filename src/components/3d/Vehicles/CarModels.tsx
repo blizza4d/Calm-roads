@@ -23,7 +23,7 @@ function HeadlightBeams({
   y,
   z,
   color = '#fffbeb',
-  intensity = 65,
+  intensity = 280,
 }: {
   x: number
   y: number
@@ -33,13 +33,13 @@ function HeadlightBeams({
 }) {
   const targetLeft = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(-x, y - 0.25, -45)
+    o.position.set(-x * 0.85, y - 0.2, -50)
     return o
   }, [x, y])
 
   const targetRight = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(x, y - 0.25, -45)
+    o.position.set(x * 0.85, y - 0.2, -50)
     return o
   }, [x, y])
 
@@ -50,24 +50,28 @@ function HeadlightBeams({
       <spotLight
         position={[-x, y, z]}
         target={targetLeft}
-        angle={0.55}
-        penumbra={0.7}
+        angle={0.48}
+        penumbra={0.5}
+        decay={2}
+        distance={100}
         intensity={intensity}
         color={color}
-        distance={85}
         castShadow
         shadow-bias={-0.0006}
+        shadow-mapSize={[512, 512]}
       />
       <spotLight
         position={[x, y, z]}
         target={targetRight}
-        angle={0.55}
-        penumbra={0.7}
+        angle={0.48}
+        penumbra={0.5}
+        decay={2}
+        distance={100}
         intensity={intensity}
         color={color}
-        distance={85}
         castShadow
         shadow-bias={-0.0006}
+        shadow-mapSize={[512, 512]}
       />
     </>
   )
@@ -254,8 +258,9 @@ export function BmwM3GtrModel({
     return new THREE.MeshStandardMaterial({
       color: new THREE.Color('#ffffff'),
       emissive: headlightsOn ? new THREE.Color('#fffbeb') : new THREE.Color('#000000'),
-      emissiveIntensity: headlightsOn ? 3.0 : 0.0,
+      emissiveIntensity: headlightsOn ? 3.5 : 0.0,
       roughness: 0.1,
+      toneMapped: false,
     })
   }, [headlightsOn])
 
@@ -377,7 +382,7 @@ export function BmwM3GtrModel({
       />
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.65} y={0.24} z={-2.2} color="#fffbeb" intensity={75} />}
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.24} z={-2.2} color="#fffbeb" intensity={280} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -654,7 +659,7 @@ export function SupercarModel({
       <primitive object={clonedScene} />
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.68} y={0.48} z={-2.2} color="#fffbeb" intensity={75} />}
+      {headlightsOn && <HeadlightBeams x={0.68} y={0.48} z={-2.2} color="#fffbeb" intensity={280} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -845,7 +850,7 @@ export function CamperVanModel({
         {chromeMat}
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.64} y={0.75} z={-2.3} color="#fef3c7" intensity={58} />}
+      {headlightsOn && <HeadlightBeams x={0.64} y={0.75} z={-2.3} color="#fef3c7" intensity={260} />}
 
       <group position={[-0.92, 0.38 + (wheelSuspensions[0] || 0), -1.3]}>{renderVanWheel(true, true)}</group>
       <group position={[0.92, 0.38 + (wheelSuspensions[1] || 0), -1.3]}>{renderVanWheel(true, false)}</group>
@@ -990,7 +995,7 @@ export function HovercraftModel({
         {darkAero}
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.55} y={0.45} z={-2.4} color="#e0f2fe" intensity={65} />}
+      {headlightsOn && <HeadlightBeams x={0.55} y={0.45} z={-2.4} color="#e0f2fe" intensity={280} />}
     </group>
   )
 }
@@ -1169,7 +1174,7 @@ export function VintageHatchbackModel({
         <meshStandardMaterial color="#dc2626" roughness={0.7} />
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.62} y={0.5} z={-2.0} color="#fff" intensity={58} />}
+      {headlightsOn && <HeadlightBeams x={0.62} y={0.5} z={-2.0} color="#fff" intensity={260} />}
 
       <group position={[-0.86, 0.34 + (wheelSuspensions[0] || 0), -1.15]}>{renderHatchWheel(true, true)}</group>
       <group position={[0.86, 0.34 + (wheelSuspensions[1] || 0), -1.15]}>{renderHatchWheel(true, false)}</group>
