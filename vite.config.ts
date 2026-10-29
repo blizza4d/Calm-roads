@@ -11,6 +11,7 @@ export default defineConfig({
           three: ['three'],
           'react-vendor': ['react', 'react-dom', 'zustand'],
           'r3f-vendor': ['@react-three/fiber', '@react-three/drei'],
+          motion: ['framer-motion'],
         },
       },
     },

@@ -557,18 +557,18 @@ export default function GameEnvironment() {
     const lightZ = isNight ? 20 : -20
 
     let lightColor = '#fffdf8'
-    let lightIntensity = 3.2
+    let lightIntensity = 2.1
     let skyTurbidity = 2.0
     let skyRayleigh = 2.2
 
     if (isNight) {
       lightColor = '#93c5fd' // Cool silver-blue moonlight
-      lightIntensity = 0.75
+      lightIntensity = 0.35
       skyTurbidity = 0.1
       skyRayleigh = 0.1
     } else if (isSunsetOrSunrise) {
       lightColor = '#fed7aa' // Warm golden amber sunlight
-      lightIntensity = 2.9
+      lightIntensity = 1.8
       skyTurbidity = 3.4
       skyRayleigh = 3.2
     }
@@ -802,7 +802,7 @@ export default function GameEnvironment() {
         <Environment
           preset="forest"
           background={false}
-          environmentIntensity={graphicsQuality === 'low' ? 0.75 : celestialData.isNight ? 0.55 : 1.20}
+          environmentIntensity={graphicsQuality === 'low' ? 0.40 : celestialData.isNight ? 0.25 : 0.65}
         />
       </Suspense>
 
@@ -830,14 +830,14 @@ export default function GameEnvironment() {
       {/* Soft Ambient Fill Light (eliminates harsh pitch-black crevices in terrain shadows) */}
       <ambientLight
         color={celestialData.isNight ? '#38bdf8' : '#fed7aa'}
-        intensity={celestialData.isNight ? 0.45 : 0.68}
+        intensity={celestialData.isNight ? 0.20 : 0.38}
       />
 
       {/* Atmospheric Fill Ambient / Hemisphere Lighting with Softened Ground Bounce */}
       <hemisphereLight
         color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
         groundColor={celestialData.isNight ? '#334155' : (biomeConfig.skyHemiGround || '#64748b')}
-        intensity={celestialData.isNight ? 0.65 : 1.25}
+        intensity={celestialData.isNight ? 0.28 : 0.60}
       />
 
       {/* Rain or Snow Particles with Soft Circular Alpha Map */}
@@ -855,10 +855,15 @@ export default function GameEnvironment() {
         </points>
       )}
 
-      {/* Cinematic Post-Processing Pass (Bypassed on low-end hardware for peak 60fps) */}
+      {/* Cinematic Post-Processing Pass with Clamped Bloom to Prevent Screen Overexposure */}
       {graphicsQuality !== 'low' && (
         <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
-          <Bloom luminanceThreshold={0.92} intensity={graphicsQuality === 'medium' ? 0.32 : 0.45} mipmapBlur />
+          <Bloom
+            luminanceThreshold={1.05}
+            luminanceSmoothing={0.15}
+            intensity={graphicsQuality === 'medium' ? 0.25 : 0.35}
+            mipmapBlur
+          />
           <Vignette eskil={false} offset={0.42} darkness={0.22} />
         </EffectComposer>
       )}

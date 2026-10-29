@@ -480,7 +480,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       for (let ix = 0; ix < countX; ix++) {
         const idx = iz * countX + ix
         const localX = (ix / GRID_X - 0.5) * TERRAIN_W
-        const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
+        const roadY = getRoadElevation(worldZ)
+        const rawY = getTerrainHeight(localX, worldZ, biomeConfig.id)
+        // Enforce strictly positive Y and height ceiling to guarantee terrain never generates in sky
+        const y = Math.max(0.0, Math.min(roadY + 105.0, rawY))
         pos.setXYZ(idx, localX, y, localZ)
       }
     }
@@ -1139,13 +1142,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           }
         }
 
-        // Stratified geological rock outcrops
+        // Stratified geological rock outcrops (kept close to roadside floor to eliminate floating in sky)
         if (hash3 > 0.4) {
-          const rockDist = ROAD_WIDTH / 2 + 6.0 + hash1 * 26
+          const rockDist = ROAD_WIDTH / 2 + 5.0 + hash1 * 18
           const rockX = roadCx + side * rockDist
           const rockZ = clusterZ + (hash2 - 0.5) * 18
           const rockWorldZ = chunkZ + rockZ
-          const rockY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
+          const roadY = getRoadElevation(rockWorldZ)
+          const rockRawY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
+          const rockY = Math.max(0.0, Math.min(roadY + 75.0, rockRawY))
 
           // Non-uniform geological scaling for natural boulder silhouette
           const sx = 0.9 + hash3 * 1.6

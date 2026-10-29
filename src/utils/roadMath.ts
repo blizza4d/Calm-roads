@@ -354,57 +354,57 @@ function smoothRidge(n: number): number {
 
 function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
   if (bId === 'twisted_mountains') {
-    // Sinuous rotated noise ridgelines, dramatic twisted massifs and glacial cirques
-    const twistAngle = x * 0.0016 + z * 0.0012
+    // Sinuous rotated noise ridgelines with bounded rotation to prevent inverted geometry
+    const twistAngle = Math.max(-Math.PI * 0.75, Math.min(Math.PI * 0.75, x * 0.0012 + z * 0.0009))
     const cosT = Math.cos(twistAngle)
     const sinT = Math.sin(twistAngle)
     const twistedX = x * cosT - z * sinT
     const twistedZ = x * sinT + z * cosT
 
-    const primaryPeaks = smoothRidge(terrainNoise(twistedX * 0.0022, twistedZ * 0.0022)) * 64.0
-    const twistedRidges = smoothRidge(detailNoise(twistedX * 0.0055, twistedZ * 0.0055)) * 22.0
-    const glacialCirques = Math.max(0, detailNoise(x * 0.0042, z * 0.0042)) * 12.0
-    const cragDetails = (microNoise(x * 0.016, z * 0.016) * 0.5 + 0.5) * 5.0
-    return primaryPeaks + twistedRidges + glacialCirques + cragDetails
+    const primaryPeaks = Math.max(0, smoothRidge(terrainNoise(twistedX * 0.0022, twistedZ * 0.0022))) * 36.0
+    const twistedRidges = Math.max(0, smoothRidge(detailNoise(twistedX * 0.0055, twistedZ * 0.0055))) * 14.0
+    const glacialCirques = Math.max(0, detailNoise(x * 0.0042, z * 0.0042)) * 8.0
+    const cragDetails = Math.max(0, (microNoise(x * 0.016, z * 0.016) * 0.5 + 0.5)) * 3.0
+    return Math.max(0.0, primaryPeaks + twistedRidges + glacialCirques + cragDetails)
   } else if (bId === 'alpine') {
     // Sharp high-altitude jagged summits and sheer horn peaks
-    const horns = Math.pow(Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))), 1.35) * 62.0
-    const sheerRidges = smoothRidge(detailNoise(x * 0.006, z * 0.006)) * 20.0
-    const screeSlopes = (microNoise(x * 0.014, z * 0.014) * 0.5 + 0.5) * 4.5
-    return horns + sheerRidges + screeSlopes
+    const horns = Math.pow(Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))), 1.35) * 44.0
+    const sheerRidges = Math.max(0, smoothRidge(detailNoise(x * 0.006, z * 0.006))) * 15.0
+    const screeSlopes = Math.max(0, (microNoise(x * 0.014, z * 0.014) * 0.5 + 0.5)) * 3.5
+    return Math.max(0.0, horns + sheerRidges + screeSlopes)
   } else if (bId === 'enchanted_forest') {
     // Rolling mossy foothills with sheltered dells and ancient clearings
-    const mossyHills = (terrainNoise(x * 0.0028, z * 0.0028) * 0.5 + 0.5) * 32.0
-    const forestDells = smoothRidge(detailNoise(x * 0.007, z * 0.007)) * 12.0
-    const knollMicro = (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5) * 3.5
-    return mossyHills + forestDells + knollMicro
+    const mossyHills = (terrainNoise(x * 0.0028, z * 0.0028) * 0.5 + 0.5) * 28.0
+    const forestDells = Math.max(0, smoothRidge(detailNoise(x * 0.007, z * 0.007))) * 10.0
+    const knollMicro = Math.max(0, (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5)) * 3.0
+    return Math.max(0.0, mossyHills + forestDells + knollMicro)
   } else if (bId === 'coastal') {
     // Rolling green seaside cliffs falling away toward distant ocean horizons
-    const seaCliffs = (terrainNoise(x * 0.0025, z * 0.0025) * 0.5 + 0.5) * 36.0
-    const coastalShelf = x < 0 ? Math.max(-14, x * 0.035) : 0
-    const headlands = smoothRidge(detailNoise(x * 0.0065, z * 0.0065)) * 14.0
-    return Math.max(0, seaCliffs + coastalShelf + headlands)
+    const seaCliffs = (terrainNoise(x * 0.0025, z * 0.0025) * 0.5 + 0.5) * 30.0
+    const coastalShelf = x < 0 ? Math.max(-12, x * 0.03) : 0
+    const headlands = Math.max(0, smoothRidge(detailNoise(x * 0.0065, z * 0.0065))) * 12.0
+    return Math.max(0.0, seaCliffs + coastalShelf + headlands)
   } else if (bId === 'desert') {
-    const mesaShape = Math.max(0, Math.tanh(terrainNoise(x * 0.0025, z * 0.0025) * 2.2)) * 36.0
-    const duneWave = (Math.sin(x * 0.008 + z * 0.005) * 0.5 + 0.5) * 16.0
-    const duneDetail = (detailNoise(x * 0.012, z * 0.012) * 0.5 + 0.5) * 6.0
-    return mesaShape + duneWave + duneDetail
+    const mesaShape = Math.max(0, Math.tanh(terrainNoise(x * 0.0025, z * 0.0025) * 2.2)) * 30.0
+    const duneWave = (Math.sin(x * 0.008 + z * 0.005) * 0.5 + 0.5) * 14.0
+    const duneDetail = (detailNoise(x * 0.012, z * 0.012) * 0.5 + 0.5) * 5.0
+    return Math.max(0.0, mesaShape + duneWave + duneDetail)
   } else if (bId === 'tundra') {
-    const primaryMassif = smoothRidge(terrainNoise(x * 0.0024, z * 0.0024)) * 56.0
-    const secondaryRidge = smoothRidge(detailNoise(x * 0.0065, z * 0.0065)) * 18.0
-    const alpineDetail = (microNoise(x * 0.015, z * 0.015) * 0.5 + 0.5) * 5.0
-    return primaryMassif + secondaryRidge + alpineDetail
+    const primaryMassif = Math.max(0, smoothRidge(terrainNoise(x * 0.0024, z * 0.0024))) * 42.0
+    const secondaryRidge = Math.max(0, smoothRidge(detailNoise(x * 0.0065, z * 0.0065))) * 14.0
+    const alpineDetail = Math.max(0, (microNoise(x * 0.015, z * 0.015) * 0.5 + 0.5)) * 3.5
+    return Math.max(0.0, primaryMassif + secondaryRidge + alpineDetail)
   } else if (bId === 'autumn') {
-    const alpineMassif = smoothRidge(terrainNoise(x * 0.0028, z * 0.0028)) * 48.0
-    const ridgePasses = smoothRidge(detailNoise(x * 0.0072, z * 0.0072)) * 16.0
-    const foothillDetail = (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5) * 4.5
-    return alpineMassif + ridgePasses + foothillDetail
+    const alpineMassif = Math.max(0, smoothRidge(terrainNoise(x * 0.0028, z * 0.0028))) * 38.0
+    const ridgePasses = Math.max(0, smoothRidge(detailNoise(x * 0.0072, z * 0.0072))) * 13.0
+    const foothillDetail = Math.max(0, (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5)) * 3.5
+    return Math.max(0.0, alpineMassif + ridgePasses + foothillDetail)
   } else {
     // Forest: Lush rolling mountain flanks and forested peaks
-    const rollingCountryside = (terrainNoise(x * 0.0032, z * 0.0032) * 0.5 + 0.5) * 36.0
-    const forestKnolls = smoothRidge(detailNoise(x * 0.008, z * 0.008)) * 14.0
-    const gentleHills = (microNoise(x * 0.02, z * 0.02) * 0.5 + 0.5) * 4.0
-    return rollingCountryside + forestKnolls + gentleHills
+    const rollingCountryside = (terrainNoise(x * 0.0032, z * 0.0032) * 0.5 + 0.5) * 30.0
+    const forestKnolls = Math.max(0, smoothRidge(detailNoise(x * 0.008, z * 0.008))) * 12.0
+    const gentleHills = Math.max(0, (microNoise(x * 0.02, z * 0.02) * 0.5 + 0.5)) * 3.5
+    return Math.max(0.0, rollingCountryside + forestKnolls + gentleHills)
   }
 }
 
@@ -468,11 +468,18 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
   }
 
-  // Distance scaling: Gradual elevation gain into distant mountain horizons
-  const mountainRamp = Math.min(2.2, 0.12 + Math.pow(distPastCorridor / 95.0, 1.25) * 1.6)
-  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 520.0), 1.5) * 52.0
+  // Distance scaling: Gradual elevation gain into mountain horizons
+  const mountainRamp = Math.min(1.4, 0.12 + Math.pow(distPastCorridor / 110.0, 1.1) * 1.1)
+  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 26.0
 
-  return (roadY - 0.10) + (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult
+  const computedElevation =
+    (roadY - 0.10) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
+
+  // Maximum height ceiling: Strictly prevents terrain from generating upside-down in sky or piercing skybox
+  const MAX_TERRAIN_CEILING = 105.0
+  const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
+
+  return Math.max(0.0, clampedElevation)
 }
 
 // 6. True drivable surface height (road surface with camber on road, shoulder, and natural terrain offroad)
