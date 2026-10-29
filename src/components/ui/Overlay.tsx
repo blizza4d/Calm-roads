@@ -114,6 +114,14 @@ function TouchPedals() {
 // ----------------------------------------------------------------
 // 2. High-Precision Motorsport Telemetry Cluster (Bottom Right)
 // ----------------------------------------------------------------
+function formatOdometer(distKm: number, unit: 'kmh' | 'mph'): string {
+  const isMph = unit === 'mph'
+  const val = isMph ? distKm * 0.621371 : distKm
+  const whole = Math.floor(val).toString().padStart(4, '0')
+  const frac = Math.floor((val % 1) * 100).toString().padStart(2, '0')
+  return `${whole}.${frac} ${isMph ? 'mi' : 'km'}`
+}
+
 function SpeedometerHUD() {
   const speed = useTelemetryStore((s) => s.speed)
   const rpm = useTelemetryStore((s) => s.rpm)
@@ -130,17 +138,17 @@ function SpeedometerHUD() {
 
   const displayedSpeed = speedUnit === 'mph' ? Math.round(speed * 0.621371) : Math.round(speed)
   const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
-  const displayedDistance = (distance * (speedUnit === 'mph' ? 0.621371 : 1.0)).toFixed(1)
+  const formattedDistance = formatOdometer(distance, speedUnit)
 
   const rpmPercent = Math.min(100, Math.max(0, (rpm / 8500) * 100))
   const isRedline = rpm > 7200
 
   return (
     <div className="fixed bottom-6 right-6 pointer-events-auto select-none z-20 flex flex-col items-end gap-2">
-      <div className="backdrop-blur-xl bg-black/60 border border-white/20 p-4 rounded-3xl shadow-2xl flex items-center gap-5 text-white transition-all hover:bg-black/70">
+      <div className="backdrop-blur-xl bg-[#2A2A2A]/85 border border-white/10 p-4 rounded-3xl shadow-2xl flex items-center gap-5 text-white transition-all hover:bg-[#2A2A2A]/95">
         {/* Gear Indicator & Biome Pill */}
         <div className="flex flex-col items-center justify-center border-r border-white/10 pr-4">
-          <span className="text-[9px] font-mono text-emerald-400 font-bold uppercase tracking-widest">
+          <span className="text-[9px] font-mono text-[#14b8a6] font-bold uppercase tracking-widest">
             {isHoverMode ? 'REPULSOR' : 'GEAR'}
           </span>
           <span className="text-4xl font-black font-mono leading-none my-0.5 text-white drop-shadow-md">
@@ -153,11 +161,11 @@ function SpeedometerHUD() {
           {/* Biome Status Pill & Burnout Badge */}
           <div className="flex flex-col items-center gap-1 mt-2">
             {isBurnout && (
-              <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-300 font-black border border-amber-400 animate-pulse tracking-wider">
+              <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-[#B83B2F]/30 text-red-200 font-black border border-[#B83B2F] animate-pulse tracking-wider">
                 BURNOUT 🔥
               </span>
             )}
-            <div className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+            <div className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#14b8a6]/20 text-teal-200 font-bold border border-[#14b8a6]/30">
               {BIOMES[currentResolvedBiome]?.name?.split(' ')[0] || 'Road'}
             </div>
           </div>
@@ -169,8 +177,8 @@ function SpeedometerHUD() {
             <span className="text-[9px] text-white/40 font-mono font-bold uppercase tracking-wider">
               ODO
             </span>
-            <span className="text-xs font-mono font-bold text-white/80">
-              {displayedDistance} {unitLabel === 'MPH' ? 'mi' : 'km'}
+            <span className="text-xs font-mono font-bold text-white/90 tracking-wider">
+              {formattedDistance}
             </span>
           </div>
 
@@ -178,14 +186,14 @@ function SpeedometerHUD() {
             {/* Brake Input Meter */}
             <div className="w-1.5 h-full bg-white/10 rounded-full overflow-hidden flex flex-col justify-end" title="Brake">
               <div
-                className="w-full bg-red-500 transition-all duration-75 rounded-full"
+                className="w-full bg-[#B83B2F] transition-all duration-75 rounded-full shadow-[0_0_6px_#B83B2F]"
                 style={{ height: `${brake * 100}%` }}
               />
             </div>
             {/* Throttle Input Meter */}
             <div className="w-1.5 h-full bg-white/10 rounded-full overflow-hidden flex flex-col justify-end" title="Throttle">
               <div
-                className="w-full bg-emerald-400 transition-all duration-75 rounded-full"
+                className="w-full bg-[#14b8a6] transition-all duration-75 rounded-full shadow-[0_0_6px_#14b8a6]"
                 style={{ height: `${throttle * 100}%` }}
               />
             </div>
@@ -211,19 +219,19 @@ function SpeedometerHUD() {
           <div className="w-full mt-2.5">
             <div className="flex justify-between text-[8px] font-mono text-white/40 mb-1 font-bold">
               <span>0</span>
-              <span className={isRedline ? 'text-red-400 animate-pulse font-black' : ''}>
+              <span className={isRedline ? 'text-[#B83B2F] animate-pulse font-black' : ''}>
                 {isRedline ? 'SHIFT' : 'RPM x1000'}
               </span>
-              <span className={isRedline ? 'text-red-400 font-bold' : ''}>8.5</span>
+              <span className={isRedline ? 'text-[#B83B2F] font-bold' : ''}>8.5</span>
             </div>
             <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden p-0.5 flex items-center">
               <div
                 className={`h-full transition-all duration-75 rounded-full ${
                   isRedline
-                    ? 'bg-red-500 shadow-[0_0_8px_#ef4444]'
+                    ? 'bg-[#B83B2F] shadow-[0_0_8px_#B83B2F]'
                     : rpmPercent > 70
                     ? 'bg-amber-400'
-                    : 'bg-emerald-400'
+                    : 'bg-[#14b8a6]'
                 }`}
                 style={{ width: `${rpmPercent}%` }}
               />

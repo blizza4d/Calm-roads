@@ -696,7 +696,6 @@ export function SupercarModel({
 
 useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
 useGLTF.preload('/models/tuner_wheel.glb')
-useGLTF.preload('/models/ferrari.glb')
 
 // ----------------------------------------------------
 // 2. Realistic Cozy Camper Van (Vintage Type 2 Style)
@@ -1255,4 +1254,3 @@ export function ActiveCarModel(props: CarModelProps) {
 
 useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
 useGLTF.preload('/models/tuner_wheel.glb')
-useGLTF.preload('/models/ferrari.glb')

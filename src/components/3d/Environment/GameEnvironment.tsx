@@ -4,7 +4,7 @@ import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore } from '../../../store/useGameStore'
-import { BIOMES } from '../../../utils/roadMath'
+import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
 
 // ------------------------------------------------------------------------
 // Cosmic Night Sky Shaders: 3,500+ Twinkling Stars & Galactic Milky Way
@@ -402,9 +402,11 @@ function PanoramicMountainHorizon({
 // ------------------------------------------------------------------------
 // Realistic Coastal Beach Ocean Surface: Dynamic animated sea surface with wave swells & specular highlights
 // ------------------------------------------------------------------------
-function CoastalOcean({ isNight }: { isNight: boolean }) {
+function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiome: string }) {
   const { camera } = useThree()
   const oceanRef = useRef<THREE.Mesh>(null)
+
+  const isCoastal = currentBiome === 'coastal'
 
   const oceanGeo = useMemo(() => {
     // Spans 2,600m in X and 3,800m in Z with subdivisions for natural undulating swells
@@ -414,9 +416,12 @@ function CoastalOcean({ isNight }: { isNight: boolean }) {
   }, [])
 
   useFrame((state) => {
-    if (oceanRef.current) {
-      // Anchored at sea level Y = 0.0, centered on seaward side (X = -1300) relative to road
-      oceanRef.current.position.set(-1280, 0.0, camera.position.z)
+    if (oceanRef.current && isCoastal) {
+      const roadCx = getRoadCenter(camera.position.z)
+      // Anchored at sea level Y = 0.0, strictly on the seaward side:
+      // Center of ocean plane is placed at roadCx - 1380m so nearest edge is 80m from road,
+      // completely on the ocean side of the beach dunes!
+      oceanRef.current.position.set(roadCx - 1380, 0.0, camera.position.z)
 
       const time = state.clock.getElapsedTime() * 1.15
       const pos = oceanGeo.attributes.position
@@ -435,15 +440,18 @@ function CoastalOcean({ isNight }: { isNight: boolean }) {
     }
   })
 
+  if (!isCoastal) return null
+
   return (
-    <mesh ref={oceanRef} geometry={oceanGeo} position={[-1280, 0, 0]} receiveShadow>
+    <mesh ref={oceanRef} geometry={oceanGeo} position={[-1380, 0, 0]} receiveShadow>
       <meshStandardMaterial
-        color={isNight ? '#0b1d3a' : '#0284c7'}
-        roughness={0.08}
-        metalness={0.25}
-        envMapIntensity={2.8}
+        color={isNight ? '#061325' : '#0d5c75'}
+        roughness={0.22}
+        metalness={0.12}
+        envMapIntensity={isNight ? 0.6 : 1.2}
         transparent
-        opacity={0.92}
+        opacity={0.88}
+        depthWrite={false}
       />
     </mesh>
   )
@@ -650,14 +658,6 @@ export default function GameEnvironment() {
     scene.background = new THREE.Color(skyColor)
   }, [scene, skyColor])
 
-  // Discrete celestial phase key: only regenerate PMREM environment map when phase shifts
-  const celestialPhase = useMemo(() => {
-    if (celestialData.isNight) return 'night'
-    if (timeOfDay >= 16.5 && timeOfDay <= 19.5) return 'sunset'
-    if (timeOfDay >= 5.0 && timeOfDay <= 7.5) return 'sunrise'
-    return 'day'
-  }, [celestialData.isNight, timeOfDay])
-
   // Player-following directional light with smooth target tracking
   useFrame(() => {
     if (dirLightRef.current && lightTargetRef.current) {
@@ -787,8 +787,8 @@ export default function GameEnvironment() {
         isNight={celestialData.isNight}
       />
 
-      {/* Expansive Animated Coastal Beach Ocean Surface */}
-      <CoastalOcean isNight={celestialData.isNight} />
+      {/* Expansive Animated Coastal Beach Ocean Surface (Only rendered in Coastal Biome!) */}
+      <CoastalOcean isNight={celestialData.isNight} currentBiome={currentResolvedBiome} />
 
       {/* Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt */}
       <PanoramicMountainHorizon
@@ -800,17 +800,9 @@ export default function GameEnvironment() {
       {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces */}
       <Suspense fallback={null}>
         <Environment
-          preset={
-            celestialPhase === 'night'
-              ? 'night'
-              : celestialPhase === 'sunset'
-              ? 'sunset'
-              : celestialPhase === 'sunrise'
-              ? 'dawn'
-              : 'forest'
-          }
+          preset="forest"
           background={false}
-          environmentIntensity={graphicsQuality === 'low' ? 0.9 : 1.25}
+          environmentIntensity={graphicsQuality === 'low' ? 0.75 : celestialData.isNight ? 0.55 : 1.20}
         />
       </Suspense>
 

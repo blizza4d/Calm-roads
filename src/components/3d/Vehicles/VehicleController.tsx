@@ -351,6 +351,7 @@ export default function VehicleController() {
   // Telemetry throttling and biome change tracking
   const prevResolvedBiome = useRef<string>('')
   const telemetryCounter = useRef(0)
+  const lastOdoPos = useRef<THREE.Vector3 | null>(null)
   const accumulatedDistance = useRef(useGameStore.getState().distance)
 
   // Fixed timestep physics accumulator (120 Hz fixed substepping)
@@ -421,6 +422,9 @@ export default function VehicleController() {
         steeringVisual.current = 0
         currentGearIndex.current = 1
         isFirstCamFrameRef.current = true
+        if (lastOdoPos.current) {
+          lastOdoPos.current.set(pos.current.x, pos.current.y, curZ)
+        }
         skidQuadCount.current = 0
         skidRingIndex.current = 0
         prevSkidL.current = null
@@ -671,6 +675,9 @@ export default function VehicleController() {
         currentSteerAngle.current = 0
         wheelSpin.current = 0
         isFirstCamFrameRef.current = true
+        if (lastOdoPos.current) {
+          lastOdoPos.current.copy(pos.current)
+        }
       }
     }
 
@@ -715,8 +722,17 @@ export default function VehicleController() {
       frameDelta * (isHoverMode ? 9 : 20)
     )
 
-    // Accumulated trip distance (km)
-    accumulatedDistance.current += (Math.abs(forwardVel.current) * frameDelta) / 1000
+    // Accumulated real traveled displacement (km) accounting for 3D curved paths & elevation
+    if (!lastOdoPos.current) {
+      lastOdoPos.current = pos.current.clone()
+    } else {
+      const stepDist = pos.current.distanceTo(lastOdoPos.current)
+      // Filter out teleport / reset jumps (> 12m in a single frame)
+      if (stepDist > 0.001 && stepDist < 12.0) {
+        accumulatedDistance.current += stepDist / 1000.0
+      }
+      lastOdoPos.current.copy(pos.current)
+    }
 
     // Update root vehicle transform
     carGroupRef.current.position.set(pos.current.x, pos.current.y, pos.current.z)
@@ -1004,6 +1020,35 @@ export default function VehicleController() {
       }
     }
 
+    // 7.2 Dynamic Exhaust Backfire Flame & Spark Bursts
+    const isExhaustPop =
+      !isHoverMode &&
+      vehicleModel !== 'hovercraft' &&
+      (isDecel || shiftCutTimer.current > 0.04 || (isBurnoutActive && finalRpm > config.redlineRpm - 300 && Math.random() > 0.65))
+
+    if (isExhaustPop && Math.random() > 0.3) {
+      let bestP = particlePool.current[0]
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        if (!particlePool.current[i].active) {
+          bestP = particlePool.current[i]
+          break
+        }
+      }
+      const side = Math.random() > 0.5 ? 0.32 : -0.32
+      const exPos = _wheelWorldPos.set(side, -config.rideHeight + 0.16, 2.18).applyQuaternion(carQuat).add(carPos)
+      bestP.pos.copy(exPos)
+      bestP.active = true
+      bestP.life = 0
+      bestP.maxLife = 0.18
+      bestP.size = 0.22
+      bestP.color.set(Math.random() > 0.4 ? '#ff7700' : '#ffb703')
+      bestP.vel.set(
+        (Math.random() - 0.5) * 0.4 - forwardX * (Math.abs(forwardVel.current) * 0.1 + 2.4),
+        Math.random() * 0.35 + 0.1,
+        (Math.random() - 0.5) * 0.4 - forwardZ * (Math.abs(forwardVel.current) * 0.1 + 2.4)
+      )
+    }
+
     // Update active particle instances
     if (tireParticleMeshRef.current) {
       const pMesh = tireParticleMeshRef.current
@@ -1135,10 +1180,11 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 8. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
     // ------------------------------------------------------------------------
-    // Dynamic FOV: expands smoothly at high speed (from 60° up to 74°) for sensation of speed
+    // Dynamic FOV: expands smoothly from 60° baseline up to 82° at high speeds
     const persCam = state.camera as THREE.PerspectiveCamera
     if (persCam.isPerspectiveCamera) {
-      const targetFov = 60 + Math.min(14, (currentSpeedKmh / config.maxSpeedKmh) * 14)
+      const speedRatio = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
+      const targetFov = 60 + Math.pow(speedRatio, 1.4) * 22.0 // 60° to 82°
       if (Math.abs(persCam.fov - targetFov) > 0.05) {
         persCam.fov = THREE.MathUtils.lerp(persCam.fov, targetFov, frameDelta * 3.5)
         persCam.updateProjectionMatrix()
@@ -1148,20 +1194,26 @@ export default function VehicleController() {
     let followSpeed = 7.5
 
     if (cameraPerspective === 'chase') {
-      const lookAhead = Math.min(18, Math.max(0, forwardVel.current * 0.22))
+      const lookAhead = Math.min(22, Math.max(0, forwardVel.current * 0.25))
       _tempCamOffset.set(0, 1.82, 4.85).applyQuaternion(carQuat).add(carPos)
       _tempCamLookAt.set(0, 0.86, -lookAhead - 2.8).applyQuaternion(carQuat).add(carPos)
 
       // Dynamic curve anticipation: look through the apex of upcoming road curves
-      const upcomingZ = carPos.z - lookAhead - 14
+      const upcomingZ = carPos.z - lookAhead - 16
       const curveDelta = getRoadCenter(upcomingZ) - getRoadCenter(carPos.z)
-      _tempCamLookAt.x += THREE.MathUtils.clamp(curveDelta * 0.35, -4.5, 4.5)
+      _tempCamLookAt.x += THREE.MathUtils.clamp(curveDelta * 0.38, -4.8, 4.8)
+
+      // Bump and acceleration vertical feedback
+      const bumpLift = (wheelSuspensions.current[0] + wheelSuspensions.current[1] - wheelSuspensions.current[2] - wheelSuspensions.current[3]) * 0.22
+      _tempCamOffset.y += bumpLift
+      _tempCamLookAt.y += bumpLift * 0.5
 
       // Subtle high-speed micro-vibration
-      if (currentSpeedKmh > 80) {
-        const vibe = (currentSpeedKmh / config.maxSpeedKmh) * (Math.random() - 0.5) * 0.014
+      if (currentSpeedKmh > 85) {
+        const vibeNorm = Math.min(1.0, (currentSpeedKmh - 85) / 180)
+        const vibe = (Math.random() - 0.5) * 0.015 * vibeNorm
         _tempCamOffset.x += vibe
-        _tempCamOffset.y += vibe
+        _tempCamOffset.y += vibe * 0.7
       }
       followSpeed = 7.5
     } else if (cameraPerspective === 'dashboard') {

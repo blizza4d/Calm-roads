@@ -1,6 +1,6 @@
 import { Canvas } from '@react-three/fiber'
-import { Suspense } from 'react'
-import { KeyboardControls } from '@react-three/drei'
+import { Suspense, useState, useEffect } from 'react'
+import { KeyboardControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import Experience from './components/3d/Experience'
 import Overlay from './components/ui/Overlay'
@@ -15,6 +15,64 @@ const keyboardMap = [
   { name: 'burnout', keys: ['KeyB', 'b', 'B'] },
 ]
 
+function GameLoader() {
+  const { progress, active } = useProgress()
+  const [faded, setFaded] = useState(false)
+
+  useEffect(() => {
+    if (!active && progress >= 100) {
+      const timer = setTimeout(() => setFaded(true), 500)
+      return () => clearTimeout(timer)
+    } else {
+      setFaded(false)
+    }
+  }, [active, progress])
+
+  if (faded) return null
+
+  let milestone = 'Initializing Engine & World Physics...'
+  if (progress > 25 && progress < 60) milestone = 'Generating Road & Mountain Passes...'
+  else if (progress >= 60 && progress < 90) milestone = 'Loading Vehicle Monocoque & Materials...'
+  else if (progress >= 90) milestone = 'Finalizing Shaders & Atmosphere...'
+
+  const isComplete = !active && progress >= 100
+
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07090e] transition-opacity duration-700 pointer-events-none select-none ${
+        isComplete ? 'opacity-0' : 'opacity-100'
+      }`}
+    >
+      <div className="flex flex-col items-center max-w-sm px-6 text-center">
+        {/* Calm Roads Branding */}
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#14b8a6] animate-pulse shadow-[0_0_12px_#14b8a6]" />
+          <h1 className="text-2xl font-black tracking-widest text-white uppercase font-mono">
+            CALM ROADS
+          </h1>
+        </div>
+        <p className="text-[11px] text-white/50 tracking-wider font-mono uppercase mb-8">
+          Atmospheric Procedural Driving Experience
+        </p>
+
+        {/* Minimal Progress Bar */}
+        <div className="w-64 h-1.5 bg-white/10 rounded-full overflow-hidden p-0.5 mb-3 border border-white/10">
+          <div
+            className="h-full bg-[#14b8a6] rounded-full transition-all duration-200 ease-out shadow-[0_0_8px_#14b8a6]"
+            style={{ width: `${Math.round(progress)}%` }}
+          />
+        </div>
+
+        {/* Real Loading Milestones & Percentage */}
+        <div className="flex justify-between w-64 text-[10px] font-mono text-white/60">
+          <span>{milestone}</span>
+          <span className="font-bold text-[#14b8a6]">{Math.round(progress)}%</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
   const photoMode = useGameStore((s) => s.photoMode)
@@ -26,6 +84,8 @@ export default function App() {
         className="w-screen h-screen relative overflow-hidden bg-[#07090e]"
         style={{ width: '100vw', height: '100vh', position: 'fixed', inset: 0, overflow: 'hidden' }}
       >
+        {/* Progressive Loading State (Z-50) */}
+        <GameLoader />
         {/* WebGL 3D Canvas Layer (Z-0) */}
         <div
           className="absolute inset-0 z-0"

@@ -303,16 +303,16 @@ export function getRoadCenter(z: number): number {
 
 // 3. Road Elevation (Drivable scenic mountain pass climbs, highway crests and expansive valleys)
 export function getRoadElevation(z: number): number {
-  // Long-wave scenic mountain pass climbs (wavelength ~1200m, height up to 26m)
-  const passWave = Math.sin(z * 0.0015) * 22.0 + Math.sin(z * 0.00072 + 1.5) * 15.0
-  // Medium-wave rolling valley undulating highway crests (wavelength ~360m, height 9.5m)
-  const valleyWave = Math.cos(z * 0.0048 + 0.6) * 9.5
-  // Gentle high-speed road undulation (wavelength ~130m, height 2.2m)
-  const microWave = Math.sin(z * 0.013) * 2.2
+  // Scenic mountain pass climbs (wavelength ~1200m, normalized 0 to 1)
+  const passWave = (Math.sin(z * 0.0015) * 0.5 + 0.5) * 32.0 + (Math.sin(z * 0.00072 + 1.5) * 0.5 + 0.5) * 20.0
+  // Rolling undulating highway crests (wavelength ~360m, amplitude +-7.5m)
+  const valleyWave = Math.cos(z * 0.0048 + 0.6) * 7.5
+  // Gentle high-speed road undulation (wavelength ~130m, amplitude +-1.8m)
+  const microWave = Math.sin(z * 0.013) * 1.8
 
   const regionElevMult = getBiomeElevationMultiplier(z)
-  // Baseline elevation of 12.0m guarantees road remains elevated safely above coastal sea level (Y = 0)
-  return 12.0 + (passWave + valleyWave + microWave) * regionElevMult
+  // Base highway elevation of 22.0m guarantees road is ALWAYS >= 14m above sea level (Y=0)
+  return 22.0 + (passWave + valleyWave + microWave) * regionElevMult
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (for constant width & banking)
@@ -427,7 +427,7 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     const beachDist = (roadX - 16.0) - x
     const duneRipples = Math.sin(x * 0.08 + z * 0.04) * 0.35 + Math.cos(x * 0.03 - z * 0.02) * 0.55
     // Gently slope from roadbed down across broad sandy beach into sea level (Y = 0)
-    const targetY = Math.max(-1.8, (roadY - 0.22) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
+    const targetY = Math.max(0.0, (roadY - 0.22) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
     return targetY
   }
 

@@ -19,6 +19,20 @@ const TERRAIN_W = 1200
 const GRID_X = 64
 const GRID_Z = 32
 
+// Robust Geometry Validation to guarantee zero non-finite coordinates or corrupted buffers
+function validateChunkGeometry(geo: THREE.BufferGeometry, name: string): boolean {
+  const pos = geo.attributes.position
+  if (!pos || pos.count === 0) return false
+  const arr = pos.array as Float32Array
+  for (let i = 0; i < arr.length; i += 3) {
+    if (!Number.isFinite(arr[i]) || !Number.isFinite(arr[i + 1]) || !Number.isFinite(arr[i + 2])) {
+      console.warn(`[Geometry Validation] Non-finite vertex in ${name} at index ${i / 3}`)
+      return false
+    }
+  }
+  return true
+}
+
 // Helper to merge multiple BufferGeometries into a single geometry
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const merged = new THREE.BufferGeometry()
@@ -573,6 +587,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     terrainGeo.attributes.uv.needsUpdate = true
     colorAttr.needsUpdate = true
     normals.needsUpdate = true
+    validateChunkGeometry(terrainGeo, 'terrainGeo')
   }, [chunkZ, biomeConfig, terrainGeo])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
@@ -664,6 +679,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     roadGeo.attributes.uv.needsUpdate = true
     roadGeo.computeBoundingSphere()
     roadGeo.computeBoundingBox()
+    validateChunkGeometry(roadGeo, 'roadGeo')
   }, [chunkZ, roadGeo])
 
   // 3. Roadside Gravel / Dirt Shoulder Strips (Pooled)
