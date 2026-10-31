@@ -1,18 +1,22 @@
 /**
- * CALM ROADS — REALISTIC VEHICLE AUDIO ENGINE
+ * CALM ROADS — MULTI-VEHICLE ACOUSTIC AUDIO ENGINE
  * 
  * Architecture:
+ * - Reusable VehicleAudioProfile registry keyed by actual vehicle IDs:
+ *   'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback'.
  * - 100% sample-based multi-tier Web Audio API graph.
- * - Decoupled continuous loop nodes for Engine States:
- *   [Idle], [Low RPM], [Mid RPM], [High RPM], [Off-Throttle / Engine Braking].
+ * - Global AudioBuffer cache: buffers are decoded once and reused permanently across vehicle switches.
+ * - Single-use AudioBufferSourceNode lifecycle management (strictly creates new sources on switch/reset).
+ * - Multi-layer continuous loops: [Idle], [Low RPM], [Mid RPM], [High RPM], [Off-Throttle / Engine Braking].
  * - Telemetry-driven pitch mapping (playbackRate = currentRPM / baseSampleRPM) with safety clamps.
  * - Equal-power sinusoidal crossfading across RPM powerbands with 0.045s time constant.
  * - Dynamic Load vs. Coasting bus management (On-Load acceleration vs. Off-Throttle engine braking).
- * - High-RPM throttle lift-off exhaust overrun crackles & backfire pops.
- * - Sequential dog-box ignition-cut gear shift transients.
+ * - Per-vehicle exhaust overrun crackles, backfires, and compressor surge.
+ * - Vehicle-specific gear shift transients (Hewland dog-box, DCT snap, pneumatic air brake, ion pulse).
  * - Surface friction, tire squeal, aerodynamic wind rush, horn, and Lo-Fi ambient radio.
- * - Exposes clean init(), update(), updateEngineSound(), and cleanup() methods for React useEffect lifecycle.
  */
+
+import { VehicleModelType } from '../store/useGameStore'
 
 export interface TrackInfo {
   id: number
@@ -31,58 +35,144 @@ export const LOFI_PLAYLIST: TrackInfo[] = [
 
 export type EngineAudioState = 'idle' | 'low_rpm' | 'mid_rpm' | 'high_rpm' | 'off_throttle'
 
-interface EngineLoopConfig {
-  name: EngineAudioState
-  urls: string[]
-  baseRpm: number
-  minPitch: number
-  maxPitch: number
+export interface VehicleAudioProfile {
+  vehicleId: VehicleModelType
+  name: string
+  engineType: string
+  transmission: string
+  idleRpm: number
+  redlineRpm: number
+  baseRpm: {
+    idle: number
+    low: number
+    mid: number
+    high: number
+    offThrottle: number
+  }
+  urls: {
+    idle: string[]
+    low_rpm: string[]
+    mid_rpm: string[]
+    high_rpm: string[]
+    off_throttle: string[]
+    gear_shift: string[]
+    overrun: string[]
+  }
+  eqProfile: {
+    subBassFreq: number
+    subBassGain: number
+    growlFreq: number
+    growlGain: number
+  }
+  rawRecordingUrl?: string
 }
 
-// Master sample asset URL table: Checks dedicated public/sounds paths first, with fallbacks to public/audio/cars/
-const ENGINE_LOOP_CONFIGS: Record<EngineAudioState, EngineLoopConfig> = {
-  idle: {
-    name: 'idle',
-    urls: ['/sounds/engine_idle.wav', '/audio/cars/bmw-m3-gtr/idle_loop.wav'],
-    baseRpm: 900,
-    minPitch: 0.75,
-    maxPitch: 1.80,
+// Master Per-Vehicle Audio Registry
+export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfile> = {
+  bmw_m3: {
+    vehicleId: 'bmw_m3',
+    name: "BMW M3 GTR '05",
+    engineType: '4.0L P60B40 Naturally Aspirated 90° Racing V8',
+    transmission: 'Hewland 6-Speed Sequential Dog-Box with Straight-Cut Spur Gears',
+    idleRpm: 880,
+    redlineRpm: 8500,
+    baseRpm: { idle: 880, low: 2400, mid: 4800, high: 7400, offThrottle: 4500 },
+    urls: {
+      idle: ['/audio/cars/bmw_m3/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/bmw_m3/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/bmw_m3/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/bmw_m3/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/bmw_m3/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/bmw_m3/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/bmw_m3/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 90, subBassGain: 5.8, growlFreq: 230, growlGain: 3.8 },
+    rawRecordingUrl: '/audio/raw/bmw_m3_gt2_2010.ogg',
   },
-  low_rpm: {
-    name: 'low_rpm',
-    urls: ['/sounds/engine_low.wav', '/audio/cars/bmw-m3-gtr/low_rpm_acceleration.wav'],
-    baseRpm: 2200,
-    minPitch: 0.65,
-    maxPitch: 1.75,
+  supercar: {
+    vehicleId: 'supercar',
+    name: 'Veloce GT Supercar',
+    engineType: '5.2L Naturally Aspirated 90° Exotic V10',
+    transmission: '7-Speed Dual-Clutch Transmission (DCT)',
+    idleRpm: 1050,
+    redlineRpm: 9000,
+    baseRpm: { idle: 1050, low: 3000, mid: 5800, high: 8600, offThrottle: 5000 },
+    urls: {
+      idle: ['/audio/cars/supercar/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/supercar/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/supercar/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/supercar/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/supercar/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/supercar/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/supercar/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 110, subBassGain: 4.2, growlFreq: 380, growlGain: 4.5 },
+    rawRecordingUrl: '/audio/raw/v8_idle_and_revs.ogg',
   },
-  mid_rpm: {
-    name: 'mid_rpm',
-    urls: ['/sounds/engine_mid.wav', '/audio/cars/bmw-m3-gtr/mid_rpm_acceleration.wav'],
-    baseRpm: 4600,
-    minPitch: 0.65,
-    maxPitch: 1.70,
+  hovercraft: {
+    vehicleId: 'hovercraft',
+    name: 'AeroGlide Repulsorcraft',
+    engineType: 'Dual-Phase Magnetic Levitation Coil & Twin Micro-Ion Turbines',
+    transmission: 'Direct Flux Modulation Drive',
+    idleRpm: 450,
+    redlineRpm: 12000,
+    baseRpm: { idle: 450, low: 2500, mid: 6000, high: 10000, offThrottle: 5000 },
+    urls: {
+      idle: ['/audio/cars/hovercraft/idle.wav'],
+      low_rpm: ['/audio/cars/hovercraft/low_rpm.wav'],
+      mid_rpm: ['/audio/cars/hovercraft/mid_rpm.wav'],
+      high_rpm: ['/audio/cars/hovercraft/high_rpm.wav'],
+      off_throttle: ['/audio/cars/hovercraft/off_throttle.wav'],
+      gear_shift: ['/audio/cars/hovercraft/gear_shift.wav'],
+      overrun: ['/audio/cars/hovercraft/overrun.wav'],
+    },
+    eqProfile: { subBassFreq: 52, subBassGain: 6.2, growlFreq: 420, growlGain: 1.5 },
   },
-  high_rpm: {
-    name: 'high_rpm',
-    urls: ['/sounds/engine_high.wav', '/audio/cars/bmw-m3-gtr/high_rpm_loop.wav'],
-    baseRpm: 7000,
-    minPitch: 0.70,
-    maxPitch: 1.65,
+  camper: {
+    vehicleId: 'camper',
+    name: 'Trailblazer Camper Van',
+    engineType: '3.0L Heavy Turbo-Diesel Inline-6',
+    transmission: 'Heavy-Duty 5-Speed Manual with Pneumatic Air-Assisted Linkage',
+    idleRpm: 680,
+    redlineRpm: 4200,
+    baseRpm: { idle: 680, low: 1450, mid: 2500, high: 3800, offThrottle: 2400 },
+    urls: {
+      idle: ['/audio/cars/camper/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/camper/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/camper/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/camper/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/camper/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/camper/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/camper/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 70, subBassGain: 6.8, growlFreq: 160, growlGain: 4.2 },
   },
-  off_throttle: {
-    name: 'off_throttle',
-    urls: ['/sounds/engine_off_throttle.wav', '/audio/cars/bmw-m3-gtr/deceleration.wav', '/audio/cars/bmw-m3-gtr/engine_braking.wav'],
-    baseRpm: 4000,
-    minPitch: 0.60,
-    maxPitch: 1.75,
+  hatchback: {
+    vehicleId: 'hatchback',
+    name: 'Rallye Turbo Hatchback',
+    engineType: '2.1L Turbocharged 5-Cylinder Group B Homologation Engine',
+    transmission: 'Close-Ratio 5-Speed Sequential Dog-Box',
+    idleRpm: 940,
+    redlineRpm: 7500,
+    baseRpm: { idle: 940, low: 2500, mid: 4600, high: 7200, offThrottle: 4000 },
+    urls: {
+      idle: ['/audio/cars/hatchback/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/hatchback/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/hatchback/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/hatchback/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/hatchback/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/hatchback/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/hatchback/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 85, subBassGain: 4.8, growlFreq: 280, growlGain: 4.0 },
+    rawRecordingUrl: '/audio/raw/audi_quattro_rally.ogg',
   },
 }
 
 interface ActiveLoopChannel {
   source: AudioBufferSourceNode | null
   gain: GainNode | null
-  buffer: AudioBuffer | null
-  config: EngineLoopConfig
+  state: EngineAudioState
 }
 
 export class RealisticVehicleAudioEngine {
@@ -104,25 +194,25 @@ export class RealisticVehicleAudioEngine {
   private onLoadFilter: BiquadFilterNode | null = null
   private spatialPanner: PannerNode | null = null
 
-  // Loop Channels for the 5 Engine States
+  // Active Vehicle Tracking
+  private currentVehicleId: VehicleModelType = 'bmw_m3'
+  private isSwitchingProfile = false
+
+  // Global AudioBuffer Cache: Decoded once and stored for fast zero-latency access
+  private bufferCache: Map<string, AudioBuffer> = new Map()
+
+  // Loop Channels for the 5 Active Engine States
   private loops: Record<EngineAudioState, ActiveLoopChannel> = {
-    idle: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.idle },
-    low_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.low_rpm },
-    mid_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.mid_rpm },
-    high_rpm: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.high_rpm },
-    off_throttle: { source: null, gain: null, buffer: null, config: ENGINE_LOOP_CONFIGS.off_throttle },
+    idle: { source: null, gain: null, state: 'idle' },
+    low_rpm: { source: null, gain: null, state: 'low_rpm' },
+    mid_rpm: { source: null, gain: null, state: 'mid_rpm' },
+    high_rpm: { source: null, gain: null, state: 'high_rpm' },
+    off_throttle: { source: null, gain: null, state: 'off_throttle' },
   }
 
-  // Transient Audio Buffers (Overrun Pops, Sequential Shifts)
-  private overrunBuffer: AudioBuffer | null = null
-  private gearUpBuffer: AudioBuffer | null = null
-  private gearDownBuffer: AudioBuffer | null = null
-  private rallyBuffer: AudioBuffer | null = null
-  private rallySource: AudioBufferSourceNode | null = null
-  private rallyGain: GainNode | null = null
-  private v8RecordedBuffer: AudioBuffer | null = null
-  private v8RecordedSource: AudioBufferSourceNode | null = null
-  private v8RecordedGain: GainNode | null = null
+  // Raw recording layer (optional supplemental texture)
+  private rawSource: AudioBufferSourceNode | null = null
+  private rawGain: GainNode | null = null
 
   // Telemetry Tracking
   private prevThrottle = 0
@@ -145,49 +235,23 @@ export class RealisticVehicleAudioEngine {
 
   // Lo-Fi Synth Chord progressions
   private chordProgressions = [
-    [
-      [261.63, 329.63, 392.00, 493.88], // Cmaj7
-      [220.00, 261.63, 329.63, 392.00], // Am7
-      [174.61, 220.00, 261.63, 329.63], // Fmaj7
-      [196.00, 246.94, 293.66, 349.23], // G7
-    ],
-    [
-      [293.66, 349.23, 440.00, 523.25], // Dm7
-      [196.00, 246.94, 293.66, 349.23], // G7
-      [261.63, 329.63, 392.00, 493.88], // Cmaj7
-      [220.00, 261.63, 329.63, 392.00], // Am7
-    ],
-    [
-      [329.63, 392.00, 493.88, 587.33], // Em7
-      [261.63, 329.63, 392.00, 493.88], // Cmaj7
-      [220.00, 261.63, 329.63, 392.00], // Am7
-      [246.94, 293.66, 349.23, 440.00], // Bm7
-    ],
-    [
-      [220.00, 261.63, 329.63, 392.00], // Am7
-      [174.61, 220.00, 261.63, 329.63], // Fmaj7
-      [261.63, 329.63, 392.00, 523.25], // Cmaj7
-      [164.81, 196.00, 246.94, 293.66], // Em7
-    ],
-    [
-      [349.23, 440.00, 523.25, 659.25], // Fmaj7
-      [329.63, 392.00, 493.88, 587.33], // Em7
-      [293.66, 349.23, 440.00, 523.25], // Dm7
-      [261.63, 329.63, 392.00, 493.88], // Cmaj7
-    ],
+    [[261.63, 329.63, 392.00, 493.88], [220.00, 261.63, 329.63, 392.00], [174.61, 220.00, 261.63, 329.63], [196.00, 246.94, 293.66, 349.23]],
+    [[293.66, 349.23, 440.00, 523.25], [196.00, 246.94, 293.66, 349.23], [261.63, 329.63, 392.00, 493.88], [220.00, 261.63, 329.63, 392.00]],
+    [[329.63, 392.00, 493.88, 587.33], [261.63, 329.63, 392.00, 493.88], [220.00, 261.63, 329.63, 392.00], [246.94, 293.66, 349.23, 440.00]],
+    [[220.00, 261.63, 329.63, 392.00], [174.61, 220.00, 261.63, 329.63], [261.63, 329.63, 392.00, 523.25], [164.81, 196.00, 246.94, 293.66]],
+    [[349.23, 440.00, 523.25, 659.25], [329.63, 392.00, 493.88, 587.33], [293.66, 349.23, 440.00, 523.25], [261.63, 329.63, 392.00, 493.88]],
   ]
-
-  // --------------------------------------------------------------------------
-  // 1. AudioContext & Buffer Management
-  // --------------------------------------------------------------------------
 
   public get unlocked(): boolean {
     return this.isUnlocked
   }
 
+  public get activeVehicle(): VehicleModelType {
+    return this.currentVehicleId
+  }
+
   /**
-   * Initialize the Web Audio API context and assemble the audio routing graph.
-   * Can be called with an existing context or will instantiate a new AudioContext.
+   * Initialize the Web Audio API context and assemble the master audio routing graph.
    */
   public async init(externalCtx?: AudioContext): Promise<void> {
     if (this.isInitialized && this.ctx) return
@@ -215,7 +279,7 @@ export class RealisticVehicleAudioEngine {
       this.musicGain.gain.setValueAtTime(this.musicVolume, ctx.currentTime)
       this.musicGain.connect(this.masterGain)
 
-      // 3D Spatial Panner Node (HRTF model for Chase, Bumper & Drone camera tracking)
+      // 3D Spatial Panner Node
       try {
         const panner = ctx.createPanner()
         panner.panningModel = 'HRTF'
@@ -230,22 +294,22 @@ export class RealisticVehicleAudioEngine {
         this.spatialPanner = null
       }
 
-      // Engine Sub-Busses
+      // Engine Master Sub-Bus
       this.engineMaster = ctx.createGain()
       this.engineMaster.gain.setValueAtTime(1.0, ctx.currentTime)
 
-      // Heavy Sub-Bass Reinforcement EQ (Subwoofer chest thump 45 - 110 Hz)
+      // Heavy Sub-Bass Reinforcement EQ
       this.subBassEQ = ctx.createBiquadFilter()
       this.subBassEQ.type = 'lowshelf'
       this.subBassEQ.frequency.setValueAtTime(90, ctx.currentTime)
-      this.subBassEQ.gain.setValueAtTime(5.8, ctx.currentTime) // +5.8 dB heavy bass weight
+      this.subBassEQ.gain.setValueAtTime(5.8, ctx.currentTime)
 
-      // Guttural Manifold Growl & Displacement Resonance EQ (180 - 320 Hz)
+      // Guttural Throat / Resonance EQ
       this.growlEQ = ctx.createBiquadFilter()
       this.growlEQ.type = 'peaking'
       this.growlEQ.frequency.setValueAtTime(230, ctx.currentTime)
       this.growlEQ.Q.setValueAtTime(1.3, ctx.currentTime)
-      this.growlEQ.gain.setValueAtTime(3.6, ctx.currentTime) // +3.6 dB heavy growl
+      this.growlEQ.gain.setValueAtTime(3.6, ctx.currentTime)
 
       this.engineMaster.connect(this.subBassEQ)
       this.subBassEQ.connect(this.growlEQ)
@@ -263,12 +327,12 @@ export class RealisticVehicleAudioEngine {
       this.onLoadFilter.Q.setValueAtTime(0.7, ctx.currentTime)
       this.onLoadFilter.connect(this.engineMaster)
 
-      // On-Load Acceleration Bus (Low, Mid, High RPM)
+      // On-Load Acceleration Bus
       this.onLoadBus = ctx.createGain()
       this.onLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
       this.onLoadBus.connect(this.onLoadFilter)
 
-      // Off-Throttle Deceleration Bus (Engine Braking / Compression Overrun)
+      // Off-Throttle Deceleration Bus (Engine Braking)
       this.offLoadBus = ctx.createGain()
       this.offLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
       this.offLoadBus.connect(this.engineMaster)
@@ -279,18 +343,16 @@ export class RealisticVehicleAudioEngine {
       this.isInitialized = true
       this.isUnlocked = ctx.state === 'running'
 
-      // Fetch and decode engine loop audio assets asynchronously
-      await this.loadAudioAssets(ctx)
-
-      // Instantiate continuous looping source nodes
-      this.setupEngineLoopNodes(ctx)
+      // Preload current vehicle audio assets and spin up loops
+      await this.preloadVehicleProfile(this.currentVehicleId)
+      this.mountVehicleLoopNodes(this.currentVehicleId)
     } catch (err) {
       console.warn('[VehicleAudioEngine] Initialization warning:', err)
     }
   }
 
   /**
-   * Resumes the AudioContext upon user gesture (pointerdown/keydown)
+   * Resumes the AudioContext upon user gesture
    */
   public unlock(): void {
     if (!this.ctx) {
@@ -304,77 +366,87 @@ export class RealisticVehicleAudioEngine {
   }
 
   /**
-   * Fetch and decode an audio buffer across primary and fallback URL paths
+   * Fetch and decode an audio buffer across primary and fallback URLs, caching in memory
    */
-  private async fetchAndDecode(ctx: AudioContext, urls: string[]): Promise<AudioBuffer | null> {
+  private async fetchAndDecode(urls: string[]): Promise<AudioBuffer | null> {
+    if (!this.ctx) return null
     for (const url of urls) {
+      if (this.bufferCache.has(url)) {
+        return this.bufferCache.get(url)!
+      }
       try {
         const response = await fetch(url)
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer()
-          return await ctx.decodeAudioData(arrayBuffer)
+          const decoded = await this.ctx.decodeAudioData(arrayBuffer)
+          this.bufferCache.set(url, decoded)
+          return decoded
         }
       } catch {
-        // Continue to fallback URL
+        // Continue to fallback path
       }
     }
     return null
   }
 
   /**
-   * Load all 5 engine states and transient audio buffers
+   * Preload all audio assets for a specific vehicle profile
    */
-  private async loadAudioAssets(ctx: AudioContext): Promise<void> {
+  public async preloadVehicleProfile(vehicleId: VehicleModelType): Promise<void> {
+    const profile = VEHICLE_AUDIO_REGISTRY[vehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
     const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
 
-    const bufferPromises = states.map(async (state) => {
-      const buffer = await this.fetchAndDecode(ctx, this.loops[state].config.urls)
-      this.loops[state].buffer = buffer
-      return { state, buffer }
-    })
+    const statePromises = states.map((st) => this.fetchAndDecode(profile.urls[st]))
+    const transientPromises = [
+      this.fetchAndDecode(profile.urls.gear_shift),
+      this.fetchAndDecode(profile.urls.overrun),
+    ]
 
-    const transientPromises = Promise.all([
-      this.fetchAndDecode(ctx, ['/sounds/exhaust_pop.wav', '/audio/cars/bmw-m3-gtr/exhaust_overrun.wav']),
-      this.fetchAndDecode(ctx, ['/sounds/gear_shift.wav', '/audio/cars/bmw-m3-gtr/gear_up.wav']),
-      this.fetchAndDecode(ctx, ['/sounds/gear_downshift.wav', '/audio/cars/bmw-m3-gtr/gear_down.wav']),
-      this.fetchAndDecode(ctx, ['/audio/raw/audi_quattro_rally.ogg']),
-      this.fetchAndDecode(ctx, ['/audio/raw/v8_idle_and_revs.ogg', '/audio/raw/bmw_m3_gt2_2010.ogg']),
-    ])
+    if (profile.rawRecordingUrl) {
+      transientPromises.push(this.fetchAndDecode([profile.rawRecordingUrl]))
+    }
 
-    await Promise.all([...bufferPromises, transientPromises])
-
-    const [overrun, gearUp, gearDown, rally, v8Rec] = await transientPromises
-    this.overrunBuffer = overrun
-    this.gearUpBuffer = gearUp
-    this.gearDownBuffer = gearDown
-    this.rallyBuffer = rally
-    this.v8RecordedBuffer = v8Rec
+    await Promise.all([...statePromises, ...transientPromises])
   }
 
-  // --------------------------------------------------------------------------
-  // 2. The Audio Graph: Looping Nodes & Sub-Buses
-  // --------------------------------------------------------------------------
-
   /**
-   * Creates the 5 looping AudioBufferSourceNodes and wires them to their GainNodes.
+   * Mounts new AudioBufferSourceNodes for the specified vehicle.
+   * Note: AudioBufferSourceNodes are one-shot objects in the Web Audio API;
+   * each profile mount creates fresh source nodes referencing cached buffers.
    */
-  private setupEngineLoopNodes(ctx: AudioContext): void {
-    if (!this.engineMaster || !this.onLoadBus || !this.offLoadBus) return
-
+  private mountVehicleLoopNodes(vehicleId: VehicleModelType): void {
+    if (!this.ctx || !this.engineMaster || !this.onLoadBus || !this.offLoadBus) return
+    const ctx = this.ctx
+    const profile = VEHICLE_AUDIO_REGISTRY[vehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
     const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
+
+    // Update EQ for vehicle character
+    if (this.subBassEQ) {
+      this.subBassEQ.frequency.setTargetAtTime(profile.eqProfile.subBassFreq, ctx.currentTime, 0.05)
+      this.subBassEQ.gain.setTargetAtTime(profile.eqProfile.subBassGain, ctx.currentTime, 0.05)
+    }
+    if (this.growlEQ) {
+      this.growlEQ.frequency.setTargetAtTime(profile.eqProfile.growlFreq, ctx.currentTime, 0.05)
+      this.growlEQ.gain.setTargetAtTime(profile.eqProfile.growlGain, ctx.currentTime, 0.05)
+    }
 
     states.forEach((state) => {
       const channel = this.loops[state]
-      if (!channel.buffer || channel.source) return
+      const urls = profile.urls[state]
+      let buffer: AudioBuffer | null = null
+      for (const u of urls) {
+        if (this.bufferCache.has(u)) {
+          buffer = this.bufferCache.get(u)!
+          break
+        }
+      }
+
+      if (!buffer) return
 
       // Create dedicated GainNode for RPM crossfading
       const gainNode = ctx.createGain()
       gainNode.gain.setValueAtTime(0.0001, ctx.currentTime)
 
-      // Route GainNode into appropriate bus:
-      // - Idle connects directly to engine master bus (or ducks under load)
-      // - Low, Mid, High connect into onLoadBus for instant throttle response
-      // - Off-Throttle connects into offLoadBus for engine braking
       if (state === 'idle') {
         gainNode.connect(this.engineMaster!)
       } else if (state === 'off_throttle') {
@@ -385,9 +457,8 @@ export class RealisticVehicleAudioEngine {
 
       channel.gain = gainNode
 
-      // Create dedicated AudioBufferSourceNode set to loop = true
       const source = ctx.createBufferSource()
-      source.buffer = channel.buffer
+      source.buffer = buffer
       source.loop = true
       source.playbackRate.setValueAtTime(1.0, ctx.currentTime)
       source.connect(gainNode)
@@ -395,206 +466,244 @@ export class RealisticVehicleAudioEngine {
       try {
         source.start(0)
       } catch (err) {
-        console.warn(`[VehicleAudioEngine] Loop start warning for ${state}:`, err)
+        console.warn(`[VehicleAudioEngine] Loop start error for ${state}:`, err)
       }
 
       channel.source = source
     })
 
-    // Setup rally hatchback loop channel if loaded
-    if (this.rallyBuffer && !this.rallySource && this.sfxMaster) {
-      const rallyGain = ctx.createGain()
-      rallyGain.gain.setValueAtTime(0.0001, ctx.currentTime)
-      rallyGain.connect(this.sfxMaster)
+    // Mount supplemental raw recording layer if present
+    if (profile.rawRecordingUrl && this.bufferCache.has(profile.rawRecordingUrl)) {
+      const rawBuf = this.bufferCache.get(profile.rawRecordingUrl)!
+      const rGain = ctx.createGain()
+      rGain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      rGain.connect(this.engineMaster)
 
-      const rallySrc = ctx.createBufferSource()
-      rallySrc.buffer = this.rallyBuffer
-      rallySrc.loop = true
-      rallySrc.connect(rallyGain)
+      const rSrc = ctx.createBufferSource()
+      rSrc.buffer = rawBuf
+      rSrc.loop = true
+      rSrc.connect(rGain)
       try {
-        rallySrc.start(0)
+        rSrc.start(0)
       } catch {}
 
-      this.rallySource = rallySrc
-      this.rallyGain = rallyGain
-    }
-
-    // Setup authentic recorded V8 texture loop if loaded
-    if (this.v8RecordedBuffer && !this.v8RecordedSource && this.engineMaster) {
-      const v8Gain = ctx.createGain()
-      v8Gain.gain.setValueAtTime(0.0001, ctx.currentTime)
-      v8Gain.connect(this.engineMaster)
-
-      const v8Src = ctx.createBufferSource()
-      v8Src.buffer = this.v8RecordedBuffer
-      v8Src.loop = true
-      v8Src.playbackRate.setValueAtTime(1.0, ctx.currentTime)
-      v8Src.connect(v8Gain)
-      try {
-        v8Src.start(0)
-      } catch {}
-
-      this.v8RecordedSource = v8Src
-      this.v8RecordedGain = v8Gain
+      this.rawSource = rSrc
+      this.rawGain = rGain
     }
   }
 
-  // --------------------------------------------------------------------------
-  // 3 & 4. Telemetry Mapping (Pitch & Dynamic Crossfading)
-  // --------------------------------------------------------------------------
+  /**
+   * Dismounts and stops all active source nodes for the current vehicle.
+   */
+  private dismountVehicleLoopNodes(): void {
+    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
+
+    states.forEach((state) => {
+      const channel = this.loops[state]
+      if (channel.source) {
+        try {
+          channel.source.stop()
+          channel.source.disconnect()
+        } catch {}
+        channel.source = null
+      }
+      if (channel.gain) {
+        try {
+          channel.gain.disconnect()
+        } catch {}
+        channel.gain = null
+      }
+    })
+
+    if (this.rawSource) {
+      try {
+        this.rawSource.stop()
+        this.rawSource.disconnect()
+      } catch {}
+      this.rawSource = null
+    }
+    if (this.rawGain) {
+      try {
+        this.rawGain.disconnect()
+      } catch {}
+      this.rawGain = null
+    }
+  }
 
   /**
-   * Primary frame update function: maps vehicle RPM, throttle, and speed directly
-   * to loop playbackRate, dynamic equal-power crossfading, and on-load vs coasting buses.
-   *
-   * @param rpm - Engine revolutions per minute (e.g., 850 - 8500)
-   * @param throttle - Accelerator input (0.0 to 1.0 or boolean)
-   * @param speed - Vehicle speed in km/h
+   * Smoothly crossfades between different vehicle audio profiles.
+   */
+  public async switchVehicleProfile(newVehicleId: VehicleModelType): Promise<void> {
+    if (this.currentVehicleId === newVehicleId || this.isSwitchingProfile) return
+    this.isSwitchingProfile = true
+
+    if (!this.ctx || !this.isInitialized) {
+      this.currentVehicleId = newVehicleId
+      this.isSwitchingProfile = false
+      return
+    }
+
+    const now = this.ctx.currentTime
+
+    // 1. Fade out current engine master bus smoothly over 100ms
+    if (this.engineMaster) {
+      this.engineMaster.gain.setTargetAtTime(0.0001, now, 0.035)
+    }
+
+    // 2. Preload assets for new vehicle
+    await this.preloadVehicleProfile(newVehicleId)
+
+    // 3. Dismount obsolete single-use sources
+    this.dismountVehicleLoopNodes()
+
+    // 4. Update current profile ID and mount new sources
+    this.currentVehicleId = newVehicleId
+    this.mountVehicleLoopNodes(newVehicleId)
+
+    // 5. Fade in new engine master bus smoothly
+    const afterTime = this.ctx.currentTime
+    if (this.engineMaster) {
+      this.engineMaster.gain.setValueAtTime(0.0001, afterTime)
+      this.engineMaster.gain.setTargetAtTime(1.0, afterTime + 0.02, 0.045)
+    }
+
+    this.isSwitchingProfile = false
+  }
+
+  /**
+   * Primary frame update function: maps vehicle telemetry to the active vehicle's profile.
    */
   public updateEngineSound(rpm: number, throttle: number | boolean, speed = 0): void {
     if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
+    const profile = VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
 
     // Normalize inputs
-    const curRpm = Math.max(700, Math.min(9500, rpm))
+    const curRpm = Math.max(profile.idleRpm * 0.8, Math.min(profile.redlineRpm * 1.1, rpm))
     const throttleVal = typeof throttle === 'boolean' ? (throttle ? 1.0 : 0.0) : Math.max(0, Math.min(1, throttle))
     const isPressed = throttleVal > 0.05
     const speedKmh = Math.max(0, speed)
 
-    // Detect rapid throttle release for high-RPM exhaust overrun crackle
+    // Detect rapid throttle lift for overrun crackles
     const throttleDelta = this.prevThrottle - throttleVal
-    if (throttleDelta > 0.35 && curRpm > 3800) {
-      this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - 3800) / 4000))
+    if (throttleDelta > 0.35 && curRpm > profile.baseRpm.mid * 0.9) {
+      this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - profile.baseRpm.mid) / 3500))
     }
     this.prevThrottle = throttleVal
 
     // ------------------------------------------------------------------------
-    // Pitch Mapping (playbackRate = currentRPM / baseSampleRPM)
+    // Dynamic Pitch Mapping (playbackRate = currentRPM / baseSampleRPM)
     // ------------------------------------------------------------------------
     const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
 
     states.forEach((state) => {
       const channel = this.loops[state]
       if (channel.source) {
-        const rawPitch = curRpm / channel.config.baseRpm
-        const clampedPitch = Math.min(channel.config.maxPitch, Math.max(channel.config.minPitch, rawPitch))
+        const base = profile.baseRpm[state === 'low_rpm' ? 'low' : state === 'mid_rpm' ? 'mid' : state === 'high_rpm' ? 'high' : state === 'off_throttle' ? 'offThrottle' : 'idle']
+        const rawPitch = curRpm / base
+        const clampedPitch = Math.min(2.2, Math.max(0.5, rawPitch))
         channel.source.playbackRate.setTargetAtTime(clampedPitch, now, 0.045)
       }
     })
 
     // ------------------------------------------------------------------------
-    // Dynamic Equal-Power Crossfading (True Sinusoidal Power Conservation)
+    // Dynamic Equal-Power Crossfading (Sinusoidal Conservation)
     // ------------------------------------------------------------------------
     let gainIdle = 0
     let gainLow = 0
     let gainMid = 0
     let gainHigh = 0
 
-    // Band 1: Idle (700 - 2200 RPM)
-    if (curRpm <= 1000) {
+    const rIdle = profile.baseRpm.idle
+    const rLow = profile.baseRpm.low
+    const rMid = profile.baseRpm.mid
+    const rHigh = profile.baseRpm.high
+
+    if (curRpm <= rIdle * 1.1) {
       gainIdle = 1.0
       gainLow = 0.0
-    } else if (curRpm < 2200) {
-      const t = (curRpm - 1000) / (2200 - 1000)
+    } else if (curRpm < rLow) {
+      const t = (curRpm - rIdle * 1.1) / (rLow - rIdle * 1.1)
       gainIdle = Math.cos(t * Math.PI * 0.5)
       gainLow = Math.sin(t * Math.PI * 0.5)
-    }
-    // Band 2: Low to Mid RPM (2200 - 4800 RPM)
-    else if (curRpm < 4800) {
-      const t = (curRpm - 2200) / (4800 - 2200)
+    } else if (curRpm < rMid) {
+      const t = (curRpm - rLow) / (rMid - rLow)
       gainLow = Math.cos(t * Math.PI * 0.5)
       gainMid = Math.sin(t * Math.PI * 0.5)
-    }
-    // Band 3: Mid to High RPM (4800 - 7200 RPM)
-    else if (curRpm < 7200) {
-      const t = (curRpm - 4800) / (7200 - 4800)
+    } else if (curRpm < rHigh) {
+      const t = (curRpm - rMid) / (rHigh - rMid)
       gainMid = Math.cos(t * Math.PI * 0.5)
       gainHigh = Math.sin(t * Math.PI * 0.5)
-    }
-    // Band 4: High Screaming RPM (7200 - 9000+ RPM)
-    else {
+    } else {
       gainHigh = 1.0
     }
 
-    // Dynamic Engine Load Multipliers (Visceral Manifold Combustion Roar)
-    // Under full throttle, mid and high RPM harmonics are aggressively boosted
     const midLoadBoost = 1.0 + throttleVal * 0.35
     const highLoadBoost = 1.0 + throttleVal * 0.45
+    const timeConstant = 0.045
 
-    const timeConstant = 0.045 // Smooth 45ms time constant eliminates zipper clicks
     this.loops.idle.gain?.gain.setTargetAtTime(gainIdle * (1 - throttleVal * 0.65), now, timeConstant)
     this.loops.low_rpm.gain?.gain.setTargetAtTime(gainLow, now, timeConstant)
     this.loops.mid_rpm.gain?.gain.setTargetAtTime(gainMid * midLoadBoost, now, timeConstant)
     this.loops.high_rpm.gain?.gain.setTargetAtTime(gainHigh * highLoadBoost, now, timeConstant)
 
-    // Dynamic Load Filter: Open manifold breathing up to 18,000 Hz under heavy throttle
+    // Dynamic Load Filter
     if (this.onLoadFilter) {
       const targetFilterFreq = isPressed
-        ? 4500 + throttleVal * 12500 + (curRpm / 8500) * 3000
+        ? 4500 + throttleVal * 12500 + (curRpm / profile.redlineRpm) * 3000
         : 2800
       this.onLoadFilter.frequency.setTargetAtTime(Math.min(20000, targetFilterFreq), now, timeConstant)
     }
 
-    // Dynamic Sub-Bass & Manifold Growl Swell under Throttle Load
+    // Dynamic Sub-Bass & Manifold Growl Swell
     if (this.subBassEQ) {
-      const targetBass = 5.8 + throttleVal * 3.8 // +5.8 dB up to +9.6 dB heavy sub-bass
+      const targetBass = profile.eqProfile.subBassGain + throttleVal * 3.5
       this.subBassEQ.gain.setTargetAtTime(targetBass, now, timeConstant)
     }
     if (this.growlEQ) {
-      const targetGrowl = 3.6 + throttleVal * 3.6 // +3.6 dB up to +7.2 dB guttural throat
+      const targetGrowl = profile.eqProfile.growlGain + throttleVal * 3.2
       this.growlEQ.gain.setTargetAtTime(targetGrowl, now, timeConstant)
     }
 
-    // Blend authentic recorded V8 texture with multi-tier engine loops
-    if (this.v8RecordedGain && this.v8RecordedSource) {
-      const recPitch = Math.min(1.85, Math.max(0.68, curRpm / 3400))
-      this.v8RecordedSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
-      const targetRecGain = (0.22 + throttleVal * 0.42) * Math.min(1.0, curRpm / 1600)
-      this.v8RecordedGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
+    // Supplemental Raw Texture Layer
+    if (this.rawGain && this.rawSource) {
+      const recPitch = Math.min(1.85, Math.max(0.68, curRpm / profile.baseRpm.low))
+      this.rawSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
+      const targetRecGain = (0.22 + throttleVal * 0.42) * Math.min(1.0, curRpm / profile.baseRpm.idle)
+      this.rawGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
     }
 
     // ------------------------------------------------------------------------
-    // 5. Load vs. Coasting (Throttle State)
+    // Load vs. Coasting (Throttle State)
     // ------------------------------------------------------------------------
     if (this.onLoadBus && this.offLoadBus) {
       if (isPressed) {
-        // Accelerator is PRESSED: Fade On-Load master bus UP proportional to throttle
         const targetOnLoad = 0.42 + throttleVal * 0.68
         this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, timeConstant)
-        // Off-throttle engine braking fades down
         this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
       } else {
-        // Accelerator is RELEASED (coasting or braking at speed):
-        // Duck the On-Load combustion loops down to a subtle background whirr
         this.onLoadBus.gain.setTargetAtTime(0.08, now, 0.06)
 
-        // Rapidly crossfade into the off-throttle engine braking / overrun loop
-        if (speedKmh > 5 && curRpm > 1400) {
+        if (speedKmh > 5 && curRpm > profile.baseRpm.idle * 1.5) {
           const offThrottleIntensity = Math.min(
             1.0,
-            ((curRpm - 1400) / 2800) * Math.min(1.0, speedKmh / 22)
+            ((curRpm - profile.baseRpm.idle * 1.5) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 22)
           )
           this.offLoadBus.gain.setTargetAtTime(offThrottleIntensity * 0.85, now, timeConstant)
           this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, timeConstant)
         } else {
-          // At rest or gentle crawl, silence off-throttle loop to let clean idle breathe
           this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
         }
       }
     }
   }
 
-  /**
-   * React update alias matching the requested API interface:
-   * update(rpm, throttle, speed)
-   */
   public update(rpm: number, throttle: number | boolean, speed = 0): void {
     this.updateEngineSound(rpm, throttle, speed)
   }
 
   /**
-   * 3D Spatial Audio Integration: positions the engine/exhaust sound emitter
-   * relative to the camera listener in world space.
+   * 3D Spatial Audio Integration
    */
   public updateSpatialPosition(
     carPos: { x: number; y: number; z: number },
@@ -605,7 +714,6 @@ export class RealisticVehicleAudioEngine {
     const now = this.ctx.currentTime
     const listener = this.ctx.listener
 
-    // 1. Position Web Audio listener at camera position
     if (listener.positionX) {
       listener.positionX.setTargetAtTime(camPos.x, now, 0.04)
       listener.positionY.setTargetAtTime(camPos.y, now, 0.04)
@@ -614,7 +722,6 @@ export class RealisticVehicleAudioEngine {
       listener.setPosition(camPos.x, camPos.y, camPos.z)
     }
 
-    // 2. Orient listener along camera sightline
     if (camForward) {
       if (listener.forwardX) {
         listener.forwardX.setTargetAtTime(camForward.x, now, 0.04)
@@ -628,7 +735,6 @@ export class RealisticVehicleAudioEngine {
       }
     }
 
-    // 3. Position spatial sound emitter at car body / exhaust
     if (this.spatialPanner) {
       if (this.spatialPanner.positionX) {
         this.spatialPanner.positionX.setTargetAtTime(carPos.x, now, 0.04)
@@ -642,7 +748,7 @@ export class RealisticVehicleAudioEngine {
 
   /**
    * Full environmental vehicle audio update method supporting hover mode,
-   * tire lateral slip squeal, road friction, and aerodynamics.
+   * tire lateral slip squeal, road friction, aerodynamics, and dynamic vehicle switching.
    */
   public updateVehicleAudio(params: {
     speedKmh: number
@@ -650,7 +756,7 @@ export class RealisticVehicleAudioEngine {
     throttle: number
     isOffRoad?: boolean
     isHoverMode?: boolean
-    vehicleModel?: string
+    vehicleModel?: VehicleModelType
     isDecelerating?: boolean
     lateralSlip?: number
     isBurnout?: boolean
@@ -669,15 +775,19 @@ export class RealisticVehicleAudioEngine {
       isBurnout = false,
     } = params
 
-    // 1. Hover mode: Mute combustion engines and spool repulsor hum
+    // Dynamic vehicle switching check
+    if (vehicleModel !== this.currentVehicleId) {
+      this.switchVehicleProfile(vehicleModel)
+    }
+
+    // 1. Hover mode: Mute combustion audio and engage ion repulsor hum
     if (isHoverMode) {
       this.engineMaster?.gain.setTargetAtTime(0.0001, now, 0.06)
-      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.06)
 
       if (this.hoverGain && this.hoverOsc) {
-        const hoverTarget = 0.14 + Math.min(0.14, (speedKmh / 180) * 0.12)
+        const hoverTarget = 0.16 + Math.min(0.18, (speedKmh / 180) * 0.14)
         this.hoverGain.gain.setTargetAtTime(hoverTarget, now, 0.08)
-        const hoverFreq = 160 + (speedKmh / 200) * 95 + throttle * 45
+        const hoverFreq = 160 + (speedKmh / 200) * 95 + throttle * 55
         this.hoverOsc.frequency.setTargetAtTime(hoverFreq, now, 0.05)
       }
       return
@@ -685,20 +795,8 @@ export class RealisticVehicleAudioEngine {
 
     // 2. Combustion Mode Active
     this.hoverGain?.gain.setTargetAtTime(0.0001, now, 0.06)
-
-    // Handle Vintage Rally Hatchback recording
-    if (vehicleModel === 'hatchback' && this.rallyGain && this.rallySource) {
-      this.engineMaster?.gain.setTargetAtTime(0.0001, now, 0.05)
-      const rpmNorm = (rpm - 1000) / 6500
-      this.rallySource.playbackRate.setTargetAtTime(0.85 + rpmNorm * 0.35, now, 0.045)
-      const targetRallyVol = 0.18 + throttle * 0.62 + (speedKmh / 180) * 0.18
-      this.rallyGain.gain.setTargetAtTime(targetRallyVol, now, 0.045)
-    } else {
-      // V8 Sports Car & Modern Supercar: Run primary sample-based audio engine
-      this.rallyGain?.gain.setTargetAtTime(0.0001, now, 0.05)
-      this.engineMaster?.gain.setTargetAtTime(1.0, now, 0.05)
-      this.updateEngineSound(rpm, throttle, speedKmh)
-    }
+    this.engineMaster?.gain.setTargetAtTime(1.0, now, 0.05)
+    this.updateEngineSound(rpm, throttle, speedKmh)
 
     // 3. Surface Friction Noise (asphalt vs off-road/grass)
     if (this.frictionGain && this.frictionFilter) {
@@ -740,63 +838,73 @@ export class RealisticVehicleAudioEngine {
     }
   }
 
-  // --------------------------------------------------------------------------
-  // Transients & Sound Effects (Overrun Pops, Shift Cuts, Horn)
-  // --------------------------------------------------------------------------
-
   /**
-   * Explosive exhaust overrun crackle and backfire burst
+   * Triggers vehicle-specific exhaust overrun / pop / crackle
    */
   public triggerExhaustPop(intensity = 1.0): void {
     if (!this.ctx || !this.sfxMaster) return
     const now = this.ctx.currentTime
-    if (now - this.lastExhaustPopTime < 0.12) return
+    if (now - this.lastExhaustPopTime < 0.10) return
     this.lastExhaustPopTime = now
 
-    if (this.overrunBuffer) {
-      const popCount = intensity > 0.65 ? (Math.random() > 0.45 ? 2 : 1) : 1
-      for (let p = 0; p < popCount; p++) {
-        const popDelay = p * (0.038 + Math.random() * 0.042)
-        const popTime = now + popDelay
-        const source = this.ctx.createBufferSource()
-        source.buffer = this.overrunBuffer
-        source.playbackRate.value = 0.94 + Math.random() * 0.16
-        const gain = this.ctx.createGain()
-        gain.gain.setValueAtTime(0.72 * intensity * (p === 0 ? 1.0 : 0.65), popTime)
-        source.connect(gain)
-        gain.connect(this.sfxMaster)
-        source.start(popTime)
+    const profile = VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    let buffer: AudioBuffer | null = null
+    for (const u of profile.urls.overrun) {
+      if (this.bufferCache.has(u)) {
+        buffer = this.bufferCache.get(u)!
+        break
       }
+    }
+
+    if (buffer) {
+      const source = this.ctx.createBufferSource()
+      source.buffer = buffer
+      source.playbackRate.value = 0.94 + Math.random() * 0.14
+      const gain = this.ctx.createGain()
+      gain.gain.setValueAtTime(0.72 * intensity, now)
+      source.connect(gain)
+      gain.connect(this.sfxMaster)
+      source.start(now)
     }
   }
 
   /**
-   * Sequential dog-box ignition cut ducking and mechanical shift one-shot
+   * Triggers vehicle-specific transmission shift cut and mechanical transient
    */
-  public triggerGearShift(vehicleModel = 'bmw_m3', isDownshift = false): void {
+  public triggerGearShift(vehicleModel: VehicleModelType = 'bmw_m3', isDownshift = false): void {
     if (!this.ctx || !this.sfxMaster) return
     const now = this.ctx.currentTime
+    const profile = VEHICLE_AUDIO_REGISTRY[vehicleModel] || VEHICLE_AUDIO_REGISTRY.bmw_m3
 
-    // 0.045s sequential ignition cut: duck on-load acceleration volume momentarily
+    // Ignition cut: momentarily duck on-load acceleration volume
     if (this.onLoadBus && vehicleModel !== 'camper') {
       this.onLoadBus.gain.setValueAtTime(0.06, now)
       this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.045, 0.045)
     }
 
-    // Play recorded mechanical dog-ring engagement transient
-    const shiftBuffer = isDownshift ? (this.gearDownBuffer || this.gearUpBuffer) : this.gearUpBuffer
+    let shiftBuffer: AudioBuffer | null = null
+    for (const u of profile.urls.gear_shift) {
+      if (this.bufferCache.has(u)) {
+        shiftBuffer = this.bufferCache.get(u)!
+        break
+      }
+    }
+
     if (shiftBuffer) {
       const source = this.ctx.createBufferSource()
       source.buffer = shiftBuffer
-      source.playbackRate.value = 0.98 + Math.random() * 0.04
+      source.playbackRate.value = isDownshift ? 1.06 : 0.98 + Math.random() * 0.04
       const gain = this.ctx.createGain()
-      gain.gain.setValueAtTime(0.72, now)
+      gain.gain.setValueAtTime(0.75, now)
       source.connect(gain)
       gain.connect(this.sfxMaster)
       source.start(now)
     }
 
-    this.triggerExhaustPop(isDownshift ? 0.85 : 0.55)
+    // Accompanying exhaust pop on shift (higher on downshift)
+    if (vehicleModel !== 'hovercraft') {
+      this.triggerExhaustPop(isDownshift ? 0.85 : 0.55)
+    }
   }
 
   /**
@@ -828,10 +936,6 @@ export class RealisticVehicleAudioEngine {
     osc1.stop(now + 0.4)
     osc2.stop(now + 0.4)
   }
-
-  // --------------------------------------------------------------------------
-  // Environmental Synthesis Setup
-  // --------------------------------------------------------------------------
 
   private initEnvironmentalSFX(ctx: AudioContext): void {
     try {
@@ -984,55 +1088,11 @@ export class RealisticVehicleAudioEngine {
     return LOFI_PLAYLIST[index % LOFI_PLAYLIST.length]
   }
 
-  // --------------------------------------------------------------------------
-  // React Lifecycle Cleanup
-  // --------------------------------------------------------------------------
-
   /**
    * Stops loop nodes and closes the audio graph to prevent memory leaks in useEffect.
    */
   public cleanup(): void {
-    const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
-
-    states.forEach((state) => {
-      const channel = this.loops[state]
-      if (channel.source) {
-        try {
-          channel.source.stop()
-          channel.source.disconnect()
-        } catch {}
-        channel.source = null
-      }
-      if (channel.gain) {
-        try {
-          channel.gain.disconnect()
-        } catch {}
-        channel.gain = null
-      }
-    })
-
-    if (this.rallySource) {
-      try {
-        this.rallySource.stop()
-        this.rallySource.disconnect()
-      } catch {}
-      this.rallySource = null
-    }
-
-    if (this.v8RecordedSource) {
-      try {
-        this.v8RecordedSource.stop()
-        this.v8RecordedSource.disconnect()
-      } catch {}
-      this.v8RecordedSource = null
-    }
-
-    if (this.v8RecordedGain) {
-      try {
-        this.v8RecordedGain.disconnect()
-      } catch {}
-      this.v8RecordedGain = null
-    }
+    this.dismountVehicleLoopNodes()
 
     if (this.subBassEQ) {
       try {

@@ -698,10 +698,20 @@ export default function GameEnvironment() {
   const precipGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry()
     const pos = new Float32Array(particleCount * 3)
+    const deadZoneRadiusSq = 14.0 // R ~ 3.75m camera exclusion dead zone
     for (let i = 0; i < particleCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 80
-      pos[i * 3 + 1] = (Math.random() - 0.25) * 40 // -10 to +30 relative to camera
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 80
+      let x = (Math.random() - 0.5) * 80
+      let y = (Math.random() - 0.25) * 40 // -10 to +30 relative to camera
+      let z = (Math.random() - 0.5) * 80
+      // Guarantee particles never initialize inside the camera viewport dead zone
+      if (x * x + y * y + z * z < deadZoneRadiusSq) {
+        const offset = 4.0 + Math.random() * 2.0
+        x += x >= 0 ? offset : -offset
+        z += z >= 0 ? offset : -offset
+      }
+      pos[i * 3] = x
+      pos[i * 3 + 1] = y
+      pos[i * 3 + 2] = z
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     return geo
@@ -721,8 +731,9 @@ export default function GameEnvironment() {
       // Center particle emitter precisely on camera position (X, Y, Z) so it follows hills and elevation
       precipPointsRef.current.position.set(camPos.x, camPos.y, camPos.z)
 
-      const fallSpeed = isSnow ? 6.5 : 36.0
-      const driftSpeed = isSnow ? 2.4 : 0.0
+      const fallSpeed = isSnow ? 5.8 : 36.0
+      const driftSpeed = isSnow ? 2.2 : 0.0
+      const deadZoneRadiusSq = 12.25 // 3.5m radius exclusion dead zone
 
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3
@@ -739,6 +750,15 @@ export default function GameEnvironment() {
           positions[idx + 1] += 40
           positions[idx] = (Math.random() - 0.5) * 80
           positions[idx + 2] = (Math.random() - 0.5) * 80
+        }
+
+        // Camera Exclusion Dead Zone Check: keep particles from expanding into giant white squares right in front of camera
+        const horizDistSq = positions[idx] * positions[idx] + positions[idx + 2] * positions[idx + 2]
+        if (horizDistSq < deadZoneRadiusSq && Math.abs(positions[idx + 1]) < 3.0) {
+          const angle = Math.atan2(positions[idx + 2], positions[idx])
+          const safeDist = 3.8 + Math.random() * 2.0
+          positions[idx] = Math.cos(angle) * safeDist
+          positions[idx + 2] = Math.sin(angle) * safeDist
         }
 
         // Horizontal boundary wrap within ±40m of camera
@@ -846,11 +866,11 @@ export default function GameEnvironment() {
           <pointsMaterial
             map={isSnow ? snowflakeTex : rainTex}
             color={isSnow ? '#ffffff' : '#93c5fd'}
-            size={isSnow ? 0.45 : 0.22}
+            size={isSnow ? 0.14 : 0.18}
             transparent={true}
-            opacity={isSnow ? 0.92 : 0.75}
+            opacity={isSnow ? 0.78 : 0.72}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={THREE.NormalBlending}
           />
         </points>
       )}

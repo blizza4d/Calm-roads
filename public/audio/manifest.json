@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "description": "Calm Roads Multi-Vehicle Acoustic Audio Asset Registry",
+  "sampleRate": 44100,
+  "format": "PCM 16-bit Stereo WAV / OGG Vorbis",
+  "license": "CC-BY-4.0 / Calm Roads Audio Project",
+  "vehicles": {
+    "bmw_m3": {
+      "id": "bmw_m3",
+      "name": "BMW M3 GTR '05",
+      "engineType": "4.0L P60B40 Naturally Aspirated 90° Racing V8",
+      "transmission": "Hewland 6-Speed Sequential Dog-Box with Straight-Cut Spur Gears",
+      "redlineRpm": 8500,
+      "idleRpm": 880,
+      "soundCharacteristics": "Screaming high-revving crossplane V8, straight-cut transmission whine, aggressive overrun crackles",
+      "files": {
+        "idle": "/audio/cars/bmw_m3/idle.wav",
+        "lowRPM": "/audio/cars/bmw_m3/low_rpm.wav",
+        "midRPM": "/audio/cars/bmw_m3/mid_rpm.wav",
+        "highRPM": "/audio/cars/bmw_m3/high_rpm.wav",
+        "offThrottle": "/audio/cars/bmw_m3/off_throttle.wav",
+        "gearShift": "/audio/cars/bmw_m3/gear_shift.wav",
+        "overrun": "/audio/cars/bmw_m3/overrun.wav"
+      },
+      "rawRecordingLayers": [
+        "/audio/raw/bmw_m3_gt2_2010.ogg",
+        "/audio/raw/bmw_e46_engine.opus"
+      ]
+    },
+    "supercar": {
+      "id": "supercar",
+      "name": "Veloce GT Supercar",
+      "engineType": "5.2L Naturally Aspirated 90° Exotic V10",
+      "transmission": "7-Speed Dual-Clutch Transmission (DCT)",
+      "redlineRpm": 9000,
+      "idleRpm": 1050,
+      "soundCharacteristics": "Harmonic high-frequency F1 scream, instant laser throttle response, sharp crackling pops",
+      "files": {
+        "idle": "/audio/cars/supercar/idle.wav",
+        "lowRPM": "/audio/cars/supercar/low_rpm.wav",
+        "midRPM": "/audio/cars/supercar/mid_rpm.wav",
+        "highRPM": "/audio/cars/supercar/high_rpm.wav",
+        "offThrottle": "/audio/cars/supercar/off_throttle.wav",
+        "gearShift": "/audio/cars/supercar/gear_shift.wav",
+        "overrun": "/audio/cars/supercar/overrun.wav"
+      },
+      "rawRecordingLayers": [
+        "/audio/raw/v8_idle_and_revs.ogg"
+      ]
+    },
+    "hovercraft": {
+      "id": "hovercraft",
+      "name": "AeroGlide Repulsorcraft",
+      "engineType": "Dual-Phase Magnetic Levitation Coil & Twin Micro-Ion Turbines",
+      "transmission": "Direct Flux Modulation Drive",
+      "redlineRpm": 12000,
+      "idleRpm": 450,
+      "soundCharacteristics": "Deep magnetic sub-bass hum, rising ion turbine jet whine, reverse-thrust plasma wash",
+      "files": {
+        "idle": "/audio/cars/hovercraft/idle.wav",
+        "lowRPM": "/audio/cars/hovercraft/low_rpm.wav",
+        "midRPM": "/audio/cars/hovercraft/mid_rpm.wav",
+        "highRPM": "/audio/cars/hovercraft/high_rpm.wav",
+        "offThrottle": "/audio/cars/hovercraft/off_throttle.wav",
+        "gearShift": "/audio/cars/hovercraft/gear_shift.wav",
+        "overrun": "/audio/cars/hovercraft/overrun.wav"
+      }
+    },
+    "camper": {
+      "id": "camper",
+      "name": "Trailblazer Camper Van",
+      "engineType": "3.0L Heavy Turbo-Diesel Inline-6",
+      "transmission": "Heavy-Duty 5-Speed Manual with Pneumatic Air-Assisted Linkage",
+      "redlineRpm": 4200,
+      "idleRpm": 680,
+      "soundCharacteristics": "Heavy diesel compression clatter, torquey low-RPM grunt, turbo whistle, air brake relief hiss",
+      "files": {
+        "idle": "/audio/cars/camper/idle.wav",
+        "lowRPM": "/audio/cars/camper/low_rpm.wav",
+        "midRPM": "/audio/cars/camper/mid_rpm.wav",
+        "highRPM": "/audio/cars/camper/high_rpm.wav",
+        "offThrottle": "/audio/cars/camper/off_throttle.wav",
+        "gearShift": "/audio/cars/camper/gear_shift.wav",
+        "overrun": "/audio/cars/camper/overrun.wav"
+      }
+    },
+    "hatchback": {
+      "id": "hatchback",
+      "name": "Rallye Turbo Hatchback",
+      "engineType": "2.1L Turbocharged 5-Cylinder Group B Homologation Engine",
+      "transmission": "Close-Ratio 5-Speed Sequential Dog-Box",
+      "redlineRpm": 7500,
+      "idleRpm": 940,
+      "soundCharacteristics": "Uneven raspy 5-cylinder warble, turbo compressor surge wastegate flutter (stututu), anti-lag pops",
+      "files": {
+        "idle": "/audio/cars/hatchback/idle.wav",
+        "lowRPM": "/audio/cars/hatchback/low_rpm.wav",
+        "midRPM": "/audio/cars/hatchback/mid_rpm.wav",
+        "highRPM": "/audio/cars/hatchback/high_rpm.wav",
+        "offThrottle": "/audio/cars/hatchback/off_throttle.wav",
+        "gearShift": "/audio/cars/hatchback/gear_shift.wav",
+        "overrun": "/audio/cars/hatchback/overrun.wav"
+      },
+      "rawRecordingLayers": [
+        "/audio/raw/audi_quattro_rally.ogg"
+      ]
+    }
+  }
+}

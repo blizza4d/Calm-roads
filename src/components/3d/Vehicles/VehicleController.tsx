@@ -176,7 +176,7 @@ const _wheelWorldPos = new THREE.Vector3()
 const _particleDummy = new THREE.Object3D()
 const _particleGeo = new THREE.PlaneGeometry(0.42, 0.42)
 
-const PARTICLE_COUNT = 40
+const PARTICLE_COUNT = 64
 
 // Offscreen canvas-generated soft circular radial gradient for tire smoke / snow / dust particles
 function createTireParticleTexture(): THREE.CanvasTexture {
@@ -205,6 +205,44 @@ const _particleMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
   blending: THREE.NormalBlending,
 })
+
+interface ExhaustConfig {
+  offsets: [number, number, number][]
+  colorPrimary: string
+  colorSecondary: string
+  isIonPlasma?: boolean
+  isDieselSoot?: boolean
+}
+
+const VEHICLE_EXHAUSTS: Record<VehicleModelType, ExhaustConfig> = {
+  bmw_m3: {
+    offsets: [[-0.34, -0.14, 2.18], [0.34, -0.14, 2.18]],
+    colorPrimary: '#ff6b00',
+    colorSecondary: '#ffb703',
+  },
+  supercar: {
+    offsets: [[-0.18, 0.02, 2.05], [0.18, 0.02, 2.05]],
+    colorPrimary: '#00b4d8', // High-energy blue core
+    colorSecondary: '#ff9e00',
+  },
+  hovercraft: {
+    offsets: [[-0.55, -0.06, 2.12], [0.55, -0.06, 2.12]],
+    colorPrimary: '#00D6A3', // Teal ion plasma wash
+    colorSecondary: '#38bdf8',
+    isIonPlasma: true,
+  },
+  camper: {
+    offsets: [[-0.62, -0.22, 2.25]],
+    colorPrimary: '#2b2b2b', // Diesel soot puff
+    colorSecondary: '#4a4a4a',
+    isDieselSoot: true,
+  },
+  hatchback: {
+    offsets: [[-0.42, -0.16, 1.98]],
+    colorPrimary: '#ff7700',
+    colorSecondary: '#ffd166',
+  },
+}
 
 const _wheelCorners: [number, number][] = [
   [-0.83, -1.48], // Front-Left (aligned with wheel arch)
@@ -1020,13 +1058,51 @@ export default function VehicleController() {
       }
     }
 
-    // 7.2 Dynamic Exhaust Backfire Flame & Spark Bursts
-    const isExhaustPop =
-      !isHoverMode &&
-      vehicleModel !== 'hovercraft' &&
-      (isDecel || shiftCutTimer.current > 0.04 || (isBurnoutActive && finalRpm > config.redlineRpm - 300 && Math.random() > 0.65))
+    // 7.2 Custom Dynamic Per-Vehicle Exhaust Effects (Flames, Soot, Ion Plasma Wash)
+    const exCfg = VEHICLE_EXHAUSTS[vehicleModel] || VEHICLE_EXHAUSTS.bmw_m3
+    let spawnExhaust = false
+    let exColor = exCfg.colorPrimary
+    let exSize = 0.22
+    let exLife = 0.18
+    let exVelMult = 1.0
 
-    if (isExhaustPop && Math.random() > 0.3) {
+    if (exCfg.isIonPlasma) {
+      // Hovercraft: continuous ion plasma wash whenever repulsors/throttle are active
+      if (isHoverMode || vehicleModel === 'hovercraft') {
+        spawnExhaust = targetThrottle > 0.05 || Math.abs(forwardVel.current) > 2.0
+        exColor = Math.random() > 0.4 ? exCfg.colorPrimary : exCfg.colorSecondary
+        exSize = 0.28
+        exLife = 0.22
+        exVelMult = 0.8
+      }
+    } else if (exCfg.isDieselSoot) {
+      // Camper: heavy diesel soot puff upon aggressive throttle or hill climb
+      if (targetThrottle > 0.55 || (isBurnoutActive && Math.random() > 0.4)) {
+        spawnExhaust = Math.random() > 0.45
+        exColor = Math.random() > 0.5 ? exCfg.colorPrimary : exCfg.colorSecondary
+        exSize = 0.38
+        exLife = 0.35
+        exVelMult = 0.6
+      }
+    } else {
+      // Combustion engines (bmw_m3, supercar, hatchback):
+      // Overrun pops on lift-off, high-rpm gear shifts, and burnout
+      const isCombustionPop =
+        isDecel ||
+        shiftCutTimer.current > 0.04 ||
+        (isBurnoutActive && finalRpm > config.redlineRpm - 300 && Math.random() > 0.6)
+
+      if (isCombustionPop && Math.random() > 0.25) {
+        spawnExhaust = true
+        exColor = Math.random() > 0.35 ? exCfg.colorPrimary : exCfg.colorSecondary
+        exSize = vehicleModel === 'supercar' ? 0.26 : 0.20
+        exLife = 0.16
+        exVelMult = 1.3
+      }
+    }
+
+    if (spawnExhaust) {
+      const chosenOffset = exCfg.offsets[Math.floor(Math.random() * exCfg.offsets.length)]
       let bestP = particlePool.current[0]
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         if (!particlePool.current[i].active) {
@@ -1034,18 +1110,21 @@ export default function VehicleController() {
           break
         }
       }
-      const side = Math.random() > 0.5 ? 0.32 : -0.32
-      const exPos = _wheelWorldPos.set(side, -config.rideHeight + 0.16, 2.18).applyQuaternion(carQuat).add(carPos)
+      const exPos = _wheelWorldPos
+        .set(chosenOffset[0], -config.rideHeight + chosenOffset[1] + 0.3, chosenOffset[2])
+        .applyQuaternion(carQuat)
+        .add(carPos)
+
       bestP.pos.copy(exPos)
       bestP.active = true
       bestP.life = 0
-      bestP.maxLife = 0.18
-      bestP.size = 0.22
-      bestP.color.set(Math.random() > 0.4 ? '#ff7700' : '#ffb703')
+      bestP.maxLife = exLife
+      bestP.size = exSize
+      bestP.color.set(exColor)
       bestP.vel.set(
-        (Math.random() - 0.5) * 0.4 - forwardX * (Math.abs(forwardVel.current) * 0.1 + 2.4),
-        Math.random() * 0.35 + 0.1,
-        (Math.random() - 0.5) * 0.4 - forwardZ * (Math.abs(forwardVel.current) * 0.1 + 2.4)
+        (Math.random() - 0.5) * 0.35 - forwardX * (Math.abs(forwardVel.current) * 0.12 + 2.6 * exVelMult),
+        Math.random() * 0.3 + 0.08,
+        (Math.random() - 0.5) * 0.35 - forwardZ * (Math.abs(forwardVel.current) * 0.12 + 2.6 * exVelMult)
       )
     }
 
@@ -1203,18 +1282,23 @@ export default function VehicleController() {
       const curveDelta = getRoadCenter(upcomingZ) - getRoadCenter(carPos.z)
       _tempCamLookAt.x += THREE.MathUtils.clamp(curveDelta * 0.38, -4.8, 4.8)
 
-      // Bump and acceleration vertical feedback
+      // Pitch response on acceleration squat and heavy braking dive
+      const accelPitch = (targetThrottle * 0.10 - targetBrake * 0.14)
+      _tempCamOffset.y -= accelPitch * 0.35
+      _tempCamLookAt.y -= accelPitch * 0.85
+
+      // Bump and suspension vertical feedback
       const bumpLift = (wheelSuspensions.current[0] + wheelSuspensions.current[1] - wheelSuspensions.current[2] - wheelSuspensions.current[3]) * 0.22
       _tempCamOffset.y += bumpLift
       _tempCamLookAt.y += bumpLift * 0.5
 
-      // Subtle high-speed micro-vibration
-      if (currentSpeedKmh > 85) {
-        const vibeNorm = Math.min(1.0, (currentSpeedKmh - 85) / 180)
-        const vibe = (Math.random() - 0.5) * 0.015 * vibeNorm
-        _tempCamOffset.x += vibe
-        _tempCamOffset.y += vibe * 0.7
-      }
+      // Deterministic engine RPM harmonic vibration
+      const rpmHz = (finalRpm / 60) * (vehicleModel === 'supercar' ? 5 : 3)
+      const vibeAmp = Math.min(1.0, finalRpm / config.redlineRpm) * (isBurnoutActive ? 0.018 : currentSpeedKmh > 75 ? 0.009 : 0.004)
+      const engineVibe = Math.sin(state.clock.getElapsedTime() * rpmHz * Math.PI * 2) * vibeAmp
+      _tempCamOffset.y += engineVibe * 0.45
+      _tempCamOffset.x += engineVibe * 0.30
+
       followSpeed = 7.5
     } else if (cameraPerspective === 'dashboard') {
       _tempCamOffset.set(0, 0.76, 0.12).applyQuaternion(carQuat).add(carPos)

@@ -981,23 +981,21 @@ function PhotoModeView() {
 export default function Overlay() {
   const [showTouchControls, setShowTouchControls] = useState(false)
 
-  const {
-    cameraPerspective,
-    cycleCameraPerspective,
-    activePanel,
-    setActivePanel,
-    photoMode,
-    togglePhotoMode,
-    zenMode,
-    toggleZenMode,
-    toggleFullscreen,
-    cycleWeather,
-    cycleVehicleModel,
-    toggleHoverMode,
-    toggleMusic,
-    showDiagnostics,
-    toggleDiagnostics,
-  } = useGameStore()
+  const cameraPerspective = useGameStore((s) => s.cameraPerspective)
+  const cycleCameraPerspective = useGameStore((s) => s.cycleCameraPerspective)
+  const activePanel = useGameStore((s) => s.activePanel)
+  const setActivePanel = useGameStore((s) => s.setActivePanel)
+  const photoMode = useGameStore((s) => s.photoMode)
+  const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
+  const zenMode = useGameStore((s) => s.zenMode)
+  const toggleZenMode = useGameStore((s) => s.toggleZenMode)
+  const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
+  const cycleWeather = useGameStore((s) => s.cycleWeather)
+  const cycleVehicleModel = useGameStore((s) => s.cycleVehicleModel)
+  const toggleHoverMode = useGameStore((s) => s.toggleHoverMode)
+  const toggleMusic = useGameStore((s) => s.toggleMusic)
+  const showDiagnostics = useGameStore((s) => s.showDiagnostics)
+  const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
 
   // Camera display names
   const camLabels: Record<CameraPerspectiveType, string> = {

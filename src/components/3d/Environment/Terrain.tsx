@@ -324,6 +324,7 @@ interface ChunkProps {
   chunkZ: number
   biomeConfig: BiomeConfig
   isRaining: boolean
+  graphicsQuality: 'low' | 'medium' | 'high'
 }
 
 // Single Procedural Infinite Chunk Tile containing:
@@ -333,7 +334,7 @@ interface ChunkProps {
 // 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines
 // 5. Realistic Steel W-Beam Guardrails on curved segments
 // 6. Biome-Specific Instanced Scenery (Pines, Maples, Cacti, Boulders, Grass Tufts, Poles)
-const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining }: ChunkProps) {
+const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining, graphicsQuality }: ChunkProps) {
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
@@ -1201,6 +1202,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const delineatorReflectorRef = useRef<THREE.InstancedMesh>(null)
   const cabinRef = useRef<THREE.InstancedMesh>(null)
   const cabinWindowRef = useRef<THREE.InstancedMesh>(null)
+  const sceneryGroupRef = useRef<THREE.Group>(null)
+  const guardrailMeshRef = useRef<THREE.Mesh>(null)
+  const isNearShadowRef = useRef<boolean | null>(null)
+  const isSceneryVisibleRef = useRef<boolean | null>(null)
 
   // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
   useLayoutEffect(() => {
@@ -1332,17 +1337,48 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   useFrame(({ camera }) => {
     const dist = Math.abs(chunkZ - camera.position.z)
+
+    // Quality-calibrated distance thresholds
+    const maxSceneryDist = graphicsQuality === 'low' ? 800 : graphicsQuality === 'medium' ? 1100 : 1400
+    const shadowDist = graphicsQuality === 'low' ? 60 : graphicsQuality === 'medium' ? 90 : 120
+
+    // 1. Chunk-local Scenery Visibility Culling (Zero CPU/GPU scene graph cost for far chunks)
+    const isSceneryVisible = dist <= maxSceneryDist
+    if (isSceneryVisible !== isSceneryVisibleRef.current) {
+      isSceneryVisibleRef.current = isSceneryVisible
+      if (sceneryGroupRef.current) {
+        sceneryGroupRef.current.visible = isSceneryVisible
+      }
+    }
+
+    // 2. Dynamic Shadow Frustum Culling (Only near chunks within directional shadow bounds cast shadows)
+    const isNearShadow = dist <= shadowDist
+    if (isNearShadow !== isNearShadowRef.current) {
+      isNearShadowRef.current = isNearShadow
+      if (guardrailMeshRef.current) guardrailMeshRef.current.castShadow = isNearShadow
+      if (pineTrunkRef.current) pineTrunkRef.current.castShadow = isNearShadow
+      if (pineCanopyRef.current) pineCanopyRef.current.castShadow = isNearShadow
+      if (broadleafTrunkRef.current) broadleafTrunkRef.current.castShadow = isNearShadow
+      if (broadleafCanopyRef.current) broadleafCanopyRef.current.castShadow = isNearShadow
+      if (saguaroRef.current) saguaroRef.current.castShadow = isNearShadow
+      if (rockRef.current) rockRef.current.castShadow = isNearShadow
+      if (poleRef.current) poleRef.current.castShadow = isNearShadow
+      if (delineatorPostRef.current) delineatorPostRef.current.castShadow = isNearShadow
+      if (cabinRef.current) cabinRef.current.castShadow = isNearShadow
+    }
+
+    if (!isSceneryVisible) return
+
+    // 3. Multi-tier Dynamic Level of Detail (LOD) Instanced Culling
     let newLod = 0
-    if (dist > 1400) newLod = 3
-    else if (dist > 850) newLod = 2
-    else if (dist > 420) newLod = 1
+    if (dist > maxSceneryDist * 0.7) newLod = 2
+    else if (dist > maxSceneryDist * 0.35) newLod = 1
 
     if (newLod !== lodLevelRef.current) {
       lodLevelRef.current = newLod
 
       const microMult = newLod >= 1 ? 0 : 1
       const midMult = newLod >= 2 ? 0 : 1
-      const macroMult = newLod >= 3 ? 0 : 1
 
       if (grassRef.current) grassRef.current.count = sceneryData.grassTufts.length * microMult
       if (delineatorPostRef.current) delineatorPostRef.current.count = sceneryData.delineators.length * microMult
@@ -1352,13 +1388,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       if (rockRef.current) rockRef.current.count = sceneryData.rocks.length * midMult
       if (poleRef.current) poleRef.current.count = sceneryData.poles.length * midMult
 
-      if (pineTrunkRef.current) pineTrunkRef.current.count = sceneryData.pines.length * macroMult
-      if (pineCanopyRef.current) pineCanopyRef.current.count = sceneryData.pines.length * macroMult
-      if (broadleafTrunkRef.current) broadleafTrunkRef.current.count = sceneryData.broadleafs.length * macroMult
-      if (broadleafCanopyRef.current) broadleafCanopyRef.current.count = sceneryData.broadleafs.length * macroMult
-      if (saguaroRef.current) saguaroRef.current.count = sceneryData.saguaros.length * macroMult
-      if (cabinRef.current) cabinRef.current.count = sceneryData.cabins.length * macroMult
-      if (cabinWindowRef.current) cabinWindowRef.current.count = sceneryData.cabins.length * macroMult
+      if (pineTrunkRef.current) pineTrunkRef.current.count = sceneryData.pines.length
+      if (pineCanopyRef.current) pineCanopyRef.current.count = sceneryData.pines.length
+      if (broadleafTrunkRef.current) broadleafTrunkRef.current.count = sceneryData.broadleafs.length
+      if (broadleafCanopyRef.current) broadleafCanopyRef.current.count = sceneryData.broadleafs.length
+      if (saguaroRef.current) saguaroRef.current.count = sceneryData.saguaros.length
+      if (cabinRef.current) cabinRef.current.count = sceneryData.cabins.length
+      if (cabinWindowRef.current) cabinWindowRef.current.count = sceneryData.cabins.length
     }
   })
 
@@ -1397,127 +1433,130 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       <mesh geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={false} />
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
-      <mesh geometry={guardrailGeo} material={sharedGuardrailMat} castShadow receiveShadow frustumCulled={false} />
+      <mesh ref={guardrailMeshRef} geometry={guardrailGeo} material={sharedGuardrailMat} castShadow={false} receiveShadow frustumCulled={false} />
 
-      {/* 6. Multi-Tiered Mountain Pines (Conifers) */}
-      <instancedMesh
-        ref={pineTrunkRef}
-        args={[pineTrunkGeo, pineTrunkMat, 36]}
-        count={sceneryData.pines.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
-      <instancedMesh
-        ref={pineCanopyRef}
-        args={[pineCanopyGeo, pineCanopyMat, 36]}
-        count={sceneryData.pines.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
+      {/* 6. Biome-Specific Instanced Scenery Group (Chunk-local Distance Culled) */}
+      <group ref={sceneryGroupRef}>
+        {/* Multi-Tiered Mountain Pines (Conifers) */}
+        <instancedMesh
+          ref={pineTrunkRef}
+          args={[pineTrunkGeo, pineTrunkMat, 36]}
+          count={sceneryData.pines.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
+        <instancedMesh
+          ref={pineCanopyRef}
+          args={[pineCanopyGeo, pineCanopyMat, 36]}
+          count={sceneryData.pines.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 7. Organic Broadleaf / Mountain Maples */}
-      <instancedMesh
-        ref={broadleafTrunkRef}
-        args={[broadleafTrunkGeo, broadleafTrunkMat, 36]}
-        count={sceneryData.broadleafs.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
-      <instancedMesh
-        ref={broadleafCanopyRef}
-        args={[broadleafCanopyGeo, broadleafCanopyMat, 36]}
-        count={sceneryData.broadleafs.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Organic Broadleaf / Mountain Maples */}
+        <instancedMesh
+          ref={broadleafTrunkRef}
+          args={[broadleafTrunkGeo, broadleafTrunkMat, 36]}
+          count={sceneryData.broadleafs.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
+        <instancedMesh
+          ref={broadleafCanopyRef}
+          args={[broadleafCanopyGeo, broadleafCanopyMat, 36]}
+          count={sceneryData.broadleafs.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 8. Desert Saguaro Cacti */}
-      <instancedMesh
-        ref={saguaroRef}
-        args={[saguaroGeo, sharedSaguaroMat, 24]}
-        count={sceneryData.saguaros.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Desert Saguaro Cacti */}
+        <instancedMesh
+          ref={saguaroRef}
+          args={[saguaroGeo, sharedSaguaroMat, 24]}
+          count={sceneryData.saguaros.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 9. Mountain Shrubs & Roadside Bushes */}
-      <instancedMesh
-        ref={shrubRef}
-        args={[shrubGeo, shrubMat, 24]}
-        count={sceneryData.shrubs.length}
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Mountain Shrubs & Roadside Bushes */}
+        <instancedMesh
+          ref={shrubRef}
+          args={[shrubGeo, shrubMat, 24]}
+          count={sceneryData.shrubs.length}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 10. Weathered Boulders & Rock Outcrops */}
-      <instancedMesh
-        ref={rockRef}
-        args={[rockGeo, rockMat, 24]}
-        count={sceneryData.rocks.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Weathered Boulders & Rock Outcrops */}
+        <instancedMesh
+          ref={rockRef}
+          args={[rockGeo, rockMat, 24]}
+          count={sceneryData.rocks.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 11. Roadside Wild Grass Tufts */}
-      <instancedMesh
-        ref={grassRef}
-        args={[grassTuftGeo, grassMat, 36]}
-        count={sceneryData.grassTufts.length}
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Roadside Wild Grass Tufts */}
+        <instancedMesh
+          ref={grassRef}
+          args={[grassTuftGeo, grassMat, 36]}
+          count={sceneryData.grassTufts.length}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 12. Roadside Highway Utility Poles with Timber Grain */}
-      <instancedMesh
-        ref={poleRef}
-        args={[poleGeo, sharedPoleMat, 16]}
-        count={sceneryData.poles.length}
-        castShadow
-        frustumCulled={true}
-      />
+        {/* Roadside Highway Utility Poles with Timber Grain */}
+        <instancedMesh
+          ref={poleRef}
+          args={[poleGeo, sharedPoleMat, 16]}
+          count={sceneryData.poles.length}
+          castShadow={false}
+          frustumCulled={true}
+        />
 
-      {/* 13. Roadside Reflector Delineator Posts (Guide Posts) */}
-      <instancedMesh
-        ref={delineatorPostRef}
-        args={[delineatorPostGeo, sharedDelineatorPostMat, 32]}
-        count={sceneryData.delineators.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
+        {/* Roadside Reflector Delineator Posts (Guide Posts) */}
+        <instancedMesh
+          ref={delineatorPostRef}
+          args={[delineatorPostGeo, sharedDelineatorPostMat, 32]}
+          count={sceneryData.delineators.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
 
-      {/* 14. Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
-      <instancedMesh
-        ref={delineatorReflectorRef}
-        args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
-        count={sceneryData.delineators.length}
-        frustumCulled={true}
-      />
+        {/* Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
+        <instancedMesh
+          ref={delineatorReflectorRef}
+          args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
+          count={sceneryData.delineators.length}
+          frustumCulled={true}
+        />
 
-      {/* 15. Cozy Alpine Timber Cabins & Roadside Shelters */}
-      <instancedMesh
-        ref={cabinRef}
-        args={[cabinGeo, sharedCabinMat, 4]}
-        count={sceneryData.cabins.length}
-        castShadow
-        receiveShadow
-        frustumCulled={true}
-      />
-      <instancedMesh
-        ref={cabinWindowRef}
-        args={[cabinWindowGeo, sharedCabinWindowMat, 4]}
-        count={sceneryData.cabins.length}
-        frustumCulled={true}
-      />
+        {/* Cozy Alpine Timber Cabins & Roadside Shelters */}
+        <instancedMesh
+          ref={cabinRef}
+          args={[cabinGeo, sharedCabinMat, 4]}
+          count={sceneryData.cabins.length}
+          castShadow={false}
+          receiveShadow
+          frustumCulled={true}
+        />
+        <instancedMesh
+          ref={cabinWindowRef}
+          args={[cabinWindowGeo, sharedCabinWindowMat, 4]}
+          count={sceneryData.cabins.length}
+          frustumCulled={true}
+        />
+      </group>
     </group>
   )
-}, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining)
+}, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)
 
 // Predictive High-Speed World Horizon Streaming Engine:
 // Pre-generates 28 active chunks (5.6 kilometers continuous highway coverage).
@@ -1529,6 +1568,7 @@ const CHUNKS_BEHIND = 3
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
   const weather = useGameStore((state) => state.weather)
+  const graphicsQuality = useGameStore((state) => state.graphicsQuality)
   const setDiagnostics = useGameStore((state) => state.setDiagnostics)
   const { camera } = useThree()
   const diagCounter = useRef(0)
@@ -1650,6 +1690,7 @@ export default function Terrain() {
             chunkZ={cz}
             biomeConfig={chunkBiome}
             isRaining={weather === 'rain'}
+            graphicsQuality={graphicsQuality}
           />
         )
       })}
