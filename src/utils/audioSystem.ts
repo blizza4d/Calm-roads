@@ -194,6 +194,12 @@ export class RealisticVehicleAudioEngine {
   private onLoadFilter: BiquadFilterNode | null = null
   private spatialPanner: PannerNode | null = null
 
+  // High-Octane Aggressive Overdrive & Compression Nodes
+  private overdriveNode: WaveShaperNode | null = null
+  private overdriveGain: GainNode | null = null
+  private engineCompressor: DynamicsCompressorNode | null = null
+  private chaseStereoPanner: StereoPannerNode | null = null
+
   // Active Vehicle Tracking
   private currentVehicleId: VehicleModelType = 'bmw_m3'
   private isSwitchingProfile = false
@@ -314,10 +320,48 @@ export class RealisticVehicleAudioEngine {
       this.engineMaster.connect(this.subBassEQ)
       this.subBassEQ.connect(this.growlEQ)
 
-      if (this.spatialPanner) {
-        this.growlEQ.connect(this.spatialPanner)
+      // Dynamic High-Octane Overdrive WaveShaper (Visceral Throttle Saturation)
+      this.overdriveNode = ctx.createWaveShaper()
+      this.overdriveNode.curve = this.makeDistortionCurve(45)
+      this.overdriveNode.oversample = '4x'
+
+      this.overdriveGain = ctx.createGain()
+      this.overdriveGain.gain.setValueAtTime(0.0001, ctx.currentTime)
+
+      // Punchy Engine Dynamics Compressor (meaner & compressed under full throttle)
+      this.engineCompressor = ctx.createDynamicsCompressor()
+      this.engineCompressor.threshold.setValueAtTime(-14, ctx.currentTime)
+      this.engineCompressor.knee.setValueAtTime(8, ctx.currentTime)
+      this.engineCompressor.ratio.setValueAtTime(5.5, ctx.currentTime)
+      this.engineCompressor.attack.setValueAtTime(0.003, ctx.currentTime)
+      this.engineCompressor.release.setValueAtTime(0.09, ctx.currentTime)
+
+      // Chase Camera Stereo Drift Panner
+      if (typeof ctx.createStereoPanner === 'function') {
+        this.chaseStereoPanner = ctx.createStereoPanner()
+        this.chaseStereoPanner.pan.setValueAtTime(0, ctx.currentTime)
+      }
+
+      // Overdrive routing: branch from growlEQ through overdriveNode and overdriveGain
+      this.growlEQ.connect(this.overdriveNode)
+      this.overdriveNode.connect(this.overdriveGain)
+
+      // Both Clean Growl and Overdrive feed into the Compressor
+      this.growlEQ.connect(this.engineCompressor)
+      this.overdriveGain.connect(this.engineCompressor)
+
+      // Route compressor through chase stereo panner
+      if (this.chaseStereoPanner) {
+        this.engineCompressor.connect(this.chaseStereoPanner)
+        if (this.spatialPanner) {
+          this.chaseStereoPanner.connect(this.spatialPanner)
+        } else {
+          this.chaseStereoPanner.connect(this.sfxMaster)
+        }
+      } else if (this.spatialPanner) {
+        this.engineCompressor.connect(this.spatialPanner)
       } else {
-        this.growlEQ.connect(this.sfxMaster)
+        this.engineCompressor.connect(this.sfxMaster)
       }
 
       // Dynamic Manifold Combustion Roar Filter on On-Load Bus
@@ -665,6 +709,18 @@ export class RealisticVehicleAudioEngine {
       this.growlEQ.gain.setTargetAtTime(targetGrowl, now, timeConstant)
     }
 
+    // High-Octane Aggressive Overdrive & Dynamic Compression
+    if (this.overdriveGain && this.engineCompressor) {
+      // Direct high-frequency saturation: meaner growl and distortion when pinned
+      const driveGain = Math.pow(throttleVal, 1.5) * 0.45
+      this.overdriveGain.gain.setTargetAtTime(driveGain, now, timeConstant)
+
+      // Dynamic compression: punchier, tighter, more compressed engine roar under load
+      const compThreshold = -12 - throttleVal * 12 // -12dB at idle to -24dB at full throttle
+      this.engineCompressor.threshold.setTargetAtTime(compThreshold, now, timeConstant)
+      this.engineCompressor.ratio.setTargetAtTime(4.0 + throttleVal * 4.0, now, timeConstant)
+    }
+
     // Supplemental Raw Texture Layer
     if (this.rawGain && this.rawSource) {
       const recPitch = Math.min(1.85, Math.max(0.68, curRpm / profile.baseRpm.low))
@@ -827,14 +883,54 @@ export class RealisticVehicleAudioEngine {
       }
     }
 
-    // 5. Aerodynamic High-Speed Wind Rush
+    // 5. Aerodynamic High-Speed Wind Rush mapped directly to vehicle speed
     if (this.windRushGain && this.windRushFilter) {
-      const speedNorm = Math.min(1.2, speedKmh / 280)
-      const targetWindGain = speedNorm * speedNorm * 0.28
-      this.windRushGain.gain.setTargetAtTime(Math.max(0.0001, targetWindGain), now, 0.06)
+      const speedNorm = Math.min(1.2, speedKmh / 240)
+      const targetWindGain = Math.pow(speedNorm, 1.4) * 0.38
+      this.windRushGain.gain.setTargetAtTime(Math.max(0.0001, targetWindGain), now, 0.05)
+      const windFreq = 280 + speedNorm * 1500
+      this.windRushFilter.frequency.setTargetAtTime(windFreq, now, 0.05)
+    }
 
-      const windFreq = 300 + speedNorm * 1150
-      this.windRushFilter.frequency.setTargetAtTime(windFreq, now, 0.06)
+    // 6. Chase Camera Stereo Drift Panning: shifts slightly as car drifts left or right
+    if (this.chaseStereoPanner) {
+      const panFactor = Math.max(-0.35, Math.min(0.35, -lateralSlip * 0.35))
+      this.chaseStereoPanner.pan.setTargetAtTime(panFactor, now, 0.05)
+    }
+
+    // 7. High-RPM Lift-Off Detection: rapid array of exhaust crackles & backfires
+    if (this.prevThrottle > 0.45 && throttle < 0.12 && rpm > 5000 && !isHoverMode) {
+      const crackleCount = Math.floor(Math.random() * 3) + 3 // 3 to 5 rapid crackles
+      this.triggerOverrunCrackles(crackleCount, Math.min(1.0, rpm / 7000))
+    }
+    this.prevThrottle = throttle
+  }
+
+  /**
+   * Generates a non-linear distortion curve for high-frequency saturation / overdrive
+   */
+  private makeDistortionCurve(k = 40, n_samples = 44100): Float32Array<ArrayBuffer> {
+    const buffer = new ArrayBuffer(n_samples * 4)
+    const curve = new Float32Array(buffer)
+    const deg = Math.PI / 180
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1
+      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x))
+    }
+    return curve
+  }
+
+  /**
+   * Triggers a randomized array of rapid exhaust crackles and backfires on high-RPM lift-off
+   */
+  public triggerOverrunCrackles(count = 4, intensity = 1.0): void {
+    if (!this.ctx || !this.sfxMaster) return
+    const numPops = Math.max(2, Math.min(6, count))
+    for (let i = 0; i < numPops; i++) {
+      const delayMs = i * (45 + Math.random() * 45) + Math.random() * 20
+      window.setTimeout(() => {
+        this.triggerExhaustPop(intensity * (0.8 + Math.random() * 0.45))
+      }, delayMs)
     }
   }
 
@@ -844,7 +940,7 @@ export class RealisticVehicleAudioEngine {
   public triggerExhaustPop(intensity = 1.0): void {
     if (!this.ctx || !this.sfxMaster) return
     const now = this.ctx.currentTime
-    if (now - this.lastExhaustPopTime < 0.10) return
+    if (now - this.lastExhaustPopTime < 0.08) return
     this.lastExhaustPopTime = now
 
     const profile = VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
@@ -869,7 +965,7 @@ export class RealisticVehicleAudioEngine {
   }
 
   /**
-   * Triggers vehicle-specific transmission shift cut and mechanical transient
+   * Triggers vehicle-specific transmission shift cut and explosive pop transient
    */
   public triggerGearShift(vehicleModel: VehicleModelType = 'bmw_m3', isDownshift = false): void {
     if (!this.ctx || !this.sfxMaster) return
@@ -878,8 +974,27 @@ export class RealisticVehicleAudioEngine {
 
     // Ignition cut: momentarily duck on-load acceleration volume
     if (this.onLoadBus && vehicleModel !== 'camper') {
-      this.onLoadBus.gain.setValueAtTime(0.06, now)
-      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.045, 0.045)
+      this.onLoadBus.gain.setValueAtTime(0.04, now)
+      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.05, 0.045)
+    }
+
+    // Explosive ignition backfire / shift pop transient (sharp sub-bass crack)
+    try {
+      const popOsc = this.ctx.createOscillator()
+      popOsc.type = 'triangle'
+      popOsc.frequency.setValueAtTime(140, now)
+      popOsc.frequency.exponentialRampToValueAtTime(35, now + 0.065)
+
+      const popGain = this.ctx.createGain()
+      popGain.gain.setValueAtTime(0.85, now)
+      popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+
+      popOsc.connect(popGain)
+      popGain.connect(this.sfxMaster)
+      popOsc.start(now)
+      popOsc.stop(now + 0.085)
+    } catch {
+      // Audio transient fallback
     }
 
     let shiftBuffer: AudioBuffer | null = null
@@ -893,17 +1008,17 @@ export class RealisticVehicleAudioEngine {
     if (shiftBuffer) {
       const source = this.ctx.createBufferSource()
       source.buffer = shiftBuffer
-      source.playbackRate.value = isDownshift ? 1.06 : 0.98 + Math.random() * 0.04
+      source.playbackRate.value = isDownshift ? 1.08 : 0.96 + Math.random() * 0.06
       const gain = this.ctx.createGain()
-      gain.gain.setValueAtTime(0.75, now)
+      gain.gain.setValueAtTime(0.85, now)
       source.connect(gain)
       gain.connect(this.sfxMaster)
       source.start(now)
     }
 
-    // Accompanying exhaust pop on shift (higher on downshift)
+    // Accompanying explosive exhaust pop on shift
     if (vehicleModel !== 'hovercraft') {
-      this.triggerExhaustPop(isDownshift ? 0.85 : 0.55)
+      this.triggerExhaustPop(isDownshift ? 0.95 : 0.75)
     }
   }
 

@@ -13,6 +13,7 @@ import {
   BiomeConfig,
 } from '../../../utils/roadMath'
 import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
+import { getPineNeedleAlphaTexture, getBroadleafAlphaTexture, getGrassAlphaTexture } from './Scenery'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
@@ -338,6 +339,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
+  const pineAlphaTex = useMemo(() => getPineNeedleAlphaTexture(), [])
+  const broadleafAlphaTex = useMemo(() => getBroadleafAlphaTexture(), [])
+  const grassAlphaTex = useMemo(() => getGrassAlphaTexture(), [])
 
   // Triplanar Shader for seamless rock strata & granular soil texture on steep terrain
   const onTerrainMaterialCompile = useMemo(() => {
@@ -417,23 +421,41 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor,
       roughness: 0.82,
+      alphaMap: pineAlphaTex,
+      transparent: true,
+      alphaTest: 0.5,
+      depthWrite: true,
+      side: THREE.DoubleSide,
     })
-  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor, pineAlphaTex])
 
   const broadleafTrunkMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({ color: biomeConfig.treeTrunkColor, roughness: 0.88 })
   }, [biomeConfig.treeTrunkColor])
 
   const broadleafCanopyMat = useMemo(() => {
-    return new THREE.MeshStandardMaterial({ color: biomeConfig.treeFoliageColor, roughness: 0.76 })
-  }, [biomeConfig.treeFoliageColor])
+    return new THREE.MeshStandardMaterial({
+      color: biomeConfig.treeFoliageColor,
+      roughness: 0.76,
+      alphaMap: broadleafAlphaTex,
+      transparent: true,
+      alphaTest: 0.5,
+      depthWrite: true,
+      side: THREE.DoubleSide,
+    })
+  }, [biomeConfig.treeFoliageColor, broadleafAlphaTex])
 
   const shrubMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor,
       roughness: 0.88,
+      alphaMap: broadleafAlphaTex,
+      transparent: true,
+      alphaTest: 0.5,
+      depthWrite: true,
+      side: THREE.DoubleSide,
     })
-  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor, broadleafAlphaTex])
 
   const rockMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
@@ -447,9 +469,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.id === 'autumn' ? '#854d0e' : biomeConfig.treeFoliageColor,
       roughness: 0.85,
+      alphaMap: grassAlphaTex,
+      transparent: true,
+      alphaTest: 0.5,
+      depthWrite: true,
       side: THREE.DoubleSide,
     })
-  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor, grassAlphaTex])
 
   // --------------------------------------------------------------------------
   // Geometry Buffer Pooling: Geometries are allocated ONCE per chunk slot.

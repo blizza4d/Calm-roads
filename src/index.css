@@ -21,6 +21,44 @@ html, body, #root {
   -webkit-user-select: none;
 }
 
+/* Font Utilities for Analog-Engineer Aesthetic */
+.font-courier {
+  font-family: 'Courier Prime', monospace;
+}
+
+.font-special-elite {
+  font-family: 'Special Elite', cursive, monospace;
+}
+
+/* Branded HUD Color Palette */
+.hud-panel {
+  background: rgba(42, 42, 42, 0.70);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(253, 251, 247, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(253, 251, 247, 0.15);
+}
+
+.text-paper-cream {
+  color: #FDFBF7;
+}
+
+.text-brick-red {
+  color: #C63D2F;
+}
+
+.bg-brick-red {
+  background-color: #C63D2F;
+}
+
+.text-sage-green {
+  color: #8EA48C;
+}
+
+.bg-sage-green {
+  background-color: #8EA48C;
+}
+
 /* Cozy Paper Cream (#F4F1EA) & Soft Charcoal (#2A2A2A) Aesthetics */
 .paper-panel {
   background: rgba(244, 241, 234, 0.90);

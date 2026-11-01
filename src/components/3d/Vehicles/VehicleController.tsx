@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -171,24 +171,23 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
 const _tempCamOffset = new THREE.Vector3()
 const _tempCamLookAt = new THREE.Vector3()
 const _tempCamForward = new THREE.Vector3()
-const _tempParticleColor = new THREE.Color()
 const _wheelWorldPos = new THREE.Vector3()
-const _particleDummy = new THREE.Object3D()
-const _particleGeo = new THREE.PlaneGeometry(0.42, 0.42)
 
-const PARTICLE_COUNT = 64
+const TIRE_POINTS_COUNT = 96
 
-// Offscreen canvas-generated soft circular radial gradient for tire smoke / snow / dust particles
-function createTireParticleTexture(): THREE.CanvasTexture {
+// Offscreen canvas-generated soft circular smoky radial gradient for tire smoke, snow spray & kick-up
+function createSmokyRadialTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 64
   canvas.height = 64
   const ctx = canvas.getContext('2d')
   if (ctx) {
-    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30)
-    grad.addColorStop(0, 'rgba(255, 255, 255, 0.88)')
-    grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.42)')
-    grad.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 31)
+    grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)')
+    grad.addColorStop(0.25, 'rgba(235, 235, 235, 0.45)')
+    grad.addColorStop(0.55, 'rgba(210, 210, 210, 0.18)')
+    grad.addColorStop(0.85, 'rgba(190, 190, 190, 0.04)')
+    grad.addColorStop(1.0, 'rgba(180, 180, 180, 0)')
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, 64, 64)
   }
@@ -197,13 +196,16 @@ function createTireParticleTexture(): THREE.CanvasTexture {
   return tex
 }
 
-const _particleTexture = typeof document !== 'undefined' ? createTireParticleTexture() : new THREE.Texture()
-const _particleMaterial = new THREE.MeshBasicMaterial({
-  map: _particleTexture,
+const _smokyTexture = typeof document !== 'undefined' ? createSmokyRadialTexture() : new THREE.Texture()
+const _smokyPointsMaterial = new THREE.PointsMaterial({
+  size: 0.9,
+  map: _smokyTexture,
   transparent: true,
-  opacity: 0.58,
+  opacity: 0.65,
   depthWrite: false,
+  vertexColors: true,
   blending: THREE.NormalBlending,
+  sizeAttenuation: true,
 })
 
 interface ExhaustConfig {
@@ -361,8 +363,24 @@ export default function VehicleController() {
   const prevSkidR = useRef<THREE.Vector3 | null>(null)
   const isBurnoutActiveRef = useRef(false)
 
-  // Tire Particle System Ref & Pool (Snow flurries, tire smoke & off-road dust)
-  const tireParticleMeshRef = useRef<THREE.InstancedMesh>(null)
+  // Custom THREE.Points Tire Kick-Up Particle System Ref, Geometry & Pool
+  const tirePointsRef = useRef<THREE.Points>(null)
+  const particleEmissionAccumulator = useRef(0)
+  const tirePointsGeo = useMemo(() => {
+    const geo = new THREE.BufferGeometry()
+    const positions = new Float32Array(TIRE_POINTS_COUNT * 3)
+    const colors = new Float32Array(TIRE_POINTS_COUNT * 3)
+    for (let i = 0; i < TIRE_POINTS_COUNT; i++) {
+      positions[i * 3 + 1] = -9999
+      colors[i * 3] = 1
+      colors[i * 3 + 1] = 1
+      colors[i * 3 + 2] = 1
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return geo
+  }, [])
+
   const particlePool = useRef<
     Array<{
       pos: THREE.Vector3
@@ -374,17 +392,16 @@ export default function VehicleController() {
       active: boolean
     }>
   >(
-    Array.from({ length: PARTICLE_COUNT }, () => ({
-      pos: new THREE.Vector3(0, -999, 0),
+    Array.from({ length: TIRE_POINTS_COUNT }, () => ({
+      pos: new THREE.Vector3(0, -9999, 0),
       vel: new THREE.Vector3(),
       life: 0,
       maxLife: 0.8,
-      size: 0.35,
+      size: 0.85,
       color: new THREE.Color('#ffffff'),
       active: false,
     }))
   )
-  const particleSpawnCounter = useRef(0)
 
   // Telemetry throttling and biome change tracking
   const prevResolvedBiome = useRef<string>('')
@@ -969,92 +986,100 @@ export default function VehicleController() {
     }
 
     // ------------------------------------------------------------------------
-    // 7. Dynamic Tire Particles (Snow Spray Flurries, Drift Smoke & Terrain Dust)
+    // 7. Custom THREE.Points Tire Kick-Up Particle System
+    // Scaled strictly by vehicle speed and steering angle
     // ------------------------------------------------------------------------
     const carPos = pos.current
     const carQuat = carGroupRef.current.quaternion
-
-    particleSpawnCounter.current++
-    const isSnowyRegion = activeBiomeConfig.id === 'twisted_mountains' || activeBiomeConfig.id === 'tundra'
-    const isDrifting = Math.abs(lateralVel.current) > 1.15 || (targetBrake > 0.3 && absVel > 6.0)
-    const isOffroadDust = !onRoad && absVel > 3.0
     const drivenZ = config.drivetrain === 'fwd' ? -1.48 : 1.18
+
+    const isSnowyRegion = activeBiomeConfig.id === 'twisted_mountains' || activeBiomeConfig.id === 'tundra'
     const isBurnoutSmoke = isBurnoutActive && onRoad
 
-    if (
-      !isHoverMode &&
-      vehicleModel !== 'hovercraft' &&
-      (absVel > 2.5 || isBurnoutSmoke) &&
-      (isBurnoutSmoke || isSnowyRegion || isDrifting || isOffroadDust) &&
-      (isBurnoutSmoke || particleSpawnCounter.current % 2 === 0)
-    ) {
-      // Find inactive or oldest particle
-      let bestP = particlePool.current[0]
-      let maxLifeNorm = -1
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const p = particlePool.current[i]
-        if (!p.active) {
-          bestP = p
-          break
+    // Particle emission rate scaled strictly by vehicle speed and steering angle
+    const speedRatio = Math.min(1.2, absVel / 32.0)
+    const steerRatio = Math.min(1.0, Math.abs(steeringVisual.current) * 2.8)
+    const emissionRate = speedRatio * (0.35 + steerRatio * 2.5) + (isBurnoutSmoke ? 2.5 : 0)
+
+    if (!isHoverMode && vehicleModel !== 'hovercraft' && (absVel > 1.2 || isBurnoutSmoke)) {
+      particleEmissionAccumulator.current += emissionRate * frameDelta * 32.0
+
+      while (particleEmissionAccumulator.current >= 1.0) {
+        particleEmissionAccumulator.current -= 1.0
+
+        // Find inactive or oldest particle
+        let bestP = particlePool.current[0]
+        let maxLifeNorm = -1
+        for (let i = 0; i < TIRE_POINTS_COUNT; i++) {
+          const p = particlePool.current[i]
+          if (!p.active) {
+            bestP = p
+            break
+          }
+          const norm = p.life / p.maxLife
+          if (norm > maxLifeNorm) {
+            maxLifeNorm = norm
+            bestP = p
+          }
         }
-        const norm = p.life / p.maxLife
-        if (norm > maxLifeNorm) {
-          maxLifeNorm = norm
-          bestP = p
+
+        // Spawn at driven wheel contact patch in world coordinates
+        const isRightWheel = Math.random() > 0.5
+        const wheelLocalX = isRightWheel ? 0.78 : -0.78
+        const wheelLocalY = -config.rideHeight + 0.08
+        const wheelLocalZ = drivenZ
+
+        _wheelWorldPos.set(wheelLocalX, wheelLocalY, wheelLocalZ).applyQuaternion(carQuat).add(carPos)
+        bestP.pos.copy(_wheelWorldPos)
+        bestP.active = true
+        bestP.life = 0
+
+        if (isBurnoutSmoke) {
+          bestP.maxLife = 1.15
+          bestP.size = 1.4
+          bestP.color.set('#f8fafc')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 1.6 + lateralVel.current * 0.25,
+            Math.random() * 1.4 + 0.5,
+            -forwardVel.current * 0.12 + (Math.random() - 0.5) * 0.8
+          )
+        } else if (Math.abs(lateralVel.current) > 1.15) {
+          bestP.maxLife = 0.95
+          bestP.size = 1.1
+          bestP.color.set('#f1f5f9')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 1.3 + lateralVel.current * 0.3,
+            Math.random() * 1.0 + 0.35,
+            -forwardVel.current * 0.14 + (Math.random() - 0.5) * 0.7
+          )
+        } else if (isSnowyRegion) {
+          bestP.maxLife = 0.85
+          bestP.size = 0.95
+          bestP.color.set('#e2e8f0')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 1.1,
+            Math.random() * 1.2 + 0.45,
+            -forwardVel.current * 0.18 + (Math.random() - 0.5) * 0.6
+          )
+        } else if (!onRoad) {
+          bestP.maxLife = 0.9
+          bestP.size = 1.1
+          bestP.color.set(activeBiomeConfig.id === 'desert' ? '#d4a373' : '#8d7b68')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 1.2,
+            Math.random() * 0.9 + 0.3,
+            -forwardVel.current * 0.16 + (Math.random() - 0.5) * 0.6
+          )
+        } else {
+          bestP.maxLife = 0.7
+          bestP.size = 0.8
+          bestP.color.set('#cbd5e1')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 0.8,
+            Math.random() * 0.6 + 0.2,
+            -forwardVel.current * 0.15 + (Math.random() - 0.5) * 0.5
+          )
         }
-      }
-
-      // Spawn at driven wheel contact patch in world coordinates
-      const isRightWheel = Math.random() > 0.5
-      const wheelLocalX = isRightWheel ? 0.78 : -0.78
-      const wheelLocalY = -config.rideHeight + 0.08
-      const wheelLocalZ = drivenZ
-
-      _wheelWorldPos.set(wheelLocalX, wheelLocalY, wheelLocalZ).applyQuaternion(carQuat).add(carPos)
-      bestP.pos.copy(_wheelWorldPos)
-      bestP.active = true
-      bestP.life = 0
-
-      if (isBurnoutSmoke) {
-        // High density billowing burnout smoke clouds
-        bestP.maxLife = 1.15
-        bestP.size = 0.65
-        bestP.color.set('#f8fafc')
-        bestP.vel.set(
-          (Math.random() - 0.5) * 1.6 + lateralVel.current * 0.2,
-          Math.random() * 1.4 + 0.6,
-          -forwardVel.current * 0.1 + (Math.random() - 0.5) * 0.9
-        )
-      } else if (isDrifting) {
-        // High density tire drift smoke
-        bestP.maxLife = 0.85
-        bestP.size = 0.42
-        bestP.color.set('#f1f5f9')
-        bestP.vel.set(
-          (Math.random() - 0.5) * 1.2 + lateralVel.current * 0.25,
-          Math.random() * 0.9 + 0.3,
-          -forwardVel.current * 0.12 + (Math.random() - 0.5) * 0.8
-        )
-      } else if (isSnowyRegion) {
-        // Crisp snow spray flurries behind wheels
-        bestP.maxLife = 0.65
-        bestP.size = 0.32
-        bestP.color.set('#e2e8f0')
-        bestP.vel.set(
-          (Math.random() - 0.5) * 0.9,
-          Math.random() * 1.1 + 0.4,
-          -forwardVel.current * 0.16 + (Math.random() - 0.5) * 0.6
-        )
-      } else {
-        // Off-road loose terrain dust
-        bestP.maxLife = 0.75
-        bestP.size = 0.45
-        bestP.color.set(activeBiomeConfig.id === 'desert' ? '#d4a373' : '#8d7b68')
-        bestP.vel.set(
-          (Math.random() - 0.5) * 1.0,
-          Math.random() * 0.7 + 0.2,
-          -forwardVel.current * 0.14 + (Math.random() - 0.5) * 0.6
-        )
       }
     }
 
@@ -1104,7 +1129,7 @@ export default function VehicleController() {
     if (spawnExhaust) {
       const chosenOffset = exCfg.offsets[Math.floor(Math.random() * exCfg.offsets.length)]
       let bestP = particlePool.current[0]
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
+      for (let i = 0; i < TIRE_POINTS_COUNT; i++) {
         if (!particlePool.current[i].active) {
           bestP = particlePool.current[i]
           break
@@ -1128,53 +1153,45 @@ export default function VehicleController() {
       )
     }
 
-    // Update active particle instances
-    if (tireParticleMeshRef.current) {
-      const pMesh = tireParticleMeshRef.current
-      if (!pMesh.instanceColor) {
-        pMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLE_COUNT * 3), 3)
-      }
+    // Update active particle points in THREE.Points BufferGeometry
+    if (tirePointsRef.current) {
+      const positions = tirePointsRef.current.geometry.attributes.position.array as Float32Array
+      const colors = tirePointsRef.current.geometry.attributes.color.array as Float32Array
 
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
+      for (let i = 0; i < TIRE_POINTS_COUNT; i++) {
         const p = particlePool.current[i]
+        const idx = i * 3
         if (!p.active) {
-          _particleDummy.position.set(0, -999, 0)
-          _particleDummy.scale.set(0, 0, 0)
-          _particleDummy.updateMatrix()
-          pMesh.setMatrixAt(i, _particleDummy.matrix)
+          positions[idx + 1] = -9999
           continue
         }
 
         p.life += frameDelta
         if (p.life >= p.maxLife) {
           p.active = false
-          _particleDummy.position.set(0, -999, 0)
-          _particleDummy.scale.set(0, 0, 0)
-          _particleDummy.updateMatrix()
-          pMesh.setMatrixAt(i, _particleDummy.matrix)
+          positions[idx + 1] = -9999
           continue
         }
 
         p.pos.addScaledVector(p.vel, frameDelta)
-        p.vel.y += 0.25 * frameDelta
-        p.vel.x *= 0.94
-        p.vel.z *= 0.94
+        p.vel.y += 0.22 * frameDelta
+        p.vel.x *= 0.95
+        p.vel.z *= 0.95
+
+        positions[idx] = p.pos.x
+        positions[idx + 1] = p.pos.y
+        positions[idx + 2] = p.pos.z
 
         const progress = p.life / p.maxLife
-        const currentScale = p.size * (1.0 + progress * 1.8)
+        const alpha = Math.max(0, 1.0 - progress) * 0.65
 
-        _particleDummy.position.copy(p.pos)
-        _particleDummy.quaternion.copy(state.camera.quaternion)
-        _particleDummy.scale.set(currentScale, currentScale, currentScale)
-        _particleDummy.updateMatrix()
-        pMesh.setMatrixAt(i, _particleDummy.matrix)
-
-        _tempParticleColor.copy(p.color).multiplyScalar(Math.max(0, 1.0 - progress * 0.75))
-        pMesh.setColorAt(i, _tempParticleColor)
+        colors[idx] = p.color.r * alpha
+        colors[idx + 1] = p.color.g * alpha
+        colors[idx + 2] = p.color.b * alpha
       }
 
-      pMesh.instanceMatrix.needsUpdate = true
-      if (pMesh.instanceColor) pMesh.instanceColor.needsUpdate = true
+      tirePointsRef.current.geometry.attributes.position.needsUpdate = true
+      tirePointsRef.current.geometry.attributes.color.needsUpdate = true
     }
 
     // ------------------------------------------------------------------------
@@ -1347,9 +1364,10 @@ export default function VehicleController() {
           />
         </group>
       </group>
-      <instancedMesh
-        ref={tireParticleMeshRef}
-        args={[_particleGeo, _particleMaterial, PARTICLE_COUNT]}
+      <points
+        ref={tirePointsRef}
+        geometry={tirePointsGeo}
+        material={_smokyPointsMaterial}
         frustumCulled={false}
       />
       <mesh geometry={_skidGeo} material={_skidMaterial} renderOrder={4} frustumCulled={false} />

@@ -641,18 +641,6 @@ export default function GameEnvironment() {
     }
   }, [weather, timeOfDay, celestialData.isNight, currentResolvedBiome, biomeConfig.skyHemiSky])
 
-  // Calibrated atmospheric aerial perspective exponential fog density
-  const fogDensity = useMemo(() => {
-    if (weather === 'snow') return 0.0028
-    if (weather === 'mist') return 0.0035
-    if (weather === 'rain') return 0.0016
-    if (biomeConfig.fogDensity) {
-      return celestialData.isNight ? biomeConfig.fogDensity * 0.75 : biomeConfig.fogDensity
-    }
-    if (celestialData.isNight) return 0.00085
-    return 0.00045
-  }, [weather, biomeConfig.fogDensity, celestialData.isNight])
-
   // Sync background color directly to scene to prevent canvas black void
   useEffect(() => {
     scene.background = new THREE.Color(skyColor)
@@ -785,8 +773,8 @@ export default function GameEnvironment() {
       {/* Dynamic Background Atmosphere Color (Restores Sky from Black Void) */}
       <color attach="background" args={[skyColor]} />
 
-      {/* Calibrated atmospheric aerial perspective fog: preserves rich horizon depth up to 4km without flat walls */}
-      <fogExp2 attach="fog" args={[skyColor, fogDensity]} />
+      {/* Horizon Blending Fog: smoothly masks terrain chunk loading distance matching the sky void color */}
+      <fogExp2 attach="fog" color="#4a4a52" density={0.003} />
 
       {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
       <group ref={skyFollowRef}>
