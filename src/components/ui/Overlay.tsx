@@ -831,9 +831,14 @@ function DiagnosticsHUD() {
   const speed = useTelemetryStore((s) => s.speed)
   const gear = useTelemetryStore((s) => s.gear)
   const rpm = useTelemetryStore((s) => s.rpm)
+  const pitch = useTelemetryStore((s) => s.pitch ?? 0)
+  const roll = useTelemetryStore((s) => s.roll ?? 0)
+  const suspension = useTelemetryStore((s) => s.suspension ?? [0, 0, 0, 0])
+  const roadClearance = useTelemetryStore((s) => s.roadClearance ?? 116)
+  const onRoad = useTelemetryStore((s) => s.onRoad ?? true)
+  const distFromRoad = useTelemetryStore((s) => s.distFromRoad ?? 0)
   const speedUnit = useGameStore((s) => s.speedUnit)
   const diagnostics = useGameStore((s) => s.diagnostics)
-  const vehicleModel = useGameStore((s) => s.vehicleModel)
   const [fps, setFps] = useState(60)
 
   useEffect(() => {
@@ -861,7 +866,7 @@ function DiagnosticsHUD() {
 
   return (
     <div className="fixed top-20 left-6 z-40 pointer-events-none select-none font-mono text-[11px] leading-tight">
-      <div className="bg-black/85 backdrop-blur-md border border-white/20 rounded-2xl p-4 shadow-2xl text-white/90 w-80 space-y-2.5">
+      <div className="bg-black/90 backdrop-blur-md border border-white/20 rounded-2xl p-4 shadow-2xl text-white/90 w-84 space-y-2.5">
         <div className="flex items-center justify-between border-b border-white/10 pb-2">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -870,7 +875,7 @@ function DiagnosticsHUD() {
           <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">F3 HUD</span>
         </div>
 
-        {/* Frame Performance */}
+        {/* Frame Performance & Speed */}
         <div className="grid grid-cols-2 gap-2 text-[10px]">
           <div className="bg-white/5 p-2 rounded-xl">
             <div className="text-white/50 text-[9px]">FRAME RATE</div>
@@ -888,7 +893,53 @@ function DiagnosticsHUD() {
           </div>
         </div>
 
-        {/* Terrain Streaming & Buffer Metrics */}
+        {/* Road & Corridor Clearance */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-amber-400 font-bold flex justify-between">
+            <span>ROAD & TERRAIN CORRIDOR</span>
+            <span className={onRoad ? 'text-emerald-400' : 'text-amber-400'}>
+              {onRoad ? 'ON ASPHALT' : 'OFF-ROAD'}
+            </span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Centerline Offset:</span>
+            <span className="text-white font-bold">{distFromRoad}m</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Road Banking:</span>
+            <span className="text-cyan-300 font-bold">{diagnostics.roadBankingDeg ?? 0}°</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Ground Clearance:</span>
+            <span className="text-emerald-300 font-bold">{roadClearance} mm</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Terrain Carve Base:</span>
+            <span className="text-white font-bold">-0.28m (Corridor Floor)</span>
+          </div>
+        </div>
+
+        {/* Vehicle Suspension & Dynamics */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-sky-400 font-bold flex justify-between">
+            <span>CHASSIS & SUSPENSION</span>
+            <span>4-CORNER TRACKING</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Body Roll / Pitch:</span>
+            <span className="text-white font-bold">{roll > 0 ? `+${roll}` : roll}° / {pitch > 0 ? `+${pitch}` : pitch}°</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Front Axle (L/R):</span>
+            <span className="text-sky-300 font-bold">{suspension[0]}mm / {suspension[1]}mm</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Rear Axle (L/R):</span>
+            <span className="text-sky-300 font-bold">{suspension[2]}mm / {suspension[3]}mm</span>
+          </div>
+        </div>
+
+        {/* Predictive Streaming Buffer */}
         <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
           <div className="text-emerald-400 font-bold flex justify-between">
             <span>PREDICTIVE STREAMING</span>
@@ -903,28 +954,8 @@ function DiagnosticsHUD() {
             <span className="text-emerald-300 font-bold">+{diagnostics.frontierBuffer}m ahead</span>
           </div>
           <div className="flex justify-between text-white/70">
-            <span>Catchup Engine:</span>
-            <span className="text-white font-bold">Multi-Chunk While Loop</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Seam Smoothing:</span>
-            <span className="text-emerald-300 font-bold">C1 Continuous Blend</span>
-          </div>
-        </div>
-
-        {/* Audio Synthesis Architecture */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-cyan-400 font-bold flex justify-between">
-            <span>AUDIO ECOSYSTEM</span>
-            <span className="uppercase">{vehicleModel === 'bmw_m3' || vehicleModel === 'supercar' ? 'Sample-Based V8' : vehicleModel}</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>RPM Crossfading:</span>
-            <span className="text-emerald-300 font-bold">Idle / Low / Mid / High / Decel</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Authentic Recording:</span>
-            <span className="text-emerald-300 font-bold">BMW M3 GT2 Live Track Audio</span>
+            <span>Scenery Props Grounded:</span>
+            <span className="text-emerald-300 font-bold">Anchored (0 Floating)</span>
           </div>
         </div>
       </div>

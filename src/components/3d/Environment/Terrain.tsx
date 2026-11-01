@@ -8,12 +8,13 @@ import {
   getRoadTangent,
   getRoadBanking,
   getTerrainHeight,
+  getClosestRoadPoint,
   ROAD_WIDTH,
   getActiveBiomeAt,
   BiomeConfig,
 } from '../../../utils/roadMath'
 import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
-import { getPineNeedleAlphaTexture, getBroadleafAlphaTexture, getGrassAlphaTexture } from './Scenery'
+import { getGrassAlphaTexture } from './Scenery'
 
 const CHUNK_LEN = 200
 const TERRAIN_W = 1200
@@ -34,23 +35,27 @@ function validateChunkGeometry(geo: THREE.BufferGeometry, name: string): boolean
   return true
 }
 
-// Helper to merge multiple BufferGeometries into a single geometry
+// Helper to merge multiple BufferGeometries into a single geometry with positions, normals, and UVs
 function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const merged = new THREE.BufferGeometry()
   const posList: number[] = []
   const normList: number[] = []
+  const uvList: number[] = []
   const indexList: number[] = []
   let vertexOffset = 0
 
   for (const g of geometries) {
     const pos = g.attributes.position
     const norm = g.attributes.normal
+    const uv = g.attributes.uv
     const index = g.index
 
     for (let i = 0; i < pos.count; i++) {
       posList.push(pos.getX(i), pos.getY(i), pos.getZ(i))
       if (norm) normList.push(norm.getX(i), norm.getY(i), norm.getZ(i))
       else normList.push(0, 1, 0)
+      if (uv) uvList.push(uv.getX(i), uv.getY(i))
+      else uvList.push(0, 0)
     }
 
     if (index) {
@@ -67,6 +72,7 @@ function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.Buffer
 
   merged.setAttribute('position', new THREE.Float32BufferAttribute(posList, 3))
   merged.setAttribute('normal', new THREE.Float32BufferAttribute(normList, 3))
+  merged.setAttribute('uv', new THREE.Float32BufferAttribute(uvList, 2))
   merged.setIndex(indexList)
   return merged
 }
@@ -320,6 +326,7 @@ const sharedCabinWindowMat = new THREE.MeshStandardMaterial({
 
 // Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
 const _dummy = new THREE.Object3D()
+const _zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
 
 interface ChunkProps {
   chunkZ: number
@@ -339,8 +346,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const asphaltTex = useMemo(() => getAsphaltTexture(), [])
   const asphaltBumpTex = useMemo(() => getAsphaltBumpTexture(), [])
   const terrainBumpTex = useMemo(() => getTerrainBumpTexture(), [])
-  const pineAlphaTex = useMemo(() => getPineNeedleAlphaTexture(), [])
-  const broadleafAlphaTex = useMemo(() => getBroadleafAlphaTexture(), [])
   const grassAlphaTex = useMemo(() => getGrassAlphaTexture(), [])
 
   // Triplanar Shader for seamless rock strata & granular soil texture on steep terrain
@@ -420,14 +425,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const pineCanopyMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.id === 'tundra' ? '#e2e8f0' : biomeConfig.treeFoliageColor,
-      roughness: 0.82,
-      alphaMap: pineAlphaTex,
-      transparent: true,
-      alphaTest: 0.5,
-      depthWrite: true,
-      side: THREE.DoubleSide,
+      roughness: 0.85,
+      metalness: 0.05,
+      side: THREE.FrontSide,
     })
-  }, [biomeConfig.id, biomeConfig.treeFoliageColor, pineAlphaTex])
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
 
   const broadleafTrunkMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({ color: biomeConfig.treeTrunkColor, roughness: 0.88 })
@@ -436,26 +438,20 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const broadleafCanopyMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.treeFoliageColor,
-      roughness: 0.76,
-      alphaMap: broadleafAlphaTex,
-      transparent: true,
-      alphaTest: 0.5,
-      depthWrite: true,
-      side: THREE.DoubleSide,
+      roughness: 0.82,
+      metalness: 0.05,
+      side: THREE.FrontSide,
     })
-  }, [biomeConfig.treeFoliageColor, broadleafAlphaTex])
+  }, [biomeConfig.treeFoliageColor])
 
   const shrubMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: biomeConfig.id === 'desert' ? '#854d0e' : biomeConfig.treeFoliageColor,
-      roughness: 0.88,
-      alphaMap: broadleafAlphaTex,
-      transparent: true,
-      alphaTest: 0.5,
-      depthWrite: true,
-      side: THREE.DoubleSide,
+      roughness: 0.85,
+      metalness: 0.05,
+      side: THREE.FrontSide,
     })
-  }, [biomeConfig.id, biomeConfig.treeFoliageColor, broadleafAlphaTex])
+  }, [biomeConfig.id, biomeConfig.treeFoliageColor])
 
   const rockMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
@@ -1035,16 +1031,23 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const clusterZ = -CHUNK_LEN / 2 + c * clusterStep + clusterStep * 0.5
       const worldZ = chunkZ + clusterZ
       const roadCx = getRoadCenter(worldZ)
+      const tan = getRoadTangent(worldZ)
 
       const hash1 = Math.abs(Math.sin(worldZ * 17.13 + 31.415))
       const hash2 = Math.abs(Math.sin(worldZ * 59.29 + 17.821))
       const hash3 = Math.abs(Math.sin(worldZ * 83.71 + 92.119))
 
-      // Utility Poles along the right road shoulder every ~36m
+      // Utility Poles along the right road shoulder every ~33m (strictly anchored to terrain surface)
       if (c % 2 === 0) {
-        const poleX = roadCx + (ROAD_WIDTH / 2 + 2.8)
-        const poleY = getRoadElevation(worldZ)
-        poles.push({ pos: [poleX, poleY, clusterZ] })
+        const poleDist = ROAD_WIDTH / 2 + 2.6
+        const poleX = roadCx + tan.nx * poleDist
+        const poleLocalZ = clusterZ + tan.nz * poleDist
+        const poleWorldZ = chunkZ + poleLocalZ
+        const poleY = getTerrainHeight(poleX, poleWorldZ, biomeConfig.id) - 0.25
+        const checkSlopeY = getTerrainHeight(poleX + 0.5, poleWorldZ, biomeConfig.id)
+        if (Math.abs(checkSlopeY - (poleY + 0.25)) < 1.4) {
+          poles.push({ pos: [poleX, poleY, poleLocalZ] })
+        }
       }
 
       // Roadside grass tufts along shoulder borders (suppressed in desert and snowy biomes)
@@ -1052,12 +1055,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const sides = [-1, 1]
         sides.forEach((side) => {
           const grassDist = ROAD_WIDTH / 2 + 1.6 + hash1 * 1.8
-          const grassX = roadCx + side * grassDist
-          const grassZ = clusterZ + (hash2 - 0.5) * 12
-          const grassWorldZ = chunkZ + grassZ
+          const grassX = roadCx + tan.nx * side * grassDist
+          const grassLocalZ = clusterZ + tan.nz * side * grassDist + (hash2 - 0.5) * 6
+          const grassWorldZ = chunkZ + grassLocalZ
           const grassY = getTerrainHeight(grassX, grassWorldZ, biomeConfig.id)
           grassTufts.push({
-            pos: [grassX, grassY, grassZ],
+            pos: [grassX, grassY, grassLocalZ],
             scale: 0.8 + hash3 * 0.5,
             rotY: hash1 * Math.PI * 2,
           })
@@ -1067,23 +1070,27 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       // Cozy roadside log cabins in Twisted Mountains (at scenic roadside pullouts)
       if (isTwisted && c === 2 && hash1 > 0.35) {
         const cabinSide = hash2 > 0.5 ? 1 : -1
-        const cabinDist = ROAD_WIDTH / 2 + 13.0 + hash3 * 6.0
-        const cabinX = roadCx + cabinSide * cabinDist
-        const cabinZ = clusterZ
-        const cabinWorldZ = chunkZ + cabinZ
-        const cabinY = getTerrainHeight(cabinX, cabinWorldZ, biomeConfig.id)
-        const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
-        cabins.push({
-          pos: [cabinX, cabinY, cabinZ],
-          rotY,
-        })
+        const cabinDist = ROAD_WIDTH / 2 + 15.0 + hash3 * 6.0
+        const cabinX = roadCx + tan.nx * cabinSide * cabinDist
+        const cabinLocalZ = clusterZ + tan.nz * cabinSide * cabinDist
+        const cabinWorldZ = chunkZ + cabinLocalZ
+        const closest = getClosestRoadPoint(cabinX, cabinWorldZ)
+        if (closest.dist >= ROAD_WIDTH / 2 + 14.0) {
+          const cabinY = getTerrainHeight(cabinX, cabinWorldZ, biomeConfig.id) - 0.1
+          const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
+          cabins.push({
+            pos: [cabinX, cabinY, cabinLocalZ],
+            rotY,
+          })
+        }
       }
 
-      // Scenery on both sides of highway
+      // Scenery on both sides of highway with true Euclidean road corridor protection
       const sides = [-1, 1]
       sides.forEach((side) => {
-        const clusterDist = ROAD_WIDTH / 2 + 7.5 + (side === -1 ? hash1 : hash2) * 36
-        const clusterCenterX = roadCx + side * clusterDist
+        const clusterDist = ROAD_WIDTH / 2 + 8.5 + (side === -1 ? hash1 : hash2) * 36
+        const clusterCenterX = roadCx + tan.nx * side * clusterDist
+        const clusterCenterZ = clusterZ + tan.nz * side * clusterDist
 
         if (isDesert) {
           const numSaguaros = 1 + Math.floor(hash3 * 2.5)
@@ -1091,10 +1098,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const offsetX = (Math.sin(i * 2.4 + hash1) - 0.5) * 14
             const offsetZ = (Math.cos(i * 3.1 + hash2) - 0.5) * 16
             const treeX = clusterCenterX + offsetX
-            const treeZ = clusterZ + offsetZ
+            const treeZ = clusterCenterZ + offsetZ
             const treeWorldZ = chunkZ + treeZ
 
-            if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 3.8) {
+            const closest = getClosestRoadPoint(treeX, treeWorldZ)
+            if (closest.dist >= ROAD_WIDTH / 2 + 4.5) {
               const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
               saguaros.push({
                 pos: [treeX, treeY, treeZ],
@@ -1106,9 +1114,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
           if (hash3 > 0.3) {
             const shrubX = clusterCenterX + (hash2 - 0.5) * 10
-            const shrubZ = clusterZ + (hash1 - 0.5) * 12
+            const shrubZ = clusterCenterZ + (hash1 - 0.5) * 12
             const shrubWorldZ = chunkZ + shrubZ
-            if (Math.abs(shrubX - getRoadCenter(shrubWorldZ)) > ROAD_WIDTH / 2 + 3.5) {
+            const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
+            if (closest.dist >= ROAD_WIDTH / 2 + 3.8) {
               const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
               shrubs.push({
                 pos: [shrubX, shrubY, shrubZ],
@@ -1123,10 +1132,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const angle = (i / treesInCluster) * Math.PI * 2 + hash1
             const radius = 3.5 + (i * 3.8 + hash3 * 6.5)
             const treeX = clusterCenterX + Math.cos(angle) * radius
-            const treeZ = clusterZ + Math.sin(angle) * radius
+            const treeZ = clusterCenterZ + Math.sin(angle) * radius
             const treeWorldZ = chunkZ + treeZ
 
-            if (Math.abs(treeX - getRoadCenter(treeWorldZ)) > ROAD_WIDTH / 2 + 4.2) {
+            const closest = getClosestRoadPoint(treeX, treeWorldZ)
+            if (closest.dist >= ROAD_WIDTH / 2 + 4.5) {
               const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
               const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
               const isPine = (isTwisted || isAlpine || isSnowy)
@@ -1157,43 +1167,49 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
           if (hash1 > 0.35) {
             const shrubDist = ROAD_WIDTH / 2 + 4.8 + hash2 * 12
-            const shrubX = roadCx + side * shrubDist
-            const shrubZ = clusterZ + (hash3 - 0.5) * 16
+            const shrubX = roadCx + tan.nx * side * shrubDist
+            const shrubZ = clusterZ + tan.nz * side * shrubDist + (hash3 - 0.5) * 8
             const shrubWorldZ = chunkZ + shrubZ
-            const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
-            shrubs.push({
-              pos: [shrubX, shrubY, shrubZ],
-              scale: 0.65 + hash3 * 0.6,
-              rotY: hash2 * Math.PI,
-            })
+            const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
+            if (closest.dist >= ROAD_WIDTH / 2 + 3.8) {
+              const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
+              shrubs.push({
+                pos: [shrubX, shrubY, shrubZ],
+                scale: 0.65 + hash3 * 0.6,
+                rotY: hash2 * Math.PI,
+              })
+            }
           }
         }
 
-        // Stratified geological rock outcrops (kept close to roadside floor to eliminate floating in sky)
+        // Stratified geological rock outcrops (kept strictly outside road corridor)
         if (hash3 > 0.4) {
-          const rockDist = ROAD_WIDTH / 2 + 5.0 + hash1 * 18
-          const rockX = roadCx + side * rockDist
-          const rockZ = clusterZ + (hash2 - 0.5) * 18
+          const rockDist = ROAD_WIDTH / 2 + 6.0 + hash1 * 18
+          const rockX = roadCx + tan.nx * side * rockDist
+          const rockZ = clusterZ + tan.nz * side * rockDist + (hash2 - 0.5) * 10
           const rockWorldZ = chunkZ + rockZ
-          const roadY = getRoadElevation(rockWorldZ)
-          const rockRawY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
-          const rockY = Math.max(0.0, Math.min(roadY + 75.0, rockRawY))
+          const closest = getClosestRoadPoint(rockX, rockWorldZ)
+          if (closest.dist >= ROAD_WIDTH / 2 + 4.8) {
+            const rRoadY = getRoadElevation(rockWorldZ)
+            const rockRawY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
+            const rockY = Math.max(0.0, Math.min(rRoadY + 75.0, rockRawY))
 
-          // Non-uniform geological scaling for natural boulder silhouette
-          const sx = 0.9 + hash3 * 1.6
-          const sy = (0.65 + hash1 * 0.8) * sx
-          const sz = (0.85 + hash2 * 1.2) * sx
+            // Non-uniform geological scaling for natural boulder silhouette
+            const sx = 0.9 + hash3 * 1.6
+            const sy = (0.65 + hash1 * 0.8) * sx
+            const sz = (0.85 + hash2 * 1.2) * sx
 
-          rocks.push({
-            pos: [rockX, rockY + 0.3 * sy, rockZ],
-            scale: [sx, sy, sz],
-            rot: [hash1 * 0.3, hash2 * Math.PI * 2, hash3 * 0.25],
-          })
+            rocks.push({
+              pos: [rockX, rockY + 0.3 * sy, rockZ],
+              scale: [sx, sy, sz],
+              rot: [hash1 * 0.3, hash2 * Math.PI * 2, hash3 * 0.25],
+            })
+          }
         }
       })
     }
 
-    // Roadside Reflector Delineator Posts (Guide Posts along both shoulders)
+    // Roadside Reflector Delineator Posts (Guide Posts along both shoulders tracking banking)
     const numDelineators = 8
     const delineatorSpacing = CHUNK_LEN / numDelineators
     for (let d = 0; d < numDelineators; d++) {
@@ -1201,11 +1217,17 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const worldZ = chunkZ + delinZ
       const roadCx = getRoadCenter(worldZ)
       const roadY = getRoadElevation(worldZ)
+      const { nx, nz } = getRoadTangent(worldZ)
+      const banking = getRoadBanking(worldZ)
       const sides = [-1, 1]
       sides.forEach((side) => {
-        const delinX = roadCx + side * (ROAD_WIDTH / 2 + 1.15)
+        const delinDist = ROAD_WIDTH / 2 + 1.2
+        const delinX = roadCx + nx * side * delinDist
+        const delinLocalZ = delinZ + nz * side * delinDist
+        const bankY = Math.tan(banking) * side * delinDist
+        const delinY = roadY + 0.05 + bankY
         delineators.push({
-          pos: [delinX, roadY, delinZ],
+          pos: [delinX, delinY, delinLocalZ],
           rotY: side === -1 ? 0.06 : -0.06,
         })
       })
@@ -1234,8 +1256,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const isSceneryVisibleRef = useRef<boolean | null>(null)
 
   // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
+  // Unused instanced slots are zeroed out with _zeroMatrix to prevent ghost instances at chunk origin (0, 0, 0)
   useLayoutEffect(() => {
-    // 1. Pines
+    // 1. Pines (max 36)
     if (pineTrunkRef.current && pineCanopyRef.current) {
       sceneryData.pines.forEach((p, i) => {
         _dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
@@ -1245,11 +1268,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         pineTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
         pineCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.pines.length; i < 36; i++) {
+        pineTrunkRef.current.setMatrixAt(i, _zeroMatrix)
+        pineCanopyRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       pineTrunkRef.current.instanceMatrix.needsUpdate = true
       pineCanopyRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 2. Broadleafs
+    // 2. Broadleafs (max 36)
     if (broadleafTrunkRef.current && broadleafCanopyRef.current) {
       sceneryData.broadleafs.forEach((b, i) => {
         _dummy.position.set(b.pos[0], b.pos[1], b.pos[2])
@@ -1259,11 +1286,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         broadleafTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
         broadleafCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.broadleafs.length; i < 36; i++) {
+        broadleafTrunkRef.current.setMatrixAt(i, _zeroMatrix)
+        broadleafCanopyRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       broadleafTrunkRef.current.instanceMatrix.needsUpdate = true
       broadleafCanopyRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 3. Saguaros
+    // 3. Saguaros (max 24)
     if (saguaroRef.current) {
       sceneryData.saguaros.forEach((s, i) => {
         _dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
@@ -1272,10 +1303,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         saguaroRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.saguaros.length; i < 24; i++) {
+        saguaroRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       saguaroRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 4. Shrubs
+    // 4. Shrubs (max 24)
     if (shrubRef.current) {
       sceneryData.shrubs.forEach((s, i) => {
         _dummy.position.set(s.pos[0], s.pos[1], s.pos[2])
@@ -1284,10 +1318,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         shrubRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.shrubs.length; i < 24; i++) {
+        shrubRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       shrubRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 5. Rocks
+    // 5. Rocks (max 24)
     if (rockRef.current) {
       sceneryData.rocks.forEach((r, i) => {
         _dummy.position.set(r.pos[0], r.pos[1], r.pos[2])
@@ -1296,10 +1333,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         rockRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.rocks.length; i < 24; i++) {
+        rockRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       rockRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 6. Grass Tufts
+    // 6. Grass Tufts (max 36)
     if (grassRef.current) {
       sceneryData.grassTufts.forEach((g, i) => {
         _dummy.position.set(g.pos[0], g.pos[1], g.pos[2])
@@ -1308,10 +1348,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         grassRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.grassTufts.length; i < 36; i++) {
+        grassRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       grassRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 7. Utility Poles
+    // 7. Utility Poles (max 16)
     if (poleRef.current) {
       sceneryData.poles.forEach((p, i) => {
         _dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
@@ -1320,10 +1363,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         poleRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.poles.length; i < 16; i++) {
+        poleRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       poleRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 8. Roadside Reflector Delineator Posts
+    // 8. Roadside Reflector Delineator Posts (max 32)
     if (delineatorPostRef.current && delineatorReflectorRef.current) {
       sceneryData.delineators.forEach((d, i) => {
         _dummy.position.set(d.pos[0], d.pos[1], d.pos[2])
@@ -1333,11 +1379,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         delineatorPostRef.current?.setMatrixAt(i, _dummy.matrix)
         delineatorReflectorRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.delineators.length; i < 32; i++) {
+        delineatorPostRef.current.setMatrixAt(i, _zeroMatrix)
+        delineatorReflectorRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       delineatorPostRef.current.instanceMatrix.needsUpdate = true
       delineatorReflectorRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 9. Cozy Alpine Cabins
+    // 9. Cozy Alpine Cabins (max 4)
     if (cabinRef.current && cabinWindowRef.current) {
       sceneryData.cabins.forEach((c, i) => {
         _dummy.position.set(c.pos[0], c.pos[1], c.pos[2])
@@ -1347,6 +1397,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         cabinRef.current?.setMatrixAt(i, _dummy.matrix)
         cabinWindowRef.current?.setMatrixAt(i, _dummy.matrix)
       })
+      for (let i = sceneryData.cabins.length; i < 4; i++) {
+        cabinRef.current.setMatrixAt(i, _zeroMatrix)
+        cabinWindowRef.current.setMatrixAt(i, _zeroMatrix)
+      }
       cabinRef.current.instanceMatrix.needsUpdate = true
       cabinWindowRef.current.instanceMatrix.needsUpdate = true
     }

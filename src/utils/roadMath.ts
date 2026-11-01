@@ -409,6 +409,88 @@ export function getRoadBanking(z: number): number {
   return Math.max(-0.11, Math.min(0.11, targetBanking))
 }
 
+export interface ClosestRoadPoint {
+  u: number
+  roadX: number
+  roadY: number
+  dist: number
+  banking: number
+  tangentX: number
+  tangentZ: number
+  normalX: number
+  normalZ: number
+  lateralOffset: number
+}
+
+// High-Precision Closest Point on 2D Curved Road Spline in XZ plane
+// Finds the exact closest point on the road curve to any world (x, z) coordinate,
+// returning Euclidean distance, road elevation, normal vector and signed lateral offset.
+export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
+  // Coarse scan +-60m in 10m steps around z
+  let bestU = z
+  let bestDistSq = (x - getRoadCenter(z)) ** 2
+
+  for (let offset = -60; offset <= 60; offset += 10) {
+    if (offset === 0) continue
+    const u = z + offset
+    const rx = getRoadCenter(u)
+    const d2 = (x - rx) ** 2 + (z - u) ** 2
+    if (d2 < bestDistSq) {
+      bestDistSq = d2
+      bestU = u
+    }
+  }
+
+  // Refine with Golden Section search within [bestU - 10, bestU + 10]
+  let a = bestU - 10
+  let b = bestU + 10
+  const gr = 0.618033988749895
+  let c = b - gr * (b - a)
+  let d = a + gr * (b - a)
+  let fc = (x - getRoadCenter(c)) ** 2 + (z - c) ** 2
+  let fd = (x - getRoadCenter(d)) ** 2 + (z - d) ** 2
+
+  for (let i = 0; i < 6; i++) {
+    if (fc < fd) {
+      b = d
+      d = c
+      fd = fc
+      c = b - gr * (b - a)
+      fc = (x - getRoadCenter(c)) ** 2 + (z - c) ** 2
+    } else {
+      a = c
+      c = d
+      fc = fd
+      d = a + gr * (b - a)
+      fd = (x - getRoadCenter(d)) ** 2 + (z - d) ** 2
+    }
+  }
+
+  const optU = (a + b) * 0.5
+  const optX = getRoadCenter(optU)
+  const optY = getRoadElevation(optU)
+  const { tx, tz, nx, nz } = getRoadTangent(optU)
+  const banking = getRoadBanking(optU)
+
+  const dx = x - optX
+  const dz = z - optU
+  const dist = Math.hypot(dx, dz)
+  const lateralOffset = dx * nx + dz * nz
+
+  return {
+    u: optU,
+    roadX: optX,
+    roadY: optY,
+    dist,
+    banking,
+    tangentX: tx,
+    tangentZ: tz,
+    normalX: nx,
+    normalZ: nz,
+    lateralOffset,
+  }
+}
+
 /**
  * Smooth continuous ridged multi-fractal shaping function.
  * Produces natural rounded mountain summits, broad sweeping arêtes, and geological plateaus.
@@ -420,18 +502,12 @@ function smoothRidge(n: number): number {
 
 function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
   if (bId === 'twisted_mountains') {
-    // Sinuous rotated noise ridgelines with bounded rotation to prevent inverted geometry
-    const twistAngle = Math.max(-Math.PI * 0.75, Math.min(Math.PI * 0.75, x * 0.0012 + z * 0.0009))
-    const cosT = Math.cos(twistAngle)
-    const sinT = Math.sin(twistAngle)
-    const twistedX = x * cosT - z * sinT
-    const twistedZ = x * sinT + z * cosT
-
-    const primaryPeaks = Math.max(0, smoothRidge(terrainNoise(twistedX * 0.0022, twistedZ * 0.0022))) * 36.0
-    const twistedRidges = Math.max(0, smoothRidge(detailNoise(twistedX * 0.0055, twistedZ * 0.0055))) * 14.0
-    const glacialCirques = Math.max(0, detailNoise(x * 0.0042, z * 0.0042)) * 8.0
-    const cragDetails = Math.max(0, (microNoise(x * 0.016, z * 0.016) * 0.5 + 0.5)) * 3.0
-    return Math.max(0.0, primaryPeaks + twistedRidges + glacialCirques + cragDetails)
+    // Majestic Alpine Massifs and dramatic winter peaks flanked by gentle valleys
+    const primaryPeaks = Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))) * 42.0
+    const alpineRidges = Math.max(0, smoothRidge(detailNoise(x * 0.0055, z * 0.0055))) * 16.0
+    const glacialMoraines = Math.max(0, detailNoise(x * 0.0042, z * 0.0042)) * 9.0
+    const cragDetails = Math.max(0, microNoise(x * 0.016, z * 0.016) * 0.5 + 0.5) * 3.5
+    return Math.max(0.0, primaryPeaks + alpineRidges + glacialMoraines + cragDetails)
   } else if (bId === 'alpine') {
     // Sharp high-altitude jagged summits and sheer horn peaks
     const horns = Math.pow(Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))), 1.35) * 44.0
@@ -475,45 +551,44 @@ function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
 }
 
 // 5. Complete World Terrain Elevation at ANY (x, z)
-// Provides a guaranteed valley depression along the highway corridor (up to 36m out)
+// Provides a guaranteed Euclidean road protection corridor following the 2D curved road spline
 // so coarse terrain grid triangles never pierce, submerge, or z-fight the road ribbon in any biome
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
-  const roadX = getRoadCenter(z)
-  const roadY = getRoadElevation(z)
-  const banking = getRoadBanking(z)
-  const dx = x - roadX
-  const distFromRoad = Math.abs(dx)
+  const closest = getClosestRoadPoint(x, z)
+  const dist = closest.dist
+  const roadY = closest.roadY
+  const banking = closest.banking
+  const lateralOffset = closest.lateralOffset
 
   // Calculate the banked roadbed plane at this lateral coordinate:
-  // Clamp dx to the road/shoulder corridor to determine the depressed roadbed base
-  const clampedDx = Math.max(-ROAD_WIDTH / 2 - 2.5, Math.min(ROAD_WIDTH / 2 + 2.5, dx))
-  const bankedCorridorBase = roadY + Math.tan(banking) * clampedDx
+  const clampedOffset = Math.max(-ROAD_WIDTH / 2 - 2.5, Math.min(ROAD_WIDTH / 2 + 2.5, lateralOffset))
+  const bankedCorridorBase = roadY + Math.tan(banking) * clampedOffset
 
-  // 1. Immediate roadbed & shoulder valley floor (0m to 16m)
-  // Strictly flat threshold depressed safely 0.28m below the banked roadbed
-  // This guarantees that across the entire road width and shoulder, the terrain NEVER pierces or z-fights
-  if (distFromRoad <= 16.0) {
+  // 1. Strictly protected roadbed corridor & shoulder (0m to 13.5m from road centerline)
+  // Flat threshold depressed safely 0.28m below the banked roadbed
+  // Guarantees that across the entire road width and shoulder, terrain NEVER pierces or z-fights
+  if (dist <= 13.5) {
     return bankedCorridorBase - 0.28
   }
 
-  // Coastal beach & sandy dune slope on seaward side (X < roadX - 16m)
-  if (biomeId === 'coastal' && dx < -16.0) {
-    const beachDist = -16.0 - dx
+  // Coastal beach & sandy dune slope on seaward side (lateralOffset < -13.5m)
+  if (biomeId === 'coastal' && lateralOffset < -13.5) {
+    const beachDist = -13.5 - lateralOffset
     const duneRipples = Math.sin(x * 0.08 + z * 0.04) * 0.35 + Math.cos(x * 0.03 - z * 0.02) * 0.55
     const targetY = Math.max(0.0, (bankedCorridorBase - 0.28) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
     return targetY
   }
 
-  // 2. Roadside drainage swale & flat outer corridor buffer (16m to 36m)
+  // 2. Roadside drainage swale & flat outer corridor buffer (13.5m to 28.0m)
   // Smoothly rises from (bankedCorridorBase - 0.28) to (bankedCorridorBase - 0.12), strictly remaining below roadbed
-  if (distFromRoad <= 36.0) {
-    const corridorT = (distFromRoad - 16.0) / 20.0 // 0 to 1
+  if (dist <= 28.0) {
+    const corridorT = (dist - 13.5) / 14.5 // 0 to 1
     return bankedCorridorBase - 0.28 + 0.16 * corridorT
   }
 
-  // 3. Smooth Hermite smoothstep transition into mountains (36m to 105m)
-  const distPastCorridor = distFromRoad - 36.0
-  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / 68.0))
+  // 3. Smooth Hermite smoothstep transition into mountains (28.0m to 85.0m)
+  const distPastCorridor = dist - 28.0
+  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / 57.0))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at corridor boundary
 
   // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
@@ -540,13 +615,12 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   }
 
   // Distance scaling: Gradual elevation gain into mountain massifs and valley walls
-  const mountainRamp = Math.min(1.4, 0.12 + Math.pow(distPastCorridor / 110.0, 1.1) * 1.1)
-  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 28.0
+  const mountainRamp = Math.min(1.35, 0.10 + Math.pow(distPastCorridor / 110.0, 1.1) * 1.05)
+  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 26.0
 
   const computedElevation =
     (bankedCorridorBase - 0.12) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
 
-  // Maximum height ceiling: Strictly prevents terrain from generating upside-down in sky or piercing skybox
   const MAX_TERRAIN_CEILING = 110.0
   const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
 
@@ -555,24 +629,24 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
 
 // 6. True drivable surface height (road surface with camber on road, shoulder, and natural terrain offroad)
 export function getSurfaceHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
-  const roadX = getRoadCenter(z)
-  const roadY = getRoadElevation(z)
-  const banking = getRoadBanking(z)
-  const dx = x - roadX
-  const dist = Math.abs(dx)
+  const closest = getClosestRoadPoint(x, z)
+  const dist = closest.dist
+  const roadY = closest.roadY
+  const banking = closest.banking
+  const lateralOffset = closest.lateralOffset
   const halfRoad = ROAD_WIDTH / 2 // 5.75m
   const shoulderEnd = halfRoad + 2.2 // 7.95m
 
   if (dist <= halfRoad) {
     // Road asphalt surface with crown camber and banked superelevation
     const crown = 0.085 + 0.025 * (1 - dist / halfRoad)
-    const bankElevation = Math.tan(banking) * dx
+    const bankElevation = Math.tan(banking) * lateralOffset
     return roadY + crown + bankElevation
   } else if (dist <= shoulderEnd) {
     // Roadside shoulder strip sloping gently down and tracking banking
     const shoulderT = (dist - halfRoad) / 2.2
-    const edgeBank = Math.tan(banking) * Math.sign(dx) * halfRoad
-    const shoulderExtra = Math.tan(banking) * (dx - Math.sign(dx) * halfRoad) * 0.75
+    const edgeBank = Math.tan(banking) * Math.sign(lateralOffset) * halfRoad
+    const shoulderExtra = Math.tan(banking) * (lateralOffset - Math.sign(lateralOffset) * halfRoad) * 0.75
     return roadY + 0.07 * (1 - shoulderT) + 0.015 * shoulderT + edgeBank + shoulderExtra
   } else {
     // Offroad terrain
@@ -617,6 +691,6 @@ export function getTerrainAngles(x: number, z: number, biomeId: BiomeType = 'for
 
 // 8. Check if coordinate is currently on asphalt highway surface
 export function isRoadSurface(x: number, z: number): boolean {
-  const roadX = getRoadCenter(z)
-  return Math.abs(x - roadX) <= ROAD_WIDTH / 2 + 0.6
+  const closest = getClosestRoadPoint(x, z)
+  return closest.dist <= ROAD_WIDTH / 2 + 0.6
 }

@@ -8,6 +8,9 @@ import { ActiveCarModel } from './CarModels'
 import {
   getRoadCenter,
   getRoadElevation,
+  getRoadTangent,
+  getRoadBanking,
+  getClosestRoadPoint,
   isRoadSurface,
   getActiveBiomeAt,
   getSurfaceHeight,
@@ -837,20 +840,46 @@ export default function VehicleController() {
     const leftSusp = (wheelSuspensions.current[0] + wheelSuspensions.current[2]) * 0.5
     const rightSusp = (wheelSuspensions.current[1] + wheelSuspensions.current[3]) * 0.5
 
-    const suspPitch = (frontSusp - rearSusp) * 0.35
-    const suspRoll = (rightSusp - leftSusp) * 0.35
+    const suspPitch = (frontSusp - rearSusp) * 0.22
+    const suspRoll = (rightSusp - leftSusp) * 0.12 // Anti-roll bar damped dynamic compliance
+
+    // Highway banking vs off-road slope decoupling
+    const isSurfaceRoad = isRoadSurface(pos.current.x, pos.current.z)
+    let baseRoll = 0
+    let basePitch = 0
+
+    if (isSurfaceRoad) {
+      // Highway banking superelevation projected into vehicle's frame of reference
+      const roadBank = getRoadBanking(pos.current.z)
+      const roadTan = getRoadTangent(pos.current.z)
+      // Dot product of vehicle lateral vector (rightX, rightZ) with road normal (nx, nz)
+      const bankRollAlignment = rightX * roadTan.nx + rightZ * roadTan.nz
+      baseRoll = roadBank * bankRollAlignment
+      basePitch = terrainPitch
+    } else {
+      // Off-road terrain slope: clamp gently to prevent rolling over or tipping
+      baseRoll = THREE.MathUtils.clamp(terrainRoll, -0.28, 0.28)
+      basePitch = THREE.MathUtils.clamp(terrainPitch, -0.32, 0.32)
+    }
+
+    // Centrifugal body roll: sports suspension roll into/out of corner
+    const steerInertia = isHoverMode
+      ? steerInput * 0.15 * (currentSpeedKmh / 160)
+      : -steerInput * 0.032 * Math.min(1.5, currentSpeedKmh / 120)
+
+    const targetPitch = THREE.MathUtils.clamp(basePitch + accelInertia + suspPitch, -0.4, 0.4)
+    const targetRoll = THREE.MathUtils.clamp(baseRoll + steerInertia + suspRoll, -0.32, 0.32)
 
     bodyPitch.current = THREE.MathUtils.lerp(
       bodyPitch.current,
-      terrainPitch + accelInertia + suspPitch,
-      frameDelta * 8.5
+      targetPitch,
+      frameDelta * 9.0
     )
 
-    const steerInertia = (isHoverMode ? steerInput * 0.22 : -steerInput * 0.09) * (currentSpeedKmh / 160)
     bodyRoll.current = THREE.MathUtils.lerp(
       bodyRoll.current,
-      terrainRoll + steerInertia + suspRoll,
-      frameDelta * 8.5
+      targetRoll,
+      frameDelta * 9.0
     )
 
     if (chassisMeshRef.current) {
@@ -991,6 +1020,8 @@ export default function VehicleController() {
     // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)
     telemetryCounter.current++
     if (telemetryCounter.current % 3 === 0) {
+      const closestRoad = getClosestRoadPoint(pos.current.x, pos.current.z)
+      const groundClearanceMm = Math.round((pos.current.y - groundY) * 1000)
       useTelemetryStore.getState().setTelemetry({
         speed: Math.round(currentSpeedKmh),
         rpm: finalRpm,
@@ -998,9 +1029,29 @@ export default function VehicleController() {
         throttle: curThrottleAbs,
         brake: targetBrake,
         distance: accumulatedDistance.current,
+        pitch: +(bodyPitch.current * (180 / Math.PI)).toFixed(1),
+        roll: +(bodyRoll.current * (180 / Math.PI)).toFixed(1),
+        suspension: [
+          Math.round(wheelSuspensions.current[0] * 1000),
+          Math.round(wheelSuspensions.current[1] * 1000),
+          Math.round(wheelSuspensions.current[2] * 1000),
+          Math.round(wheelSuspensions.current[3] * 1000),
+        ],
+        roadClearance: groundClearanceMm,
+        onRoad: isSurfaceRoad,
+        distFromRoad: +closestRoad.dist.toFixed(2),
       })
       if (telemetryCounter.current % 30 === 0) {
-        useGameStore.setState({ distance: accumulatedDistance.current })
+        useGameStore.setState({
+          distance: accumulatedDistance.current,
+          diagnostics: {
+            ...useGameStore.getState().diagnostics,
+            roadElevation: +closestRoad.roadY.toFixed(1),
+            terrainElevation: +groundY.toFixed(1),
+            corridorClearance: +(closestRoad.roadY - groundY).toFixed(2),
+            roadBankingDeg: +(closestRoad.banking * (180 / Math.PI)).toFixed(1),
+          },
+        })
       }
     }
 

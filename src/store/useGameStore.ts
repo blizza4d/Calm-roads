@@ -119,6 +119,10 @@ interface GameState {
     speedKmh: number
     chunksAhead: number
     prepTimeMs: number
+    roadElevation?: number
+    terrainElevation?: number
+    corridorClearance?: number
+    roadBankingDeg?: number
   }
   setDiagnostics: (
     d: Partial<{
@@ -129,6 +133,10 @@ interface GameState {
       speedKmh: number
       chunksAhead: number
       prepTimeMs: number
+      roadElevation: number
+      terrainElevation: number
+      corridorClearance: number
+      roadBankingDeg: number
     }>
   ) => void
 }
@@ -270,6 +278,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     speedKmh: 0,
     chunksAhead: 24,
     prepTimeMs: 1.2,
+    roadElevation: 0,
+    terrainElevation: 0,
+    corridorClearance: 0.28,
+    roadBankingDeg: 0,
   },
   setDiagnostics: (d) => set((s) => ({ diagnostics: { ...s.diagnostics, ...d } })),
 }))
@@ -288,6 +300,12 @@ export interface TelemetryState {
   brake: number
   isBurnout?: boolean
   wheelSlip?: number
+  pitch?: number
+  roll?: number
+  suspension?: [number, number, number, number]
+  roadClearance?: number
+  onRoad?: boolean
+  distFromRoad?: number
   setTelemetry: (data: Partial<TelemetryState>) => void
 }
 
@@ -300,5 +318,11 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   brake: 0,
   isBurnout: false,
   wheelSlip: 0,
+  pitch: 0,
+  roll: 0,
+  suspension: [0, 0, 0, 0],
+  roadClearance: 116,
+  onRoad: true,
+  distFromRoad: 0,
   setTelemetry: (data) => set((s) => ({ ...s, ...data })),
 }))
