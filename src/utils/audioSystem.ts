@@ -65,6 +65,8 @@ export interface VehicleAudioProfile {
     growlGain: number
   }
   rawRecordingUrl?: string
+  rawRecordingUrls?: string[]
+  straightCutGearWhine?: boolean
 }
 
 // Master Per-Vehicle Audio Registry
@@ -78,16 +80,59 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     redlineRpm: 8500,
     baseRpm: { idle: 880, low: 2400, mid: 4800, high: 7400, offThrottle: 4500 },
     urls: {
-      idle: ['/audio/cars/bmw_m3/idle.wav', '/sounds/engine_idle.wav'],
-      low_rpm: ['/audio/cars/bmw_m3/low_rpm.wav', '/sounds/engine_low.wav'],
-      mid_rpm: ['/audio/cars/bmw_m3/mid_rpm.wav', '/sounds/engine_mid.wav'],
-      high_rpm: ['/audio/cars/bmw_m3/high_rpm.wav', '/sounds/engine_high.wav'],
-      off_throttle: ['/audio/cars/bmw_m3/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
-      gear_shift: ['/audio/cars/bmw_m3/gear_shift.wav', '/sounds/gear_shift.wav'],
-      overrun: ['/audio/cars/bmw_m3/overrun.wav', '/sounds/exhaust_pop.wav'],
+      idle: [
+        '/audio/cars/bmw-m3-gtr/engine_idle.wav',
+        '/audio/cars/bmw-m3-gtr/idle_loop.wav',
+        '/audio/cars/bmw_m3/idle.wav',
+        '/sounds/engine_idle.wav',
+      ],
+      low_rpm: [
+        '/audio/cars/bmw-m3-gtr/low_rpm_acceleration.wav',
+        '/audio/cars/bmw-m3-gtr/engine_low.wav',
+        '/audio/cars/bmw_m3/low_rpm.wav',
+        '/sounds/engine_low.wav',
+      ],
+      mid_rpm: [
+        '/audio/cars/bmw-m3-gtr/mid_rpm_acceleration.wav',
+        '/audio/cars/bmw-m3-gtr/engine_mid.wav',
+        '/audio/cars/bmw_m3/mid_rpm.wav',
+        '/sounds/engine_mid.wav',
+      ],
+      high_rpm: [
+        '/audio/cars/bmw-m3-gtr/high_rpm_acceleration.wav',
+        '/audio/cars/bmw-m3-gtr/full_throttle_racing.wav',
+        '/audio/cars/bmw-m3-gtr/high_rpm_loop.wav',
+        '/audio/cars/bmw_m3/high_rpm.wav',
+        '/sounds/engine_high.wav',
+      ],
+      off_throttle: [
+        '/audio/cars/bmw-m3-gtr/engine_off_throttle.wav',
+        '/audio/cars/bmw-m3-gtr/deceleration.wav',
+        '/audio/cars/bmw-m3-gtr/engine_braking.wav',
+        '/audio/cars/bmw_m3/off_throttle.wav',
+        '/sounds/engine_off_throttle.wav',
+      ],
+      gear_shift: [
+        '/audio/cars/bmw-m3-gtr/gear_shift.wav',
+        '/audio/cars/bmw-m3-gtr/gear_up.wav',
+        '/audio/cars/bmw-m3-gtr/gear_down.wav',
+        '/audio/cars/bmw_m3/gear_shift.wav',
+        '/sounds/gear_shift.wav',
+      ],
+      overrun: [
+        '/audio/cars/bmw-m3-gtr/exhaust_overrun.wav',
+        '/audio/cars/bmw-m3-gtr/exhaust_pop.wav',
+        '/audio/cars/bmw_m3/overrun.wav',
+        '/sounds/exhaust_pop.wav',
+      ],
     },
-    eqProfile: { subBassFreq: 90, subBassGain: 5.8, growlFreq: 230, growlGain: 3.8 },
-    rawRecordingUrl: '/audio/raw/bmw_m3_gt2_2010.ogg',
+    eqProfile: { subBassFreq: 90, subBassGain: 6.2, growlFreq: 240, growlGain: 4.5 },
+    rawRecordingUrls: [
+      '/audio/raw/bmw_m3_gt2_2010.ogg',
+      '/audio/m3_gtr_screaming.mp3',
+      '/audio/raw/bmw_e46_engine.opus',
+    ],
+    straightCutGearWhine: true,
   },
   supercar: {
     vehicleId: 'supercar',
@@ -239,6 +284,11 @@ export class RealisticVehicleAudioEngine {
   private hoverGain: GainNode | null = null
   private hoverOsc: OscillatorNode | null = null
 
+  // Straight-Cut Spur Transmission Whine (Hewland 6-Speed Sequential Dog-Box)
+  private gearWhineOsc: OscillatorNode | null = null
+  private gearWhineGain: GainNode | null = null
+  private gearWhineFilter: BiquadFilterNode | null = null
+
   // Lo-Fi Synth Chord progressions
   private chordProgressions = [
     [[261.63, 329.63, 392.00, 493.88], [220.00, 261.63, 329.63, 392.00], [174.61, 220.00, 261.63, 329.63], [196.00, 246.94, 293.66, 349.23]],
@@ -381,6 +431,27 @@ export class RealisticVehicleAudioEngine {
       this.offLoadBus.gain.setValueAtTime(0.0001, ctx.currentTime)
       this.offLoadBus.connect(this.engineMaster)
 
+      // Straight-Cut Spur Transmission Whine (Hewland 6-Speed Sequential Dog-Box)
+      this.gearWhineOsc = ctx.createOscillator()
+      this.gearWhineOsc.type = 'triangle'
+      this.gearWhineOsc.frequency.setValueAtTime(220, ctx.currentTime)
+
+      this.gearWhineFilter = ctx.createBiquadFilter()
+      this.gearWhineFilter.type = 'bandpass'
+      this.gearWhineFilter.frequency.setValueAtTime(1200, ctx.currentTime)
+      this.gearWhineFilter.Q.setValueAtTime(3.8, ctx.currentTime)
+
+      this.gearWhineGain = ctx.createGain()
+      this.gearWhineGain.gain.setValueAtTime(0.0001, ctx.currentTime)
+
+      this.gearWhineOsc.connect(this.gearWhineFilter)
+      this.gearWhineFilter.connect(this.gearWhineGain)
+      this.gearWhineGain.connect(this.engineCompressor)
+
+      try {
+        this.gearWhineOsc.start(0)
+      } catch {}
+
       // Initialize environmental noise generators (friction, wind, tire squeal)
       this.initEnvironmentalSFX(ctx)
 
@@ -446,8 +517,9 @@ export class RealisticVehicleAudioEngine {
       this.fetchAndDecode(profile.urls.overrun),
     ]
 
-    if (profile.rawRecordingUrl) {
-      transientPromises.push(this.fetchAndDecode([profile.rawRecordingUrl]))
+    const rawUrls = profile.rawRecordingUrls || (profile.rawRecordingUrl ? [profile.rawRecordingUrl] : [])
+    if (rawUrls.length > 0) {
+      transientPromises.push(this.fetchAndDecode(rawUrls))
     }
 
     await Promise.all([...statePromises, ...transientPromises])
@@ -517,8 +589,16 @@ export class RealisticVehicleAudioEngine {
     })
 
     // Mount supplemental raw recording layer if present
-    if (profile.rawRecordingUrl && this.bufferCache.has(profile.rawRecordingUrl)) {
-      const rawBuf = this.bufferCache.get(profile.rawRecordingUrl)!
+    const rawUrls = profile.rawRecordingUrls || (profile.rawRecordingUrl ? [profile.rawRecordingUrl] : [])
+    let rawBuf: AudioBuffer | null = null
+    for (const u of rawUrls) {
+      if (this.bufferCache.has(u)) {
+        rawBuf = this.bufferCache.get(u)!
+        break
+      }
+    }
+
+    if (rawBuf) {
       const rGain = ctx.createGain()
       rGain.gain.setValueAtTime(0.0001, ctx.currentTime)
       rGain.connect(this.engineMaster)
@@ -727,6 +807,22 @@ export class RealisticVehicleAudioEngine {
       this.rawSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
       const targetRecGain = (0.22 + throttleVal * 0.42) * Math.min(1.0, curRpm / profile.baseRpm.idle)
       this.rawGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
+    }
+
+    // Hewland Straight-Cut Spur Transmission Whine for BMW M3 GTR
+    if (this.gearWhineGain && this.gearWhineOsc && this.gearWhineFilter) {
+      if (profile.straightCutGearWhine && speedKmh > 3) {
+        const whineFreq = Math.min(6500, 220 + speedKmh * 18.2)
+        this.gearWhineOsc.frequency.setTargetAtTime(whineFreq, now, timeConstant)
+        this.gearWhineFilter.frequency.setTargetAtTime(whineFreq, now, timeConstant)
+
+        const speedFactor = Math.min(1.0, speedKmh / 150)
+        const loadFactor = isPressed ? 0.08 + throttleVal * 0.06 : 0.035
+        const targetWhineGain = speedFactor * loadFactor * 0.35
+        this.gearWhineGain.gain.setTargetAtTime(targetWhineGain, now, timeConstant)
+      } else {
+        this.gearWhineGain.gain.setTargetAtTime(0.0001, now, timeConstant)
+      }
     }
 
     // ------------------------------------------------------------------------
@@ -1235,6 +1331,26 @@ export class RealisticVehicleAudioEngine {
         this.onLoadFilter.disconnect()
       } catch {}
       this.onLoadFilter = null
+    }
+
+    if (this.gearWhineOsc) {
+      try {
+        this.gearWhineOsc.stop()
+        this.gearWhineOsc.disconnect()
+      } catch {}
+      this.gearWhineOsc = null
+    }
+    if (this.gearWhineGain) {
+      try {
+        this.gearWhineGain.disconnect()
+      } catch {}
+      this.gearWhineGain = null
+    }
+    if (this.gearWhineFilter) {
+      try {
+        this.gearWhineFilter.disconnect()
+      } catch {}
+      this.gearWhineFilter = null
     }
 
     this.stopMusic()

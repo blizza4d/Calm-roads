@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import Experience from './components/3d/Experience'
 import Overlay from './components/ui/Overlay'
 import { useGameStore } from './store/useGameStore'
+import { useLoadingStore } from './store/useLoadingStore'
 
 const keyboardMap = [
   { name: 'forward', keys: ['ArrowUp', 'w', 'W'] },
@@ -16,58 +17,106 @@ const keyboardMap = [
 ]
 
 function GameLoader() {
-  const { progress, active } = useProgress()
+  const { progress: dreiProgress, active: dreiActive } = useProgress()
+  const stage = useLoadingStore((s) => s.stage)
+  const progress = useLoadingStore((s) => s.progress)
+  const statusMessage = useLoadingStore((s) => s.statusMessage)
+  const subMessage = useLoadingStore((s) => s.subMessage)
+  const errorMessage = useLoadingStore((s) => s.errorMessage)
+  const isReady = useLoadingStore((s) => s.isReady)
+  const retry = useLoadingStore((s) => s.retry)
   const [faded, setFaded] = useState(false)
 
+  // Track initial asset download progress into loading store
   useEffect(() => {
-    if (!active && progress >= 100) {
-      const timer = setTimeout(() => setFaded(true), 500)
+    if (dreiActive && stage === 'INITIALIZING') {
+      useLoadingStore
+        .getState()
+        .setStage(
+          'LOADING_ESSENTIAL_ASSETS',
+          'Loading Essential Monocoque & Textures',
+          'Fetching 3D geometries, materials, and audio samples...',
+          Math.min(35, Math.round(dreiProgress * 0.35))
+        )
+    }
+  }, [dreiActive, dreiProgress, stage])
+
+  useEffect(() => {
+    if (isReady) {
+      const timer = setTimeout(() => setFaded(true), 600)
       return () => clearTimeout(timer)
     } else {
       setFaded(false)
     }
-  }, [active, progress])
+  }, [isReady])
 
   if (faded) return null
 
-  let milestone = 'Initializing Engine & World Physics...'
-  if (progress > 25 && progress < 60) milestone = 'Generating Road & Mountain Passes...'
-  else if (progress >= 60 && progress < 90) milestone = 'Loading Vehicle Monocoque & Materials...'
-  else if (progress >= 90) milestone = 'Finalizing Shaders & Atmosphere...'
-
-  const isComplete = !active && progress >= 100
+  const isError = stage === 'ERROR'
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07090e] transition-opacity duration-700 pointer-events-none select-none ${
-        isComplete ? 'opacity-0' : 'opacity-100'
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07090e] transition-opacity duration-700 select-none ${
+        isReady ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
       }`}
     >
-      <div className="flex flex-col items-center max-w-sm px-6 text-center">
+      <div className="flex flex-col items-center max-w-md px-6 text-center">
         {/* Calm Roads Branding */}
         <div className="flex items-center gap-2.5 mb-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-[#14b8a6] animate-pulse shadow-[0_0_12px_#14b8a6]" />
-          <h1 className="text-2xl font-black tracking-widest text-white uppercase font-mono">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] animate-pulse shadow-[0_0_14px_#FF9D1E]" />
+          <h1 className="text-2xl font-black tracking-widest text-[#FDFBF7] uppercase font-courier">
             CALM ROADS
           </h1>
         </div>
-        <p className="text-[11px] text-white/50 tracking-wider font-mono uppercase mb-8">
-          Atmospheric Procedural Driving Experience
+        <p className="text-[10px] text-[#FDFBF7]/50 tracking-widest font-special-elite uppercase mb-6">
+          NFS Most Wanted-Inspired Driving Simulation
         </p>
 
-        {/* Minimal Progress Bar */}
-        <div className="w-64 h-1.5 bg-white/10 rounded-full overflow-hidden p-0.5 mb-3 border border-white/10">
-          <div
-            className="h-full bg-[#14b8a6] rounded-full transition-all duration-200 ease-out shadow-[0_0_8px_#14b8a6]"
-            style={{ width: `${Math.round(progress)}%` }}
-          />
-        </div>
+        {/* Current State / Error Display */}
+        {isError ? (
+          <div className="flex flex-col items-center p-4 bg-red-950/40 border border-[#C63D2F] rounded-md max-w-sm">
+            <span className="text-[12px] font-bold text-[#C63D2F] font-courier mb-1 uppercase tracking-wider">
+              {statusMessage}
+            </span>
+            <p className="text-[10px] text-[#FDFBF7]/80 font-mono mb-3">{errorMessage || subMessage}</p>
+            <button
+              onClick={retry}
+              className="px-4 py-1.5 text-xs font-bold font-courier text-[#FDFBF7] bg-[#C63D2F] hover:bg-[#a53225] rounded transition-colors shadow-md cursor-pointer"
+            >
+              RETRY INITIALIZATION
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Stage Badge */}
+            <div className="flex items-center gap-1.5 mb-3 px-2 py-0.5 rounded-xs bg-[#1e1e1e] border border-[#FF9D1E]/30 text-[9px] font-special-elite font-bold text-[#FF9D1E] tracking-wider uppercase">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF9D1E] animate-ping" />
+              <span>STAGE: {stage.replace(/_/g, ' ')}</span>
+            </div>
 
-        {/* Real Loading Milestones & Percentage */}
-        <div className="flex justify-between w-64 text-[10px] font-mono text-white/60">
-          <span>{milestone}</span>
-          <span className="font-bold text-[#14b8a6]">{Math.round(progress)}%</span>
-        </div>
+            {/* Status Headings */}
+            <h2 className="text-[13px] font-bold text-[#FDFBF7] font-courier tracking-wide mb-1">
+              {statusMessage}
+            </h2>
+            <p className="text-[10px] text-[#FDFBF7]/60 font-special-elite tracking-wider mb-6 min-h-[2.5em] max-w-xs">
+              {subMessage}
+            </p>
+
+            {/* Instrumental NFS-Style Beveled Progress Bar */}
+            <div className="w-72 h-2.5 bg-[#14161a] rounded-[2px] overflow-hidden p-[2px] mb-2.5 border border-[#FDFBF7]/20 shadow-inner">
+              <div
+                className="h-full bg-gradient-to-r from-[#FF9D1E] to-[#FFA726] rounded-[1px] transition-all duration-300 ease-out shadow-[0_0_10px_#FF9D1E]"
+                style={{ width: `${Math.round(progress)}%` }}
+              />
+            </div>
+
+            {/* Telemetry Status Bar */}
+            <div className="flex justify-between w-72 text-[9px] font-courier text-[#FDFBF7]/50 tracking-wider">
+              <span>INITIALIZING GPU PIPELINE</span>
+              <span className="font-bold text-[#FF9D1E]">{Math.round(progress)}%</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
+import { useLoadingStore } from '../../../store/useLoadingStore'
 import { ActiveCarModel } from './CarModels'
 import {
   getRoadCenter,
@@ -560,6 +561,16 @@ export default function VehicleController() {
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     }
 
+    // Restrict driving inputs until essential scene shaders and warmup pipeline are 100% READY
+    const isSceneReady = useLoadingStore.getState().isReady
+    if (!isSceneReady) {
+      targetThrottle = 0
+      targetBrake = 1.0
+      steerInput = 0
+      forwardVel.current = 0
+      lateralVel.current = 0
+    }
+
     currentThrottle.current = THREE.MathUtils.lerp(
       currentThrottle.current,
       targetThrottle,
@@ -983,6 +994,9 @@ export default function VehicleController() {
         brake: targetBrake,
         distance: accumulatedDistance.current,
       })
+      if (telemetryCounter.current % 30 === 0) {
+        useGameStore.setState({ distance: accumulatedDistance.current })
+      }
     }
 
     // ------------------------------------------------------------------------

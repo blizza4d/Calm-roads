@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/useGameStore'
 import GameEnvironment from './Environment/GameEnvironment'
 import Terrain from './Environment/Terrain'
 import VehicleController from './Vehicles/VehicleController'
+import ShaderReadinessPipeline from './ShaderReadinessPipeline'
 
 export default function Experience() {
   const photoMode = useGameStore((state) => state.photoMode)
@@ -10,6 +11,7 @@ export default function Experience() {
   return (
     <>
       <fogExp2 attach="fog" color="#4a4a52" density={0.003} />
+      <ShaderReadinessPipeline />
       {photoMode && (
         <OrbitControls
           makeDefault

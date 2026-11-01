@@ -1,68 +1,153 @@
 import { memo, useState, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
 import { useGameStore, useTelemetryStore } from '../../store/useGameStore'
 import { BIOMES } from '../../utils/roadMath'
 
 // ------------------------------------------------------------------------
-// Rolling Mechanical Slot-Machine Digit Drum (framer-motion Y-Axis Translation)
+// NFS MOST WANTED (2005) MECHANICAL ROLLING ODOMETER
+// Individual Vertical Reels, Smooth Mechanical Carry, 3D Drum Curvature
 // ------------------------------------------------------------------------
-const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+const DRUM_DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
 
-const MechanicalOdometerDigit = memo(function MechanicalOdometerDigit({ char }: { char: string }) {
-  if (char === '.' || char === ' ' || isNaN(Number(char))) {
-    return (
-      <span className="inline-flex items-center justify-center w-[0.4em] text-[#FDFBF7]/60 font-courier font-bold">
-        {char}
-      </span>
-    )
-  }
+interface OdometerReelProps {
+  targetDigit: number
+  isFractional?: boolean
+}
 
-  const num = parseInt(char, 10)
+const OdometerReel = memo(function OdometerReel({
+  targetDigit,
+  isFractional = false,
+}: OdometerReelProps) {
+  const [displayIndex, setDisplayIndex] = useState(targetDigit)
+  const [animate, setAnimate] = useState(true)
+  const prevDigitRef = useRef(targetDigit)
+
+  useEffect(() => {
+    const prev = prevDigitRef.current
+    prevDigitRef.current = targetDigit
+
+    if (prev === targetDigit) return
+
+    // Clean forward rollover: 9 -> 0 (rolls down to index 10, then seamlessly resets to 0)
+    if (prev === 9 && targetDigit === 0) {
+      setAnimate(true)
+      setDisplayIndex(10)
+      const timer = setTimeout(() => {
+        setAnimate(false)
+        setDisplayIndex(0)
+      }, 250)
+      return () => clearTimeout(timer)
+    }
+
+    // Standard forward or direct value step
+    setAnimate(true)
+    setDisplayIndex(targetDigit)
+  }, [targetDigit])
 
   return (
-    <motion.div
-      className="inline-block h-[1.38em] w-[0.68em] overflow-hidden relative leading-none align-middle font-courier select-none bg-[#1e1e1e] border-x border-[#FDFBF7]/15 shadow-inner rounded-[1px]"
+    <div
+      className={`relative inline-block w-[15px] h-[22px] overflow-hidden select-none rounded-[2px] border ${
+        isFractional
+          ? 'bg-[#181208] border-[#FF9D1E]/40 shadow-[inset_0_1px_3px_rgba(0,0,0,0.9)]'
+          : 'bg-[#0d0f12] border-[#252830] shadow-[inset_0_1px_3px_rgba(0,0,0,0.9)]'
+      }`}
+      style={{ perspective: '120px' }}
     >
-      <motion.div
+      {/* 3D Convex Drum Curvature Shadow Overlays (Recreates physical rotating cylinder) */}
+      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/90 via-transparent to-black/90" />
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/[0.08] z-10" />
+
+      {/* Vertical Rolling Digit Strip */}
+      <div
         className="flex flex-col items-center"
-        animate={{ y: `-${num * 10}%` }}
-        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+        style={{
+          transform: `translate3d(0, -${displayIndex * 22}px, 0)`,
+          transition: animate ? 'transform 0.24s cubic-bezier(0.2, 0.9, 0.2, 1)' : 'none',
+        }}
       >
-        {DIGITS.map((d) => (
+        {DRUM_DIGITS.map((d, idx) => (
           <span
-            key={d}
-            className="h-[1.38em] flex items-center justify-center text-[#FDFBF7] font-bold text-[12px]"
+            key={idx}
+            className={`h-[22px] w-full flex items-center justify-center font-courier font-black text-[12px] leading-none ${
+              isFractional ? 'text-[#FF9D1E]' : 'text-[#FDFBF7]'
+            }`}
           >
             {d}
           </span>
         ))}
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 })
 
 interface RollingOdometerProps {
-  distance: number
   unit: 'kmh' | 'mph'
 }
 
-const RollingOdometer = memo(function RollingOdometer({ distance, unit }: RollingOdometerProps) {
+/**
+ * Isolated Mechanical Odometer Component
+ * Subscribes directly to useTelemetryStore so the main HUD never re-renders when distance ticks.
+ */
+const RollingOdometer = memo(function RollingOdometer({ unit }: RollingOdometerProps) {
+  const [distance, setDistance] = useState(() => useTelemetryStore.getState().distance)
+
+  useEffect(() => {
+    let lastDist = -1
+    const unsub = useTelemetryStore.subscribe((state) => {
+      // Throttle updates to ~5 meter increments (0.005 km) for steady mechanical drum updates
+      if (Math.abs(state.distance - lastDist) >= 0.005) {
+        lastDist = state.distance
+        setDistance(state.distance)
+      }
+    })
+    return () => unsub()
+  }, [])
+
   const isMph = unit === 'mph'
   const val = isMph ? distance * 0.621371 : distance
-  const whole = Math.floor(val).toString().padStart(4, '0')
-  const frac = Math.floor((val % 1) * 100).toString().padStart(2, '0')
-  const str = `${whole}.${frac}`
+
+  // Format into 5 fixed integer drums + 2 decimal fractional drums (e.g. 00006.42)
+  // Uses integer centi-units to avoid IEEE-754 floating point floor truncation
+  const totalCenti = Math.round(val * 100)
+  const wholeVal = Math.min(99999, Math.floor(totalCenti / 100))
+  const wholeStr = wholeVal.toString().padStart(5, '0')
+  const fracVal = totalCenti % 100
+  const fracStr = fracVal.toString().padStart(2, '0')
+
+  const intDigits = wholeStr.split('').map((d) => parseInt(d, 10))
+  const fracDigits = fracStr.split('').map((d) => parseInt(d, 10))
 
   return (
-    <div className="flex items-center tracking-wider text-[12px] font-bold font-courier text-[#FDFBF7]">
-      <div className="flex items-center border border-[#FDFBF7]/20 rounded-xs p-[1.5px] bg-[#1a1a1a]/95 shadow-[inset_0_2px_4px_rgba(0,0,0,0.8)]">
-        {str.split('').map((char, index) => (
-          <MechanicalOdometerDigit key={index} char={char} />
+    <div className="flex flex-col items-end gap-1">
+      {/* Header with NFS Most Wanted ODO Label & Status Accent */}
+      <div className="flex items-center justify-between w-full px-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E]" />
+          <span className="text-[8px] font-special-elite text-[#FF9D1E] font-bold tracking-widest uppercase">
+            ODO
+          </span>
+        </div>
+        <span className="text-[8px] font-special-elite text-[#8EA48C] font-bold tracking-widest uppercase">
+          {isMph ? 'MILES' : 'KM'}
+        </span>
+      </div>
+
+      {/* Recessed Mechanical Instrument Bezel */}
+      <div className="flex items-center gap-[1.5px] p-[2.5px] bg-[#08090b] border border-[#2b2f38] rounded-[3px] shadow-[inset_0_2px_5px_rgba(0,0,0,0.9),0_2px_4px_rgba(0,0,0,0.6)]">
+        {/* 5 Integer Drums (White on Charcoal) */}
+        {intDigits.map((d, i) => (
+          <OdometerReel key={`int-${i}`} targetDigit={d} isFractional={false} />
+        ))}
+
+        {/* Beveled Decimal Separator Dot Window */}
+        <div className="relative flex items-center justify-center w-[7px] h-[22px] bg-[#0a0c0e] border border-[#252830] rounded-[1px] select-none">
+          <span className="w-1 h-1 rounded-full bg-[#FF9D1E] shadow-[0_0_4px_#FF9D1E]" />
+        </div>
+
+        {/* 2 Decimal Fractional Drums in NFS Amber */}
+        {fracDigits.map((d, i) => (
+          <OdometerReel key={`frac-${i}`} targetDigit={d} isFractional={true} />
         ))}
       </div>
-      <span className="ml-1.5 text-[9px] text-[#8EA48C] uppercase font-special-elite font-bold tracking-widest">
-        {isMph ? 'MI' : 'KM'}
-      </span>
     </div>
   )
 })
@@ -132,8 +217,7 @@ export default function HUD() {
   const brakeBarRef = useRef<HTMLDivElement>(null)
   const throttleBarRef = useRef<HTMLDivElement>(null)
 
-  // State for components requiring layout animation (Odometer & Tachometer)
-  const [distance, setDistance] = useState(0)
+  // State for components requiring layout animation (Tachometer & Burnout)
   const [rpm, setRpm] = useState(0)
   const [isBurnout, setIsBurnout] = useState(false)
   const [shiftFlash, setShiftFlash] = useState(false)
@@ -149,7 +233,6 @@ export default function HUD() {
   useEffect(() => {
     let lastDispSpeed = -1
     let lastGear = ''
-    let lastDistance = -1
     let lastRpm = -1
     let lastBurnout = false
 
@@ -197,12 +280,6 @@ export default function HUD() {
       if (Math.abs(state.rpm - lastRpm) > 40) {
         lastRpm = state.rpm
         setRpm(state.rpm)
-      }
-
-      // 6. Throttled Odometer distance update (every ~10m increment)
-      if (Math.abs(state.distance - lastDistance) > 0.009) {
-        lastDistance = state.distance
-        setDistance(state.distance)
       }
     })
 
@@ -308,15 +385,12 @@ export default function HUD() {
         </div>
 
         {/* ========================================================= */}
-        {/* SECTION 3: ROLLING MECHANICAL ODOMETER & PEDAL METERS     */}
+        {/* SECTION 3: NFS MOST WANTED MECHANICAL ODOMETER & PEDALS   */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-end pl-3 border-l border-[#FDFBF7]/15 min-w-[105px]">
-          {/* Rolling Mechanical Digital Slot-Machine Odometer */}
+        <div className="flex flex-col justify-between items-end pl-3 border-l border-[#FDFBF7]/15 min-w-[125px]">
+          {/* NFS Most Wanted Rolling Mechanical Odometer */}
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-[#FDFBF7]/60 font-special-elite font-bold uppercase tracking-widest mb-1">
-              ODOMETER
-            </span>
-            <RollingOdometer distance={distance} unit={speedUnit} />
+            <RollingOdometer unit={speedUnit} />
           </div>
 
           {/* Throttle & Brake Peak-Meter Bars */}
