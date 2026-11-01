@@ -65,7 +65,7 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     fogDensity: 0.0026,
     hillHeightMultiplier: 1.45,
     roughness: 0.95,
-    friction: 0.90, // Subtly lowered winter road grip
+    friction: 0.82, // Winter snow road grip
     weatherPreset: 'snow',
     hasCabins: true,
   },
@@ -180,7 +180,7 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     fogDensity: 0.0022,
     hillHeightMultiplier: 1.08,
     roughness: 0.94,
-    friction: 0.92,
+    friction: 0.82,
     weatherPreset: 'snow',
   },
   forest: {
@@ -229,90 +229,152 @@ export function getActiveBiomeAt(z: number, manualBiome: 'dynamic' | BiomeType):
   return BIOMES[BIOME_CYCLE_ORDER[index]] || BIOMES.twisted_mountains
 }
 
-// Helper: Continuous regional road winding multiplier based on journey position Z
+// Regional Road Personality Configuration for Alpine Passes, Canyons & Coastal Highways
+export interface BiomeRoadCharacter {
+  switchbackWeight: number // Tight hairpins / technical turns (140-220m)
+  sCurveWeight: number     // Dynamic flowing S-curves (260-380m)
+  valleySweepWeight: number // Regional sweeps (700-1200m)
+  hairpinAmplitude: number // Lateral width of switchbacks (m)
+  elevationClimbRate: number // Mountain pass vertical climb intensity
+  bankingMultiplier: number  // Superelevation aggressiveness
+}
+
+export const BIOME_ROAD_CHARACTERS: Record<BiomeType, BiomeRoadCharacter> = {
+  twisted_mountains: {
+    switchbackWeight: 1.45,
+    sCurveWeight: 1.15,
+    valleySweepWeight: 1.05,
+    hairpinAmplitude: 38.0,
+    elevationClimbRate: 1.45,
+    bankingMultiplier: 1.35,
+  },
+  alpine: {
+    switchbackWeight: 1.35,
+    sCurveWeight: 1.25,
+    valleySweepWeight: 1.10,
+    hairpinAmplitude: 35.0,
+    elevationClimbRate: 1.40,
+    bankingMultiplier: 1.30,
+  },
+  enchanted_forest: {
+    switchbackWeight: 0.75,
+    sCurveWeight: 1.20,
+    valleySweepWeight: 0.95,
+    hairpinAmplitude: 22.0,
+    elevationClimbRate: 0.88,
+    bankingMultiplier: 1.00,
+  },
+  coastal: {
+    switchbackWeight: 0.40,
+    sCurveWeight: 1.35,
+    valleySweepWeight: 1.45,
+    hairpinAmplitude: 18.0,
+    elevationClimbRate: 0.85,
+    bankingMultiplier: 1.05,
+  },
+  autumn: {
+    switchbackWeight: 0.85,
+    sCurveWeight: 1.15,
+    valleySweepWeight: 1.05,
+    hairpinAmplitude: 25.0,
+    elevationClimbRate: 1.05,
+    bankingMultiplier: 1.10,
+  },
+  desert: {
+    switchbackWeight: 1.10,
+    sCurveWeight: 1.15,
+    valleySweepWeight: 1.00,
+    hairpinAmplitude: 28.0,
+    elevationClimbRate: 0.95,
+    bankingMultiplier: 1.10,
+  },
+  tundra: {
+    switchbackWeight: 1.05,
+    sCurveWeight: 1.10,
+    valleySweepWeight: 1.10,
+    hairpinAmplitude: 28.0,
+    elevationClimbRate: 1.12,
+    bankingMultiplier: 1.15,
+  },
+  forest: {
+    switchbackWeight: 0.70,
+    sCurveWeight: 1.20,
+    valleySweepWeight: 0.95,
+    hairpinAmplitude: 22.0,
+    elevationClimbRate: 0.92,
+    bankingMultiplier: 1.00,
+  },
+}
+
+// Seamlessly interpolate road character across biome boundaries with C1 continuity
+export function getInterpolatedBiomeCharacter(z: number): BiomeRoadCharacter {
+  const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
+  const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
+  const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
+  const frac = normZ - Math.floor(normZ)
+
+  const c1 = BIOME_ROAD_CHARACTERS[BIOME_CYCLE_ORDER[idx]]
+  const c2 = BIOME_ROAD_CHARACTERS[BIOME_CYCLE_ORDER[nextIdx]]
+
+  if (frac > 0.80) {
+    const t = (frac - 0.80) / 0.20
+    const s = t * t * (3.0 - 2.0 * t) // Hermite smoothstep C1
+    return {
+      switchbackWeight: c1.switchbackWeight * (1 - s) + c2.switchbackWeight * s,
+      sCurveWeight: c1.sCurveWeight * (1 - s) + c2.sCurveWeight * s,
+      valleySweepWeight: c1.valleySweepWeight * (1 - s) + c2.valleySweepWeight * s,
+      hairpinAmplitude: c1.hairpinAmplitude * (1 - s) + c2.hairpinAmplitude * s,
+      elevationClimbRate: c1.elevationClimbRate * (1 - s) + c2.elevationClimbRate * s,
+      bankingMultiplier: c1.bankingMultiplier * (1 - s) + c2.bankingMultiplier * s,
+    }
+  }
+  return c1
+}
+
+// Backward-compatible helper multipliers
 export function getBiomeRoadWindingMultiplier(z: number): number {
-  const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
-  const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
-  const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
-  const frac = normZ - Math.floor(normZ)
-
-  const multMap: Record<BiomeType, number> = {
-    twisted_mountains: 1.25,
-    alpine: 1.18,
-    enchanted_forest: 0.95,
-    coastal: 1.10,
-    autumn: 0.92,
-    desert: 1.05,
-    tundra: 0.96,
-    forest: 0.90,
-  }
-
-  const m1 = multMap[BIOME_CYCLE_ORDER[idx]] ?? 1.0
-  const m2 = multMap[BIOME_CYCLE_ORDER[nextIdx]] ?? 1.0
-
-  if (frac > 0.82) {
-    const t = (frac - 0.82) / 0.18
-    const s = t * t * (3.0 - 2.0 * t)
-    return m1 * (1 - s) + m2 * s
-  }
-  return m1
+  return getInterpolatedBiomeCharacter(z).switchbackWeight
 }
 
-// Helper: Continuous regional elevation multiplier based on journey position Z
 export function getBiomeElevationMultiplier(z: number): number {
-  const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
-  const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
-  const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
-  const frac = normZ - Math.floor(normZ)
-
-  const elevMap: Record<BiomeType, number> = {
-    twisted_mountains: 1.35,
-    alpine: 1.40,
-    enchanted_forest: 0.82,
-    coastal: 0.95,
-    autumn: 0.88,
-    desert: 1.0,
-    tundra: 1.05,
-    forest: 0.85,
-  }
-
-  const e1 = elevMap[BIOME_CYCLE_ORDER[idx]] ?? 1.0
-  const e2 = elevMap[BIOME_CYCLE_ORDER[nextIdx]] ?? 1.0
-
-  if (frac > 0.82) {
-    const t = (frac - 0.82) / 0.18
-    const s = t * t * (3.0 - 2.0 * t)
-    return e1 * (1 - s) + e2 * s
-  }
-  return e1
+  return getInterpolatedBiomeCharacter(z).elevationClimbRate
 }
 
-// 2. Procedural Road Centerline (Smooth, naturally winding road following valleys and passes)
+// 2. Procedural Road Centerline (Realistic Alpine Passes, Hairpin Switchbacks & Flowing S-Curves)
 // Guaranteed C2 continuous: derivative and curvature are smooth with zero chunk boundary seams
 export function getRoadCenter(z: number): number {
-  // Primary valley sweeping curves (wavelength 750m - 1400m, amplitude 34m - 48m)
-  const valleySweep = Math.sin(z * 0.0014) * 36.0 + Math.sin(z * 0.00068 + 1.4) * 22.0
-  // Mountain pass S-curves and valley bends (wavelength 260m - 420m, amplitude 16m - 24m)
-  const mountainPass = Math.sin(z * 0.0038) * 16.0 + Math.cos(z * 0.0024 + 2.1) * 13.0
-  // Scenic technical corners & chicanes (wavelength 110m - 180m, amplitude 5.5m)
-  const technicalTurns = Math.sin(z * 0.0082) * 6.2 * Math.sin(z * 0.0019 + 0.4)
+  const char = getInterpolatedBiomeCharacter(z)
 
-  const regionWindingMult = getBiomeRoadWindingMultiplier(z)
-  return (valleySweep + mountainPass + technicalTurns) * regionWindingMult
+  // 1. Mountain pass switchbacks & hairpins (wavelength 160m - 240m)
+  // Using tanh-shaped sine for realistic alpine hairpin turns with flat approaches and sharp rounded apexes:
+  const hairpin = Math.tanh(Math.sin(z * 0.0322) * 1.85) * (char.hairpinAmplitude * 0.65)
+  const technicalChicane = Math.sin(z * 0.048 + 1.1) * (char.hairpinAmplitude * 0.22)
+  const switchbacks = (hairpin + technicalChicane) * char.switchbackWeight
+
+  // 2. Dynamic flowing S-curves (wavelength 280m - 440m)
+  const sCurves = (Math.sin(z * 0.0175 + 0.6) * 19.0 + Math.cos(z * 0.0131 + 2.1) * 14.0) * char.sCurveWeight
+
+  // 3. Regional valley / mountain range sweep (wavelength 750m - 1400m)
+  const valleySweeps = (Math.sin(z * 0.0057 + 1.4) * 32.0 + Math.sin(z * 0.0028 + 0.3) * 20.0) * char.valleySweepWeight
+
+  return switchbacks + sCurves + valleySweeps
 }
 
 // 3. Road Elevation (Drivable scenic mountain pass climbs, highway crests and expansive valleys)
 export function getRoadElevation(z: number): number {
-  // Scenic mountain pass climbs (wavelength ~1200m, normalized 0 to 1)
-  const passWave = (Math.sin(z * 0.0015) * 0.5 + 0.5) * 32.0 + (Math.sin(z * 0.00072 + 1.5) * 0.5 + 0.5) * 20.0
-  // Rolling undulating highway crests (wavelength ~360m, amplitude +-7.5m)
-  const valleyWave = Math.cos(z * 0.0048 + 0.6) * 7.5
-  // Gentle high-speed road undulation (wavelength ~130m, amplitude +-1.8m)
-  const microWave = Math.sin(z * 0.013) * 1.8
+  const char = getInterpolatedBiomeCharacter(z)
 
-  const regionElevMult = getBiomeElevationMultiplier(z)
-  // Base highway elevation of 22.0m guarantees road is ALWAYS >= 14m above sea level (Y=0)
-  return 22.0 + (passWave + valleyWave + microWave) * regionElevMult
+  // 1. Scenic Mountain Pass Climbs (wavelength ~780m, vertical rise up to 48m)
+  const passWave = (Math.sin(z * 0.0080) * 0.5 + 0.5) * 36.0 + (Math.sin(z * 0.0039 + 1.2) * 0.5 + 0.5) * 22.0
+
+  // 2. Rolling crests and valley passes (wavelength ~280m, amplitude +-11.0m)
+  const valleyWave = Math.sin(z * 0.0224 + 0.8) * 9.5
+
+  // 3. Gentle high-speed road undulation (wavelength ~110m, amplitude +-1.8m)
+  const microWave = Math.sin(z * 0.057 + 2.1) * 1.8
+
+  // Base highway elevation of 24.0m guarantees road is ALWAYS >= 16m above sea level (Y=0)
+  return 24.0 + (passWave + valleyWave + microWave) * char.elevationClimbRate
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (for constant width & banking)
@@ -332,15 +394,19 @@ export function getRoadTangent(z: number) {
 }
 
 // Superelevation / road banking into curves (degrees converted to radians)
+// Proportional to road curvature and biome banking multiplier
 export function getRoadBanking(z: number): number {
   const delta = 2.0
   const c1 = getRoadCenter(z + delta)
   const c2 = getRoadCenter(z)
   const c3 = getRoadCenter(z - delta)
 
+  const char = getInterpolatedBiomeCharacter(z)
   // Second derivative (curvature)
   const curvature = (c3 - 2 * c2 + c1) / (delta * delta)
-  return Math.max(-0.08, Math.min(0.08, curvature * 3.4))
+  // Maximum banking: -0.11 to +0.11 rad (~ +-6.3 degrees)
+  const targetBanking = curvature * 14.0 * char.bankingMultiplier
+  return Math.max(-0.11, Math.min(0.11, targetBanking))
 }
 
 /**
@@ -414,29 +480,35 @@ function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const roadX = getRoadCenter(z)
   const roadY = getRoadElevation(z)
-  const distFromRoad = Math.abs(x - roadX)
+  const banking = getRoadBanking(z)
+  const dx = x - roadX
+  const distFromRoad = Math.abs(dx)
+
+  // Calculate the banked roadbed plane at this lateral coordinate:
+  // Clamp dx to the road/shoulder corridor to determine the depressed roadbed base
+  const clampedDx = Math.max(-ROAD_WIDTH / 2 - 2.5, Math.min(ROAD_WIDTH / 2 + 2.5, dx))
+  const bankedCorridorBase = roadY + Math.tan(banking) * clampedDx
 
   // 1. Immediate roadbed & shoulder valley floor (0m to 16m)
-  // Strictly flat threshold depressed safely below the road ribbon (which sits at roadY + 0.07 to +0.11)
+  // Strictly flat threshold depressed safely 0.28m below the banked roadbed
+  // This guarantees that across the entire road width and shoulder, the terrain NEVER pierces or z-fights
   if (distFromRoad <= 16.0) {
-    return roadY - 0.22
+    return bankedCorridorBase - 0.28
   }
 
   // Coastal beach & sandy dune slope on seaward side (X < roadX - 16m)
-  if (biomeId === 'coastal' && x < roadX - 16.0) {
-    const beachDist = (roadX - 16.0) - x
+  if (biomeId === 'coastal' && dx < -16.0) {
+    const beachDist = -16.0 - dx
     const duneRipples = Math.sin(x * 0.08 + z * 0.04) * 0.35 + Math.cos(x * 0.03 - z * 0.02) * 0.55
-    // Gently slope from roadbed down across broad sandy beach into sea level (Y = 0)
-    const targetY = Math.max(0.0, (roadY - 0.22) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
+    const targetY = Math.max(0.0, (bankedCorridorBase - 0.28) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
     return targetY
   }
 
   // 2. Roadside drainage swale & flat outer corridor buffer (16m to 36m)
-  // Ensures all coarse grid triangles (12.5m pitch) remain strictly below road level
+  // Smoothly rises from (bankedCorridorBase - 0.28) to (bankedCorridorBase - 0.12), strictly remaining below roadbed
   if (distFromRoad <= 36.0) {
     const corridorT = (distFromRoad - 16.0) / 20.0 // 0 to 1
-    // Smoothly rises from roadY - 0.22 to roadY - 0.10, remaining strictly below road surface
-    return roadY - 0.22 + 0.12 * corridorT
+    return bankedCorridorBase - 0.28 + 0.16 * corridorT
   }
 
   // 3. Smooth Hermite smoothstep transition into mountains (36m to 105m)
@@ -454,7 +526,6 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   let mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
 
   if (frac > 0.82) {
-    // 250m smooth Hermite blend zone between adjacent biomes along Z axis
     const blendT = (frac - 0.82) / 0.18
     const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
     const elev1 = getRawBiomeElevation(x, z, BIOME_CYCLE_ORDER[idx])
@@ -468,15 +539,15 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
   }
 
-  // Distance scaling: Gradual elevation gain into mountain horizons
+  // Distance scaling: Gradual elevation gain into mountain massifs and valley walls
   const mountainRamp = Math.min(1.4, 0.12 + Math.pow(distPastCorridor / 110.0, 1.1) * 1.1)
-  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 26.0
+  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 28.0
 
   const computedElevation =
-    (roadY - 0.10) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
+    (bankedCorridorBase - 0.12) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
 
   // Maximum height ceiling: Strictly prevents terrain from generating upside-down in sky or piercing skybox
-  const MAX_TERRAIN_CEILING = 105.0
+  const MAX_TERRAIN_CEILING = 110.0
   const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
 
   return Math.max(0.0, clampedElevation)
@@ -486,18 +557,23 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
 export function getSurfaceHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const roadX = getRoadCenter(z)
   const roadY = getRoadElevation(z)
-  const dist = Math.abs(x - roadX)
+  const banking = getRoadBanking(z)
+  const dx = x - roadX
+  const dist = Math.abs(dx)
   const halfRoad = ROAD_WIDTH / 2 // 5.75m
   const shoulderEnd = halfRoad + 2.2 // 7.95m
 
   if (dist <= halfRoad) {
-    // Road asphalt surface with crown camber
+    // Road asphalt surface with crown camber and banked superelevation
     const crown = 0.085 + 0.025 * (1 - dist / halfRoad)
-    return roadY + crown
+    const bankElevation = Math.tan(banking) * dx
+    return roadY + crown + bankElevation
   } else if (dist <= shoulderEnd) {
-    // Roadside shoulder strip sloping gently down
+    // Roadside shoulder strip sloping gently down and tracking banking
     const shoulderT = (dist - halfRoad) / 2.2
-    return roadY + 0.07 * (1 - shoulderT) + 0.015 * shoulderT
+    const edgeBank = Math.tan(banking) * Math.sign(dx) * halfRoad
+    const shoulderExtra = Math.tan(banking) * (dx - Math.sign(dx) * halfRoad) * 0.75
+    return roadY + 0.07 * (1 - shoulderT) + 0.015 * shoulderT + edgeBank + shoulderExtra
   } else {
     // Offroad terrain
     return getTerrainHeight(x, z, biomeId)

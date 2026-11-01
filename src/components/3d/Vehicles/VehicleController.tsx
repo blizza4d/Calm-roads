@@ -671,8 +671,9 @@ export default function VehicleController() {
       }
 
       // Dynamic Speed-Sensitive Steering Angle & Physical Rack Rate Limiting
+      // Agile at hairpin cornering speeds (30-70 km/h); rock-solid stability at highway/top speed (>180 km/h)
       const currentSpeedKmh = Math.abs(forwardVel.current) * 3.6
-      const speedSteerFactor = Math.max(0.18, 1.0 / (1.0 + Math.pow(currentSpeedKmh / 52.0, 0.95)))
+      const speedSteerFactor = Math.max(0.20, 1.0 / (1.0 + Math.pow(currentSpeedKmh / 78.0, 1.3)))
       const targetSteerAngle = steerInput * config.maxSteerAngle * speedSteerFactor
       currentSteerAngle.current = THREE.MathUtils.lerp(currentSteerAngle.current, targetSteerAngle, dt * 14)
 
@@ -680,14 +681,15 @@ export default function VehicleController() {
       if (isHoverMode || vehicleModel === 'hovercraft') {
         // Antigravity Thruster Vectoring & Air Cushion Drift
         const hoverSpeedFactor = Math.max(0.38, 1.0 - (currentSpeedKmh / 320) * 0.45)
-        yawAngle.current += steerInput * config.turnRate * hoverSpeedFactor * dt
+        const hoverMotionFactor = Math.min(1.0, Math.abs(forwardVel.current) / 0.6)
+        yawAngle.current += steerInput * config.turnRate * hoverSpeedFactor * Math.max(0.25, hoverMotionFactor) * dt
 
         const targetLateral = -steerInput * Math.min(16, (currentSpeedKmh / 110) * 6.5)
         lateralVel.current = THREE.MathUtils.lerp(lateralVel.current, targetLateral, dt * 3.2)
         lateralVel.current *= Math.pow(0.985, dt * 60)
       } else {
         // Ground Vehicles: Yaw rate is strictly derived from forward movement and steer angle!
-        // When stationary (v == 0), yaw rate is MATHEMATICALLY ZERO!
+        // When stationary (v == 0), yaw rate is MATHEMATICALLY ZERO (wheels turn without sliding car)
         const steerAngle = currentSteerAngle.current
         const absVel = Math.abs(forwardVel.current)
 
@@ -695,24 +697,27 @@ export default function VehicleController() {
           // Kinematic bicycle yaw rate: omega = (v / L) * tan(delta)
           const kinematicYawRate = (forwardVel.current / config.wheelbase) * Math.tan(steerAngle)
 
-          // Maximum lateral centripetal acceleration supported by tire friction & aerodynamic downforce
+          // Smooth launch blend to prevent any snap when transitioning from rest to motion
+          const launchBlend = Math.min(1.0, (absVel - 0.08) / 0.95)
+
+          // Surface Grip: Dry asphalt 1.0, wet asphalt 0.94, snow 0.82, off-road 0.72
           const baseFriction = activeBiomeConfig.friction ?? 1.0
+          const isWet = activeBiomeConfig.weatherPreset === 'rain'
+          const wetFactor = isWet ? 0.94 : 1.0
           const surfaceGrip =
             (onRoad
-              ? baseFriction
-              : activeBiomeConfig.id === 'tundra' || activeBiomeConfig.id === 'twisted_mountains'
-              ? 0.65
-              : 0.80) * (isBurnoutActive ? 0.30 : 1.0)
+              ? baseFriction * wetFactor
+              : 0.72) * (isBurnoutActive ? 0.30 : 1.0)
           const aeroDownforce = config.downforceCoeff * Math.min(1.4, Math.pow(absVel / config.maxSpeedMs, 2))
           const maxLatAccel = config.tireGrip * 9.81 * (1.0 + aeroDownforce) * surfaceGrip
 
           // Adhesion yaw rate limit before front tire scrub / drift
           const maxYawRate = maxLatAccel / (absVel + 0.001)
 
-          let actualYawRate = kinematicYawRate
-          if (Math.abs(kinematicYawRate) > maxYawRate) {
+          let actualYawRate = kinematicYawRate * launchBlend
+          if (Math.abs(actualYawRate) > maxYawRate) {
             // Tire adhesion limit exceeded: break into controlled progressive drift
-            actualYawRate = Math.sign(kinematicYawRate) * maxYawRate
+            actualYawRate = Math.sign(actualYawRate) * maxYawRate
             const excessDemand = Math.abs(kinematicYawRate * forwardVel.current) - maxLatAccel
             lateralVel.current += -Math.sign(steerAngle) * excessDemand * 0.28 * dt
           }
@@ -721,7 +726,7 @@ export default function VehicleController() {
           // Tire lateral scrub damping
           lateralVel.current *= Math.pow(0.72, dt * 60)
         } else {
-          // Vehicle is at rest: complete damping of any lateral slide
+          // Vehicle is at rest: complete damping of any lateral slide, zero yaw angular velocity
           lateralVel.current = 0
         }
       }

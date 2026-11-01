@@ -66,6 +66,7 @@ export interface VehicleAudioProfile {
   }
   rawRecordingUrl?: string
   rawRecordingUrls?: string[]
+  screamerUrls?: string[]
   straightCutGearWhine?: boolean
 }
 
@@ -127,9 +128,13 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
       ],
     },
     eqProfile: { subBassFreq: 90, subBassGain: 6.2, growlFreq: 240, growlGain: 4.5 },
+    screamerUrls: [
+      '/audio/m3_gtr_screaming.mp3',
+      '/audio/m3_gtr_screaming.m4a',
+      '/audio/cars/bmw-m3-gtr/full_throttle_racing.wav',
+    ],
     rawRecordingUrls: [
       '/audio/raw/bmw_m3_gt2_2010.ogg',
-      '/audio/m3_gtr_screaming.mp3',
       '/audio/raw/bmw_e46_engine.opus',
     ],
     straightCutGearWhine: true,
@@ -153,6 +158,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     },
     eqProfile: { subBassFreq: 110, subBassGain: 4.2, growlFreq: 380, growlGain: 4.5 },
     rawRecordingUrl: '/audio/raw/v8_idle_and_revs.ogg',
+    screamerUrls: ['/audio/raw/v8_idle_and_revs.ogg'],
   },
   hovercraft: {
     vehicleId: 'hovercraft',
@@ -211,6 +217,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     },
     eqProfile: { subBassFreq: 85, subBassGain: 4.8, growlFreq: 280, growlGain: 4.0 },
     rawRecordingUrl: '/audio/raw/audi_quattro_rally.ogg',
+    screamerUrls: ['/audio/raw/audi_quattro_rally.ogg'],
   },
 }
 
@@ -264,6 +271,11 @@ export class RealisticVehicleAudioEngine {
   // Raw recording layer (optional supplemental texture)
   private rawSource: AudioBufferSourceNode | null = null
   private rawGain: GainNode | null = null
+
+  // Dedicated High-RPM Screamer Layer (e.g. BMW M3 GTR '05 screaming race V8)
+  private screamerSource: AudioBufferSourceNode | null = null
+  private screamerGain: GainNode | null = null
+  private screamerFilter: BiquadFilterNode | null = null
 
   // Telemetry Tracking
   private prevThrottle = 0
@@ -522,6 +534,11 @@ export class RealisticVehicleAudioEngine {
       transientPromises.push(this.fetchAndDecode(rawUrls))
     }
 
+    const screamerUrls = profile.screamerUrls || []
+    if (screamerUrls.length > 0) {
+      transientPromises.push(this.fetchAndDecode(screamerUrls))
+    }
+
     await Promise.all([...statePromises, ...transientPromises])
   }
 
@@ -614,6 +631,42 @@ export class RealisticVehicleAudioEngine {
       this.rawSource = rSrc
       this.rawGain = rGain
     }
+
+    // Mount Dedicated High-RPM Screamer Layer (e.g. BMW M3 GTR '05 screaming race V8)
+    const screamerUrls = profile.screamerUrls || []
+    let screamerBuf: AudioBuffer | null = null
+    for (const u of screamerUrls) {
+      if (this.bufferCache.has(u)) {
+        screamerBuf = this.bufferCache.get(u)!
+        break
+      }
+    }
+
+    if (screamerBuf) {
+      const sGain = ctx.createGain()
+      sGain.gain.setValueAtTime(0.0001, ctx.currentTime)
+
+      const sFilter = ctx.createBiquadFilter()
+      sFilter.type = 'peaking'
+      sFilter.frequency.setValueAtTime(3200, ctx.currentTime)
+      sFilter.Q.setValueAtTime(1.8, ctx.currentTime)
+      sFilter.gain.setValueAtTime(4.5, ctx.currentTime)
+
+      sFilter.connect(sGain)
+      sGain.connect(this.engineCompressor || this.engineMaster)
+
+      const sSrc = ctx.createBufferSource()
+      sSrc.buffer = screamerBuf
+      sSrc.loop = true
+      sSrc.connect(sFilter)
+      try {
+        sSrc.start(0)
+      } catch {}
+
+      this.screamerSource = sSrc
+      this.screamerGain = sGain
+      this.screamerFilter = sFilter
+    }
   }
 
   /**
@@ -651,6 +704,26 @@ export class RealisticVehicleAudioEngine {
         this.rawGain.disconnect()
       } catch {}
       this.rawGain = null
+    }
+
+    if (this.screamerSource) {
+      try {
+        this.screamerSource.stop()
+        this.screamerSource.disconnect()
+      } catch {}
+      this.screamerSource = null
+    }
+    if (this.screamerGain) {
+      try {
+        this.screamerGain.disconnect()
+      } catch {}
+      this.screamerGain = null
+    }
+    if (this.screamerFilter) {
+      try {
+        this.screamerFilter.disconnect()
+      } catch {}
+      this.screamerFilter = null
     }
   }
 
@@ -725,7 +798,8 @@ export class RealisticVehicleAudioEngine {
       if (channel.source) {
         const base = profile.baseRpm[state === 'low_rpm' ? 'low' : state === 'mid_rpm' ? 'mid' : state === 'high_rpm' ? 'high' : state === 'off_throttle' ? 'offThrottle' : 'idle']
         const rawPitch = curRpm / base
-        const clampedPitch = Math.min(2.2, Math.max(0.5, rawPitch))
+        // Constrain pitch range between 0.72 and 1.45 to eliminate tape-stretch chipmunk artifacts
+        const clampedPitch = Math.min(1.45, Math.max(0.72, rawPitch))
         channel.source.playbackRate.setTargetAtTime(clampedPitch, now, 0.045)
       }
     })
@@ -801,12 +875,27 @@ export class RealisticVehicleAudioEngine {
       this.engineCompressor.ratio.setTargetAtTime(4.0 + throttleVal * 4.0, now, timeConstant)
     }
 
-    // Supplemental Raw Texture Layer
+    // Supplemental Raw Texture Layer (Real GT2 V8 / Rally Quattro / V10 recordings)
     if (this.rawGain && this.rawSource) {
-      const recPitch = Math.min(1.85, Math.max(0.68, curRpm / profile.baseRpm.low))
+      const normRpm = Math.max(0, Math.min(1, (curRpm - profile.idleRpm) / (profile.redlineRpm - profile.idleRpm)))
+      const recPitch = 0.82 + normRpm * 0.68
       this.rawSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
-      const targetRecGain = (0.22 + throttleVal * 0.42) * Math.min(1.0, curRpm / profile.baseRpm.idle)
+      const targetRecGain = (0.35 + throttleVal * 0.65) * Math.min(1.0, 0.4 + normRpm * 0.7)
       this.rawGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
+    }
+
+    // Dedicated High-RPM Screamer Layer (Authentic High-RPM Racing Scream for BMW M3 GTR '05)
+    if (this.screamerGain && this.screamerSource) {
+      if (curRpm > 4400 && throttleVal > 0.05) {
+        const screamerNorm = Math.min(1.0, Math.max(0, (curRpm - 4400) / (profile.redlineRpm - 4400)))
+        const screamerPitch = 0.90 + screamerNorm * 0.45
+        this.screamerSource.playbackRate.setTargetAtTime(screamerPitch, now, 0.045)
+
+        const screamerVolume = Math.pow(screamerNorm, 1.25) * Math.pow(throttleVal, 1.1) * 0.95
+        this.screamerGain.gain.setTargetAtTime(screamerVolume, now, 0.045)
+      } else {
+        this.screamerGain.gain.setTargetAtTime(0.0001, now, 0.045)
+      }
     }
 
     // Hewland Straight-Cut Spur Transmission Whine for BMW M3 GTR
@@ -816,9 +905,9 @@ export class RealisticVehicleAudioEngine {
         this.gearWhineOsc.frequency.setTargetAtTime(whineFreq, now, timeConstant)
         this.gearWhineFilter.frequency.setTargetAtTime(whineFreq, now, timeConstant)
 
-        const speedFactor = Math.min(1.0, speedKmh / 150)
-        const loadFactor = isPressed ? 0.08 + throttleVal * 0.06 : 0.035
-        const targetWhineGain = speedFactor * loadFactor * 0.35
+        const speedFactor = Math.min(1.0, speedKmh / 140)
+        const loadFactor = isPressed ? 0.14 + throttleVal * 0.12 : 0.075
+        const targetWhineGain = speedFactor * loadFactor * 0.45
         this.gearWhineGain.gain.setTargetAtTime(targetWhineGain, now, timeConstant)
       } else {
         this.gearWhineGain.gain.setTargetAtTime(0.0001, now, timeConstant)
@@ -830,18 +919,18 @@ export class RealisticVehicleAudioEngine {
     // ------------------------------------------------------------------------
     if (this.onLoadBus && this.offLoadBus) {
       if (isPressed) {
-        const targetOnLoad = 0.42 + throttleVal * 0.68
+        const targetOnLoad = 0.45 + throttleVal * 0.75
         this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, timeConstant)
         this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
       } else {
         this.onLoadBus.gain.setTargetAtTime(0.08, now, 0.06)
 
-        if (speedKmh > 5 && curRpm > profile.baseRpm.idle * 1.5) {
+        if (speedKmh > 5 && curRpm > profile.baseRpm.idle * 1.4) {
           const offThrottleIntensity = Math.min(
             1.0,
-            ((curRpm - profile.baseRpm.idle * 1.5) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 22)
+            ((curRpm - profile.baseRpm.idle * 1.4) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 20)
           )
-          this.offLoadBus.gain.setTargetAtTime(offThrottleIntensity * 0.85, now, timeConstant)
+          this.offLoadBus.gain.setTargetAtTime(offThrottleIntensity * 0.90, now, timeConstant)
           this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, timeConstant)
         } else {
           this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
