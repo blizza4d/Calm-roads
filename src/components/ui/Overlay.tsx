@@ -837,6 +837,10 @@ function DiagnosticsHUD() {
   const roadClearance = useTelemetryStore((s) => s.roadClearance ?? 116)
   const onRoad = useTelemetryStore((s) => s.onRoad ?? true)
   const distFromRoad = useTelemetryStore((s) => s.distFromRoad ?? 0)
+  const isGrounded = useTelemetryStore((s) => s.isGrounded ?? true)
+  const verticalVel = useTelemetryStore((s) => s.verticalVel ?? 0)
+  const reflectionPreset = useTelemetryStore((s) => s.reflectionPreset ?? 'forest')
+  const vehicleModel = useGameStore((s) => s.vehicleModel)
   const speedUnit = useGameStore((s) => s.speedUnit)
   const diagnostics = useGameStore((s) => s.diagnostics)
   const [fps, setFps] = useState(60)
@@ -965,7 +969,9 @@ function DiagnosticsHUD() {
         <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
           <div className="text-sky-400 font-bold flex justify-between">
             <span>CHASSIS & SUSPENSION</span>
-            <span>4-CORNER TRACKING</span>
+            <span className={isGrounded ? 'text-emerald-400' : 'text-amber-400 font-black'}>
+              {isGrounded ? 'GROUNDED' : `AIRBORNE (${verticalVel > 0 ? '+' : ''}${verticalVel} m/s)`}
+            </span>
           </div>
           <div className="flex justify-between text-white/70">
             <span>Body Roll / Pitch:</span>
@@ -978,6 +984,26 @@ function DiagnosticsHUD() {
           <div className="flex justify-between text-white/70">
             <span>Rear Axle (L/R):</span>
             <span className="text-sky-300 font-bold">{suspension[2]}mm / {suspension[3]}mm</span>
+          </div>
+        </div>
+
+        {/* 3D Model & Real-Time Environment Presets */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-pink-400 font-bold flex justify-between">
+            <span>MODEL & LIGHTING RIG</span>
+            <span className="text-pink-300 font-mono">CALIBRATED</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Rear Wing Spoiler:</span>
+            <span className="text-white font-bold">{vehicleModel === 'bmw_m3' ? '1.38m (Deck Flush)' : 'Factory Integrated'}</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Reflection Preset:</span>
+            <span className="text-emerald-300 font-bold">{reflectionPreset.toUpperCase()}</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Road Mesh Winding:</span>
+            <span className="text-emerald-300 font-bold">CCW (+Y Normals)</span>
           </div>
         </div>
 

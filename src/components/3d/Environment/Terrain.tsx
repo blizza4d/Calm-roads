@@ -639,10 +639,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       if (i < segments) {
         const row1 = i * 3
         const row2 = (i + 1) * 3
-        indices.push(row1, row2, row1 + 1)
-        indices.push(row1 + 1, row2, row2 + 1)
-        indices.push(row1 + 1, row2 + 1, row1 + 2)
-        indices.push(row1 + 2, row2 + 1, row2 + 2)
+        // Standard CCW winding so road normals point upward (+Y)
+        indices.push(row1, row1 + 1, row2)
+        indices.push(row1 + 1, row2 + 1, row2)
+        indices.push(row1 + 1, row1 + 2, row2 + 1)
+        indices.push(row1 + 2, row2 + 2, row2 + 1)
       }
     }
     geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
@@ -727,10 +728,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       }
       if (i < segments) {
         const base = i * 4
-        indices.push(base, base + 1, base + 4)
-        indices.push(base + 1, base + 5, base + 4)
-        indices.push(base + 2, base + 6, base + 3)
-        indices.push(base + 3, base + 6, base + 7)
+        // Standard CCW winding so shoulder normals point upward (+Y)
+        indices.push(base, base + 4, base + 1)
+        indices.push(base + 1, base + 4, base + 5)
+        indices.push(base + 2, base + 3, base + 6)
+        indices.push(base + 3, base + 7, base + 6)
       }
     }
     geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
@@ -1040,15 +1042,22 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const hash2 = Math.abs(Math.sin(worldZ * 59.29 + 17.821))
       const hash3 = Math.abs(Math.sin(worldZ * 83.71 + 92.119))
 
-      // Utility Poles along the right road shoulder every ~33m (strictly anchored to terrain surface)
+      // Mathematical ground elevation matching terrainGeo vertices precisely (ceiling and sea level floor clamped)
+      const getSceneryGroundY = (gx: number, gz: number) => {
+        const rY = getRoadElevation(gz)
+        const rawY = getTerrainHeight(gx, gz, biomeConfig.id)
+        return Math.max(0.0, Math.min(rY + 105.0, rawY))
+      }
+
+      // Utility Poles along the right road shoulder every ~33m (strictly anchored into terrain surface)
       if (c % 2 === 0) {
         const poleDist = ROAD_WIDTH / 2 + 2.6
         const poleX = roadCx + tan.nx * poleDist
         const poleLocalZ = clusterZ + tan.nz * poleDist
         const poleWorldZ = chunkZ + poleLocalZ
-        const poleY = getTerrainHeight(poleX, poleWorldZ, biomeConfig.id) - 0.25
-        const checkSlopeY = getTerrainHeight(poleX + 0.5, poleWorldZ, biomeConfig.id)
-        if (Math.abs(checkSlopeY - (poleY + 0.25)) < 1.4) {
+        const poleY = getSceneryGroundY(poleX, poleWorldZ) - 0.35
+        const checkSlopeY = getSceneryGroundY(poleX + 0.5, poleWorldZ)
+        if (Math.abs(checkSlopeY - (poleY + 0.35)) < 1.4) {
           poles.push({ pos: [poleX, poleY, poleLocalZ] })
         }
       }
@@ -1061,7 +1070,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           const grassX = roadCx + tan.nx * side * grassDist
           const grassLocalZ = clusterZ + tan.nz * side * grassDist + (hash2 - 0.5) * 6
           const grassWorldZ = chunkZ + grassLocalZ
-          const grassY = getTerrainHeight(grassX, grassWorldZ, biomeConfig.id)
+          const grassY = getSceneryGroundY(grassX, grassWorldZ) - 0.05
           grassTufts.push({
             pos: [grassX, grassY, grassLocalZ],
             scale: 0.8 + hash3 * 0.5,
@@ -1079,7 +1088,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const cabinWorldZ = chunkZ + cabinLocalZ
         const closest = getClosestRoadPoint(cabinX, cabinWorldZ)
         if (closest.dist >= ROAD_PROTECTED_RADIUS + 4.0) {
-          const cabinY = getTerrainHeight(cabinX, cabinWorldZ, biomeConfig.id) - 0.1
+          const cabinY = getSceneryGroundY(cabinX, cabinWorldZ) - 0.35
           const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
           cabins.push({
             pos: [cabinX, cabinY, cabinLocalZ],
@@ -1106,9 +1115,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
             const closest = getClosestRoadPoint(treeX, treeWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
+              const treeY = getSceneryGroundY(treeX, treeWorldZ)
               saguaros.push({
-                pos: [treeX, treeY, treeZ],
+                pos: [treeX, treeY - 0.2, treeZ],
                 scale: 0.85 + hash1 * 0.65,
                 rotY: (hash2 * 10 + i) % (Math.PI * 2),
               })
@@ -1121,9 +1130,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const shrubWorldZ = chunkZ + shrubZ
             const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
+              const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
               shrubs.push({
-                pos: [shrubX, shrubY, shrubZ],
+                pos: [shrubX, shrubY - 0.12, shrubZ],
                 scale: 0.7 + hash3 * 0.7,
                 rotY: hash1 * Math.PI,
               })
@@ -1141,7 +1150,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
             const closest = getClosestRoadPoint(treeX, treeWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const treeY = getTerrainHeight(treeX, treeWorldZ, biomeConfig.id)
+              const treeY = getSceneryGroundY(treeX, treeWorldZ)
               const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
               const isPine = (isTwisted || isAlpine || isSnowy)
                 ? true
@@ -1155,13 +1164,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
               if (isPine) {
                 pines.push({
-                  pos: [treeX, treeY, treeZ],
+                  pos: [treeX, treeY - 0.25, treeZ],
                   scale,
                   rotY: angle,
                 })
               } else {
                 broadleafs.push({
-                  pos: [treeX, treeY, treeZ],
+                  pos: [treeX, treeY - 0.25, treeZ],
                   scale,
                   rotY: angle + 0.5,
                 })
@@ -1176,9 +1185,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const shrubWorldZ = chunkZ + shrubZ
             const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const shrubY = getTerrainHeight(shrubX, shrubWorldZ, biomeConfig.id)
+              const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
               shrubs.push({
-                pos: [shrubX, shrubY, shrubZ],
+                pos: [shrubX, shrubY - 0.12, shrubZ],
                 scale: 0.65 + hash3 * 0.6,
                 rotY: hash2 * Math.PI,
               })
@@ -1195,9 +1204,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           const rockWorldZ = chunkZ + rockZ
           const closest = getClosestRoadPoint(rockX, rockWorldZ)
           if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-            const rRoadY = getRoadElevation(rockWorldZ)
-            const rockRawY = getTerrainHeight(rockX, rockWorldZ, biomeConfig.id)
-            const rockY = Math.max(0.0, Math.min(rRoadY + 75.0, rockRawY))
+            const rockY = getSceneryGroundY(rockX, rockWorldZ)
 
             // Non-uniform geological scaling for natural boulder silhouette
             const scaleMult = 0.75 + 0.35 * macro.rockDensity
@@ -1206,9 +1213,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const sz = (0.85 + hash2 * 1.2) * sx
 
             rocks.push({
-              pos: [rockX, rockY + 0.3 * sy, rockZ],
+              pos: [rockX, rockY - 0.25 * sy, rockZ],
               scale: [sx, sy, sz],
-              rot: [hash1 * 0.3, hash2 * Math.PI * 2, hash3 * 0.25],
+              rot: [hash1 * 0.12, hash2 * Math.PI * 2, hash3 * 0.12],
             })
           }
         }

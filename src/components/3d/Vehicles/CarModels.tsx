@@ -281,12 +281,12 @@ export function BmwM3GtrModel({
     return new THREE.MeshPhysicalMaterial({
       color: new THREE.Color('#0a1128'),
       metalness: 0.1,
-      roughness: 0.04,
-      transmission: 0.88,
+      roughness: 0.05,
+      transmission: 0.85,
       transparent: true,
-      opacity: 0.92,
-      reflectivity: 0.98,
-      envMapIntensity: 2.6,
+      opacity: 0.90,
+      reflectivity: 0.70,
+      envMapIntensity: 1.1, // Calibrated automotive glass reflection to eliminate blowout
     })
   }, [])
 
@@ -346,12 +346,12 @@ export function BmwM3GtrModel({
 
         const matName = child.material?.name || ''
         if (child.name.includes('Object_124') || child.name.includes('Spoiler_0000_001_MAT_Carbon')) {
-          // Refine rear wing airfoil: sleek racing profile, thin carbon blade
-          child.scale.set(1.0, 0.72, 1.0)
+          // Rear wing airfoil: calibrated to 1.38m deck width, flush atop stanchion mounts
+          child.scale.set(0.88, 0.88, 0.88)
           child.material = carbonFiberMaterial
         } else if (child.name.includes('Object_121')) {
-          // Wing stanchions: matte anodized aero brackets
-          child.scale.set(0.9, 1.0, 0.9)
+          // Wing stanchions: matte anodized aero brackets matching airfoil scale and mounting plane
+          child.scale.set(0.88, 0.88, 0.88)
           child.material = wingUprightMaterial
         } else if (matName.includes('Carpaint')) {
           child.material = bodyPaintMaterial
@@ -519,12 +519,12 @@ export function SupercarModel({
     return new THREE.MeshPhysicalMaterial({
       color: new THREE.Color('#0a1128'),
       metalness: 0.1,
-      roughness: 0.04,
-      transmission: 0.88,
+      roughness: 0.05,
+      transmission: 0.85,
       transparent: true,
-      opacity: 0.92,
-      reflectivity: 0.98,
-      envMapIntensity: 2.6,
+      opacity: 0.90,
+      reflectivity: 0.70,
+      envMapIntensity: 1.1, // Calibrated automotive glass reflection to eliminate blowout
     })
   }, [])
 

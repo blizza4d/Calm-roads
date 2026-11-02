@@ -353,6 +353,8 @@ export default function VehicleController() {
   const pos = useRef(new THREE.Vector3(initialSpawnX, initialSpawnY, 0))
   const forwardVel = useRef(0) // meters per second
   const lateralVel = useRef(0) // drift velocity (m/s)
+  const verticalVel = useRef(0) // vertical velocity (m/s) for gravity and jumps
+  const isGrounded = useRef(true) // authoritative ground contact tracking
   const yawAngle = useRef(0) // radians
   const currentSteerAngle = useRef(0) // dynamic smoothed steering angle (radians)
   const steeringVisual = useRef(0)
@@ -479,11 +481,13 @@ export default function VehicleController() {
         pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : config.rideHeight)
         forwardVel.current = 0
         lateralVel.current = 0
+        verticalVel.current = 0
         yawAngle.current = 0
         currentSteerAngle.current = 0
         wheelSpin.current = 0
         steeringVisual.current = 0
         currentGearIndex.current = 1
+        isGrounded.current = true
         isFirstCamFrameRef.current = true
         if (lastOdoPos.current) {
           lastOdoPos.current.set(pos.current.x, pos.current.y, curZ)
@@ -620,6 +624,48 @@ export default function VehicleController() {
         activeBiomeConfig.id
       )
 
+      // True 3D Drivable Surface and Contact Height
+      const groundSurfaceY = getSurfaceHeight(pos.current.x, pos.current.z, activeBiomeConfig.id)
+      const targetRideHeight = isHoverMode ? 1.25 : config.rideHeight
+      const nominalFloorY = groundSurfaceY + targetRideHeight
+
+      // Vertical Airborne vs Ground Contact Simulation
+      if (isHoverMode || vehicleModel === 'hovercraft') {
+        isGrounded.current = true
+        verticalVel.current = 0
+        pos.current.y = THREE.MathUtils.lerp(pos.current.y, nominalFloorY, dt * 10)
+      } else {
+        const airGap = pos.current.y - nominalFloorY
+        if (airGap > 0.04) {
+          // Vehicle is AIRBORNE (in mid-air flight)
+          isGrounded.current = false
+          verticalVel.current -= 9.81 * dt // Apply downward gravity
+          if (verticalVel.current < -35) verticalVel.current = -35 // Terminal velocity
+          pos.current.y += verticalVel.current * dt
+
+          // Landing detection
+          if (pos.current.y <= nominalFloorY) {
+            pos.current.y = nominalFloorY
+            isGrounded.current = true
+            verticalVel.current = 0
+          }
+        } else {
+          // Vehicle is GROUNDED (firm tire contact on road/terrain surface)
+          isGrounded.current = true
+          pos.current.y = nominalFloorY
+
+          // High-speed crest launch detection
+          const launchLift = forwardVel.current * Math.sin(terrainPitch)
+          if (launchLift > 2.8 && forwardVel.current > 16.0) {
+            verticalVel.current = launchLift * 0.7
+            isGrounded.current = false
+            pos.current.y += verticalVel.current * dt
+          } else {
+            verticalVel.current = 0
+          }
+        }
+      }
+
       // Slope gravity: uphill resistance, downhill natural momentum
       const slopeGravity = -4.5 * Math.sin(terrainPitch)
 
@@ -632,20 +678,29 @@ export default function VehicleController() {
       const accel = config.peakAccel * powerFactor * (isHoverMode || onRoad ? 1.0 : 0.82)
       const shiftPowerMul = shiftCutTimer.current > 0 ? 0.18 : 1.0
 
-      if (currentThrottle.current > 0) {
-        const burnoutAccelMul = isBurnoutActive ? 0.35 : 1.0
-        forwardVel.current += (currentThrottle.current * accel * shiftPowerMul * burnoutAccelMul + slopeGravity - aeroDrag) * dt
-        if (forwardVel.current > config.maxSpeedMs) forwardVel.current = config.maxSpeedMs
-      } else if (currentThrottle.current < 0) {
-        forwardVel.current += (currentThrottle.current * (config.peakAccel * 0.45) + slopeGravity) * dt
-        if (forwardVel.current < -12) forwardVel.current = -12
+      if (!isGrounded.current && !isHoverMode) {
+        // Airborne: tires cannot push vehicle forward against air
+        forwardVel.current += (-Math.sign(forwardVel.current) * aeroDrag) * dt
+        if (currentThrottle.current > 0) {
+          wheelSpin.current += ((config.redlineRpm * 0.85) / 60) * Math.PI * 2 * dt
+        }
       } else {
-        // Natural engine braking in lower gears
-        const curGear = currentGearIndex.current
-        const maxGear = config.gearRatios.length
-        const gearBrakingRatio = Math.max(0, 1 - (curGear - 1) / maxGear)
-        const engineBrake = !isHoverMode && forwardVel.current > 1.5 ? config.engineBraking * gearBrakingRatio * 3.8 : 0
-        forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag - engineBrake) * dt
+        // Grounded: full powertrain traction and tire propulsion
+        if (currentThrottle.current > 0) {
+          const burnoutAccelMul = isBurnoutActive ? 0.35 : 1.0
+          forwardVel.current += (currentThrottle.current * accel * shiftPowerMul * burnoutAccelMul + slopeGravity - aeroDrag) * dt
+          if (forwardVel.current > config.maxSpeedMs) forwardVel.current = config.maxSpeedMs
+        } else if (currentThrottle.current < 0) {
+          forwardVel.current += (currentThrottle.current * (config.peakAccel * 0.45) + slopeGravity) * dt
+          if (forwardVel.current < -12) forwardVel.current = -12
+        } else {
+          // Natural engine braking in lower gears
+          const curGear = currentGearIndex.current
+          const maxGear = config.gearRatios.length
+          const gearBrakingRatio = Math.max(0, 1 - (curGear - 1) / maxGear)
+          const engineBrake = !isHoverMode && forwardVel.current > 1.5 ? config.engineBraking * gearBrakingRatio * 3.8 : 0
+          forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag - engineBrake) * dt
+        }
       }
 
       // Progressive Braking
@@ -744,14 +799,23 @@ export default function VehicleController() {
 
       // Out-of-bounds safety net: if vehicle is thrown far off terrain or falls into void
       const roadCx = getRoadCenter(pos.current.z)
-      if (pos.current.y < -35 || Math.abs(pos.current.x - roadCx) > 130) {
+      const roadElevation = getRoadElevation(pos.current.z)
+      const isOutOfBounds =
+        pos.current.y < -35 ||
+        pos.current.y < roadElevation - 25.0 ||
+        Math.abs(pos.current.x - roadCx) > 130
+
+      if (isOutOfBounds) {
         pos.current.x = roadCx
-        pos.current.y = getRoadElevation(pos.current.z) + (isHoverMode ? 1.25 : config.rideHeight)
+        pos.current.y = roadElevation + (isHoverMode ? 1.25 : config.rideHeight)
         forwardVel.current = 0
         lateralVel.current = 0
+        verticalVel.current = 0
         yawAngle.current = 0
         currentSteerAngle.current = 0
         wheelSpin.current = 0
+        currentGearIndex.current = 1
+        isGrounded.current = true
         isFirstCamFrameRef.current = true
         if (lastOdoPos.current) {
           lastOdoPos.current.copy(pos.current)
@@ -794,11 +858,23 @@ export default function VehicleController() {
       targetRideHeight + hoverFloatPulse,
       frameDelta * (isHoverMode ? 4.5 : 12)
     )
-    pos.current.y = THREE.MathUtils.lerp(
-      pos.current.y,
-      groundY + hoverAltitude.current,
-      frameDelta * (isHoverMode ? 9 : 20)
-    )
+
+    if (isHoverMode) {
+      pos.current.y = THREE.MathUtils.lerp(
+        pos.current.y,
+        groundY + hoverAltitude.current,
+        frameDelta * 9
+      )
+    } else {
+      // Wheeled car: pos.current.y is physically integrated in 120Hz substepping.
+      // Enforce strict ground collision floor to guarantee vehicle never clips through road
+      const surfaceFloorY = groundY + targetRideHeight
+      if (isGrounded.current) {
+        pos.current.y = THREE.MathUtils.lerp(pos.current.y, surfaceFloorY, frameDelta * 22)
+      } else {
+        pos.current.y = Math.max(surfaceFloorY, pos.current.y)
+      }
+    }
 
     // Accumulated real traveled displacement (km) accounting for 3D curved paths & elevation
     if (!lastOdoPos.current) {
@@ -923,12 +999,32 @@ export default function VehicleController() {
     } else if (forwardVel.current < -0.3) {
       calculatedGear = 'R'
       targetRpm = config.idleRpm + Math.min(3600, Math.abs(currentSpeedKmh) * 140)
-    } else if (currentSpeedKmh < 1.2 && curThrottleAbs < 0.1) {
-      calculatedGear = 'N'
-      targetRpm = config.idleRpm
+    } else if (currentSpeedKmh < 1.0) {
+      if (curThrottleAbs < 0.08) {
+        calculatedGear = 'N'
+        targetRpm = config.idleRpm
+      } else {
+        // Driver revving throttle at standstill / launch pre-staging
+        calculatedGear = '1'
+        currentGearIndex.current = 1
+        targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm * 0.45 - config.idleRpm)
+      }
+    } else if (!isGrounded.current && !isHoverMode) {
+      // Vehicle is airborne: engine free-revs on throttle decoupled from road load
+      calculatedGear = currentGearIndex.current.toString()
+      if (curThrottleAbs > 0.08) {
+        targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm - config.idleRpm) * 0.92
+      } else {
+        targetRpm = config.idleRpm + (currentSpeedKmh / config.maxSpeedKmh) * 1400
+      }
     } else {
       // Automatic Transmission: selects gear smoothly according to throttle load & RPM
       if (manualOverrideTimer.current <= 0) {
+        // Enforce 1st gear whenever coming to a stop or crawling
+        if (currentSpeedKmh < 2.5) {
+          currentGearIndex.current = 1
+        }
+
         const curGear = currentGearIndex.current
         const upshiftThresh = THREE.MathUtils.lerp(
           config.downshiftRpm + 900,
@@ -956,6 +1052,9 @@ export default function VehicleController() {
         }
       } else {
         // Manual Override Mode: player controls gears via Left Shift / Right Shift
+        if (currentSpeedKmh < 2.0 && currentGearIndex.current > 1 && curThrottleAbs < 0.1) {
+          currentGearIndex.current = 1
+        }
         const curGear = currentGearIndex.current
         const prevGearTopSpeed = curGear > 1 ? config.gearRatios[curGear - 2] : 0
         const gearTopSpeed = config.gearRatios[curGear - 1]
@@ -1044,6 +1143,8 @@ export default function VehicleController() {
         roadClearance: groundClearanceMm,
         onRoad: isSurfaceRoad,
         distFromRoad: +closestRoad.dist.toFixed(2),
+        isGrounded: isGrounded.current,
+        verticalVel: +verticalVel.current.toFixed(2),
       })
       if (telemetryCounter.current % 30 === 0) {
         const macroProfile = getInterpolatedMacroProfile(pos.current.z)

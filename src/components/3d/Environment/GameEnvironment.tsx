@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { useGameStore } from '../../../store/useGameStore'
+import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
 import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
 
 // ------------------------------------------------------------------------
@@ -606,6 +606,29 @@ export default function GameEnvironment() {
   // Biome and Weather lighting modifications
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
 
+  // Dynamic Biome-Aware High-Dynamic-Range Environment Reflection Preset
+  const envPreset = useMemo<'forest' | 'sunset' | 'dawn' | 'night' | 'park'>(() => {
+    if (celestialData.isNight) return 'night'
+    switch (currentResolvedBiome) {
+      case 'twisted_mountains':
+      case 'tundra':
+        return 'dawn' // Crisp cool alpine snow reflection
+      case 'desert':
+      case 'coastal':
+        return 'sunset' // Warm golden open-horizon reflection
+      case 'autumn':
+        return 'park' // Golden foliage reflection
+      case 'forest':
+      case 'enchanted_forest':
+      default:
+        return 'forest'
+    }
+  }, [celestialData.isNight, currentResolvedBiome])
+
+  useEffect(() => {
+    useTelemetryStore.getState().setTelemetry({ reflectionPreset: envPreset })
+  }, [envPreset])
+
   // Dynamic Sky & Atmosphere Background Color with smooth 24h chromatic interpolation
   const skyColor = useMemo(() => {
     const isNight = celestialData.isNight
@@ -805,10 +828,10 @@ export default function GameEnvironment() {
         isNight={celestialData.isNight}
       />
 
-      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces */}
+      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Biome-Adaptive) */}
       <Suspense fallback={null}>
         <Environment
-          preset="forest"
+          preset={envPreset}
           background={false}
           environmentIntensity={graphicsQuality === 'low' ? 0.40 : celestialData.isNight ? 0.25 : 0.65}
         />

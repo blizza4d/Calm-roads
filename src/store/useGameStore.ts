@@ -345,6 +345,9 @@ export interface TelemetryState {
   roadClearance?: number
   onRoad?: boolean
   distFromRoad?: number
+  isGrounded?: boolean
+  verticalVel?: number
+  reflectionPreset?: string
   setTelemetry: (data: Partial<TelemetryState>) => void
 }
 
@@ -363,5 +366,8 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   roadClearance: 116,
   onRoad: true,
   distFromRoad: 0,
+  isGrounded: true,
+  verticalVel: 0,
+  reflectionPreset: 'forest',
   setTelemetry: (data) => set((s) => ({ ...s, ...data })),
 }))
