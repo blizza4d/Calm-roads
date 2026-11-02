@@ -14,6 +14,7 @@ import {
   BiomeConfig,
   getInterpolatedMacroProfile,
   ROAD_PROTECTED_RADIUS,
+  getTerrainSlopeNormalY,
 } from '../../../utils/roadMath'
 import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
 import { getGrassAlphaTexture } from './Scenery'
@@ -1088,12 +1089,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const cabinWorldZ = chunkZ + cabinLocalZ
         const closest = getClosestRoadPoint(cabinX, cabinWorldZ)
         if (closest.dist >= ROAD_PROTECTED_RADIUS + 4.0) {
-          const cabinY = getSceneryGroundY(cabinX, cabinWorldZ) - 0.35
-          const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
-          cabins.push({
-            pos: [cabinX, cabinY, cabinLocalZ],
-            rotY,
-          })
+          const cabinSlopeNy = getTerrainSlopeNormalY(cabinX, cabinWorldZ, biomeConfig.id)
+          if (cabinSlopeNy >= 0.95) {
+            const cabinY = getSceneryGroundY(cabinX, cabinWorldZ) - 0.35
+            const rotY = cabinSide === 1 ? -Math.PI / 2 + 0.15 : Math.PI / 2 - 0.15
+            cabins.push({
+              pos: [cabinX, cabinY, cabinLocalZ],
+              rotY,
+            })
+          }
         }
       }
 
@@ -1115,12 +1119,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
             const closest = getClosestRoadPoint(treeX, treeWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const treeY = getSceneryGroundY(treeX, treeWorldZ)
-              saguaros.push({
-                pos: [treeX, treeY - 0.2, treeZ],
-                scale: 0.85 + hash1 * 0.65,
-                rotY: (hash2 * 10 + i) % (Math.PI * 2),
-              })
+              const slopeNy = getTerrainSlopeNormalY(treeX, treeWorldZ, biomeConfig.id)
+              if (slopeNy >= 0.866) {
+                const treeY = getSceneryGroundY(treeX, treeWorldZ)
+                saguaros.push({
+                  pos: [treeX, treeY - 0.2, treeZ],
+                  scale: 0.85 + hash1 * 0.65,
+                  rotY: (hash2 * 10 + i) % (Math.PI * 2),
+                })
+              }
             }
           }
 
@@ -1130,12 +1137,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const shrubWorldZ = chunkZ + shrubZ
             const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
-              shrubs.push({
-                pos: [shrubX, shrubY - 0.12, shrubZ],
-                scale: 0.7 + hash3 * 0.7,
-                rotY: hash1 * Math.PI,
-              })
+              const shrubSlopeNy = getTerrainSlopeNormalY(shrubX, shrubWorldZ, biomeConfig.id)
+              if (shrubSlopeNy >= 0.80) {
+                const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
+                shrubs.push({
+                  pos: [shrubX, shrubY - 0.12, shrubZ],
+                  scale: 0.7 + hash3 * 0.7,
+                  rotY: hash1 * Math.PI,
+                })
+              }
             }
           }
         } else {
@@ -1150,30 +1160,35 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
             const closest = getClosestRoadPoint(treeX, treeWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const treeY = getSceneryGroundY(treeX, treeWorldZ)
-              const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
-              const isPine = (isTwisted || isAlpine || isSnowy)
-                ? true
-                : isDesert
-                ? false
-                : isEnchanted
-                ? (i % 2 === 0)
-                : bid === 'autumn'
-                ? (i % 3 === 0)
-                : (i % 2 === 0)
+              const slopeNy = getTerrainSlopeNormalY(treeX, treeWorldZ, biomeConfig.id)
+              // Slope threshold: normal.y >= 0.866 (slope <= 30 degrees).
+              // Trees belong on rolling hills and flatlands, not vertical rock faces or cliffs.
+              if (slopeNy >= 0.866) {
+                const treeY = getSceneryGroundY(treeX, treeWorldZ)
+                const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
+                const isPine = (isTwisted || isAlpine || isSnowy)
+                  ? true
+                  : isDesert
+                  ? false
+                  : isEnchanted
+                  ? (i % 2 === 0)
+                  : bid === 'autumn'
+                  ? (i % 3 === 0)
+                  : (i % 2 === 0)
 
-              if (isPine) {
-                pines.push({
-                  pos: [treeX, treeY - 0.25, treeZ],
-                  scale,
-                  rotY: angle,
-                })
-              } else {
-                broadleafs.push({
-                  pos: [treeX, treeY - 0.25, treeZ],
-                  scale,
-                  rotY: angle + 0.5,
-                })
+                if (isPine) {
+                  pines.push({
+                    pos: [treeX, treeY - 0.25, treeZ],
+                    scale,
+                    rotY: angle,
+                  })
+                } else {
+                  broadleafs.push({
+                    pos: [treeX, treeY - 0.25, treeZ],
+                    scale,
+                    rotY: angle + 0.5,
+                  })
+                }
               }
             }
           }
@@ -1185,12 +1200,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
             const shrubWorldZ = chunkZ + shrubZ
             const closest = getClosestRoadPoint(shrubX, shrubWorldZ)
             if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-              const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
-              shrubs.push({
-                pos: [shrubX, shrubY - 0.12, shrubZ],
-                scale: 0.65 + hash3 * 0.6,
-                rotY: hash2 * Math.PI,
-              })
+              const shrubSlopeNy = getTerrainSlopeNormalY(shrubX, shrubWorldZ, biomeConfig.id)
+              if (shrubSlopeNy >= 0.80) {
+                const shrubY = getSceneryGroundY(shrubX, shrubWorldZ)
+                shrubs.push({
+                  pos: [shrubX, shrubY - 0.12, shrubZ],
+                  scale: 0.65 + hash3 * 0.6,
+                  rotY: hash2 * Math.PI,
+                })
+              }
             }
           }
         }
@@ -1204,19 +1222,22 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           const rockWorldZ = chunkZ + rockZ
           const closest = getClosestRoadPoint(rockX, rockWorldZ)
           if (closest.dist >= ROAD_PROTECTED_RADIUS + 1.0) {
-            const rockY = getSceneryGroundY(rockX, rockWorldZ)
+            const rockSlopeNy = getTerrainSlopeNormalY(rockX, rockWorldZ, biomeConfig.id)
+            if (rockSlopeNy >= 0.65) {
+              const rockY = getSceneryGroundY(rockX, rockWorldZ)
 
-            // Non-uniform geological scaling for natural boulder silhouette
-            const scaleMult = 0.75 + 0.35 * macro.rockDensity
-            const sx = (0.9 + hash3 * 1.6) * scaleMult
-            const sy = (0.65 + hash1 * 0.8) * sx
-            const sz = (0.85 + hash2 * 1.2) * sx
+              // Non-uniform geological scaling for natural boulder silhouette
+              const scaleMult = 0.75 + 0.35 * macro.rockDensity
+              const sx = (0.9 + hash3 * 1.6) * scaleMult
+              const sy = (0.65 + hash1 * 0.8) * sx
+              const sz = (0.85 + hash2 * 1.2) * sx
 
-            rocks.push({
-              pos: [rockX, rockY - 0.25 * sy, rockZ],
-              scale: [sx, sy, sz],
-              rot: [hash1 * 0.12, hash2 * Math.PI * 2, hash3 * 0.12],
-            })
+              rocks.push({
+                pos: [rockX, rockY - 0.25 * sy, rockZ],
+                scale: [sx, sy, sz],
+                rot: [hash1 * 0.12, hash2 * Math.PI * 2, hash3 * 0.12],
+              })
+            }
           }
         }
       })

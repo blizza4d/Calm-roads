@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { BiomeType, MacroTerrainType, MacroTerrainWeights } from '../utils/roadMath'
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
-export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback'
+export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback' | 'modern_supercar' | 'vintage_hatch'
 export type CameraPerspectiveType = 'chase' | 'dashboard' | 'drone' | 'bumper'
 export type BiomeSelection = 'dynamic' | BiomeType
 

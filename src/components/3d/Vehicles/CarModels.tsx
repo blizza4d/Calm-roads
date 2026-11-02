@@ -17,13 +17,13 @@ interface CarModelProps {
   wheelSuspensions?: [number, number, number, number]
 }
 
-// Reusable Forward Dual-Beam Headlight Projector (Low-Beam Wide Flood + High-Beam Long Throw)
+// Reusable Forward Dual-Beam Headlight Projector (Gentle Road & Shoulder Illumination)
 function HeadlightBeams({
   x,
   y,
   z,
   color = '#fffbeb',
-  intensity = 320,
+  intensity = 26,
 }: {
   x: number
   y: number
@@ -34,26 +34,26 @@ function HeadlightBeams({
   // Low-beam targets (spread outward to illuminate shoulders and pavement)
   const targetLowL = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(-x * 1.4, y - 0.28, -42)
+    o.position.set(-x * 1.3, y - 0.28, -38)
     return o
   }, [x, y])
 
   const targetLowR = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(x * 1.4, y - 0.28, -42)
+    o.position.set(x * 1.3, y - 0.28, -38)
     return o
   }, [x, y])
 
   // High-beam targets (focused down the forward horizon)
   const targetHighL = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(-x * 0.4, y - 0.08, -85)
+    o.position.set(-x * 0.35, y - 0.08, -75)
     return o
   }, [x, y])
 
   const targetHighR = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(x * 0.4, y - 0.08, -85)
+    o.position.set(x * 0.35, y - 0.08, -75)
     return o
   }, [x, y])
 
@@ -64,15 +64,15 @@ function HeadlightBeams({
       <primitive object={targetHighL} />
       <primitive object={targetHighR} />
 
-      {/* 1. Low-Beam Wide Road & Shoulder Spread */}
+      {/* 1. Low-Beam Wide Road & Shoulder Spread: penumbra=1.0, decay=2.0, angle=Math.PI / 6 */}
       <spotLight
         position={[-x, y, z]}
         target={targetLowL}
-        angle={0.68}
-        penumbra={0.75}
-        decay={1.8}
-        distance={80}
-        intensity={intensity * 0.9}
+        angle={Math.PI / 6}
+        penumbra={1.0}
+        decay={2.0}
+        distance={75}
+        intensity={intensity}
         color={color}
         castShadow
         shadow-bias={-0.002}
@@ -81,11 +81,11 @@ function HeadlightBeams({
       <spotLight
         position={[x, y, z]}
         target={targetLowR}
-        angle={0.68}
-        penumbra={0.75}
-        decay={1.8}
-        distance={80}
-        intensity={intensity * 0.9}
+        angle={Math.PI / 6}
+        penumbra={1.0}
+        decay={2.0}
+        distance={75}
+        intensity={intensity}
         color={color}
         castShadow
         shadow-bias={-0.002}
@@ -96,28 +96,28 @@ function HeadlightBeams({
       <spotLight
         position={[-x, y, z]}
         target={targetHighL}
-        angle={0.36}
-        penumbra={0.45}
-        decay={1.5}
-        distance={160}
-        intensity={intensity * 1.25}
+        angle={Math.PI / 8}
+        penumbra={1.0}
+        decay={2.0}
+        distance={130}
+        intensity={intensity * 1.15}
         color={color}
         castShadow={false}
       />
       <spotLight
         position={[x, y, z]}
         target={targetHighR}
-        angle={0.36}
-        penumbra={0.45}
-        decay={1.5}
-        distance={160}
-        intensity={intensity * 1.25}
+        angle={Math.PI / 8}
+        penumbra={1.0}
+        decay={2.0}
+        distance={130}
+        intensity={intensity * 1.15}
         color={color}
         castShadow={false}
       />
 
       {/* 3. Subtle Forward Near-Field Ground Fill */}
-      <pointLight position={[0, y - 0.1, z - 0.8]} distance={15} intensity={0.6} color={color} />
+      <pointLight position={[0, y - 0.1, z - 0.8]} distance={12} intensity={0.25} color={color} />
     </>
   )
 }
@@ -443,7 +443,7 @@ export function BmwM3GtrModel({
       />
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.65} y={0.58} z={-2.38} color="#fffbeb" intensity={320} />}
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.58} z={-2.38} color="#fffbeb" intensity={26} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -724,7 +724,7 @@ export function SupercarModel({
       <primitive object={clonedScene} />
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.68} y={0.54} z={-2.35} color="#fffbeb" intensity={320} />}
+      {headlightsOn && <HeadlightBeams x={0.68} y={0.54} z={-2.35} color="#fffbeb" intensity={26} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -924,7 +924,7 @@ export function CamperVanModel({
         {chromeMat}
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.64} y={0.82} z={-2.35} color="#fef3c7" intensity={300} />}
+      {headlightsOn && <HeadlightBeams x={0.64} y={0.82} z={-2.35} color="#fef3c7" intensity={24} />}
 
       <group position={[-0.92, 0.38 + (wheelSuspensions[0] || 0), -1.3]}>{renderVanWheel(true, true)}</group>
       <group position={[0.92, 0.38 + (wheelSuspensions[1] || 0), -1.3]}>{renderVanWheel(true, false)}</group>
@@ -1069,7 +1069,7 @@ export function HovercraftModel({
         {darkAero}
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.55} y={0.52} z={-2.45} color="#e0f2fe" intensity={320} />}
+      {headlightsOn && <HeadlightBeams x={0.55} y={0.52} z={-2.45} color="#e0f2fe" intensity={26} />}
     </group>
   )
 }
@@ -1270,7 +1270,7 @@ export function VintageHatchbackModel({
         <meshStandardMaterial color="#dc2626" roughness={0.7} />
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.62} y={0.58} z={-2.25} color="#fff" intensity={300} />}
+      {headlightsOn && <HeadlightBeams x={0.62} y={0.58} z={-2.25} color="#fff" intensity={24} />}
 
       <group position={[-0.86, 0.34 + (wheelSuspensions[0] || 0), -1.15]}>{renderHatchWheel(true, true)}</group>
       <group position={[0.86, 0.34 + (wheelSuspensions[1] || 0), -1.15]}>{renderHatchWheel(true, false)}</group>
@@ -1287,10 +1287,12 @@ export function ActiveCarModel(props: CarModelProps) {
     case 'bmw_m3':
       return <BmwM3GtrModel {...props} />
     case 'supercar':
+    case 'modern_supercar':
       return <SupercarModel {...props} />
     case 'camper':
       return <CamperVanModel {...props} />
     case 'hatchback':
+    case 'vintage_hatch':
       return <VintageHatchbackModel {...props} />
     default:
       return <BmwM3GtrModel {...props} />

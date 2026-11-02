@@ -42,6 +42,7 @@ export interface VehicleAudioProfile {
   transmission: string
   idleRpm: number
   redlineRpm: number
+  hasTurbo?: boolean
   baseRpm: {
     idle: number
     low: number
@@ -79,6 +80,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     transmission: 'Hewland 6-Speed Sequential Dog-Box with Straight-Cut Spur Gears',
     idleRpm: 880,
     redlineRpm: 8500,
+    hasTurbo: false,
     baseRpm: { idle: 880, low: 2400, mid: 4800, high: 7400, offThrottle: 4500 },
     urls: {
       idle: [
@@ -146,6 +148,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     transmission: '7-Speed Dual-Clutch Transmission (DCT)',
     idleRpm: 1050,
     redlineRpm: 9000,
+    hasTurbo: true,
     baseRpm: { idle: 1050, low: 3000, mid: 5800, high: 8600, offThrottle: 5000 },
     urls: {
       idle: ['/audio/cars/supercar/idle.wav', '/sounds/engine_idle.wav'],
@@ -167,6 +170,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     transmission: 'Direct Flux Modulation Drive',
     idleRpm: 450,
     redlineRpm: 12000,
+    hasTurbo: false,
     baseRpm: { idle: 450, low: 2500, mid: 6000, high: 10000, offThrottle: 5000 },
     urls: {
       idle: ['/audio/cars/hovercraft/idle.wav'],
@@ -186,6 +190,7 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     transmission: 'Heavy-Duty 5-Speed Manual with Pneumatic Air-Assisted Linkage',
     idleRpm: 680,
     redlineRpm: 4200,
+    hasTurbo: true,
     baseRpm: { idle: 680, low: 1450, mid: 2500, high: 3800, offThrottle: 2400 },
     urls: {
       idle: ['/audio/cars/camper/idle.wav', '/sounds/engine_idle.wav'],
@@ -205,6 +210,51 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
     transmission: 'Close-Ratio 5-Speed Sequential Dog-Box',
     idleRpm: 940,
     redlineRpm: 7500,
+    hasTurbo: true,
+    baseRpm: { idle: 940, low: 2500, mid: 4600, high: 7200, offThrottle: 4000 },
+    urls: {
+      idle: ['/audio/cars/hatchback/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/hatchback/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/hatchback/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/hatchback/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/hatchback/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/hatchback/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/hatchback/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 85, subBassGain: 4.8, growlFreq: 280, growlGain: 4.0 },
+    rawRecordingUrl: '/audio/raw/audi_quattro_rally.ogg',
+    screamerUrls: ['/audio/raw/audi_quattro_rally.ogg'],
+  },
+  modern_supercar: {
+    vehicleId: 'modern_supercar',
+    name: 'Modern Exotic V12 Supercar',
+    engineType: '6.5L Naturally Aspirated 60° Screaming V12',
+    transmission: '7-Speed Dual-Clutch Transmission (DCT)',
+    idleRpm: 1050,
+    redlineRpm: 9000,
+    hasTurbo: true,
+    baseRpm: { idle: 1050, low: 3000, mid: 5800, high: 8600, offThrottle: 5000 },
+    urls: {
+      idle: ['/audio/cars/supercar/idle.wav', '/sounds/engine_idle.wav'],
+      low_rpm: ['/audio/cars/supercar/low_rpm.wav', '/sounds/engine_low.wav'],
+      mid_rpm: ['/audio/cars/supercar/mid_rpm.wav', '/sounds/engine_mid.wav'],
+      high_rpm: ['/audio/cars/supercar/high_rpm.wav', '/sounds/engine_high.wav'],
+      off_throttle: ['/audio/cars/supercar/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
+      gear_shift: ['/audio/cars/supercar/gear_shift.wav', '/sounds/gear_shift.wav'],
+      overrun: ['/audio/cars/supercar/overrun.wav', '/sounds/exhaust_pop.wav'],
+    },
+    eqProfile: { subBassFreq: 110, subBassGain: 4.2, growlFreq: 380, growlGain: 4.5 },
+    rawRecordingUrl: '/audio/raw/v8_idle_and_revs.ogg',
+    screamerUrls: ['/audio/raw/v8_idle_and_revs.ogg'],
+  },
+  vintage_hatch: {
+    vehicleId: 'vintage_hatch',
+    name: 'Vintage Raspy Turbo Flat-4 / Group B',
+    engineType: '2.1L Turbocharged Homologation Rally Engine',
+    transmission: 'Close-Ratio 5-Speed Sequential Dog-Box',
+    idleRpm: 940,
+    redlineRpm: 7500,
+    hasTurbo: true,
     baseRpm: { idle: 940, low: 2500, mid: 4600, high: 7200, offThrottle: 4000 },
     urls: {
       idle: ['/audio/cars/hatchback/idle.wav', '/sounds/engine_idle.wav'],
@@ -280,6 +330,7 @@ export class RealisticVehicleAudioEngine {
   // Telemetry Tracking
   private prevThrottle = 0
   private lastExhaustPopTime = 0
+  private lastBovTime = 0
   private musicTimer: number | null = null
   private isMusicPlaying = false
   private currentTrack = 0
@@ -316,6 +367,16 @@ export class RealisticVehicleAudioEngine {
 
   public get activeVehicle(): VehicleModelType {
     return this.currentVehicleId
+  }
+
+  /**
+   * Helper to resolve vehicle profile from ID with alias support
+   */
+  public resolveProfile(id?: string): VehicleAudioProfile {
+    if (!id) return VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    if (id === 'modern_supercar') return VEHICLE_AUDIO_REGISTRY.supercar
+    if (id === 'vintage_hatch') return VEHICLE_AUDIO_REGISTRY.hatchback
+    return VEHICLE_AUDIO_REGISTRY[id as VehicleModelType] || VEHICLE_AUDIO_REGISTRY.bmw_m3
   }
 
   /**
@@ -520,7 +581,7 @@ export class RealisticVehicleAudioEngine {
    * Preload all audio assets for a specific vehicle profile
    */
   public async preloadVehicleProfile(vehicleId: VehicleModelType): Promise<void> {
-    const profile = VEHICLE_AUDIO_REGISTRY[vehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    const profile = this.resolveProfile(vehicleId)
     const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
 
     const statePromises = states.map((st) => this.fetchAndDecode(profile.urls[st]))
@@ -550,7 +611,7 @@ export class RealisticVehicleAudioEngine {
   private mountVehicleLoopNodes(vehicleId: VehicleModelType): void {
     if (!this.ctx || !this.engineMaster || !this.onLoadBus || !this.offLoadBus) return
     const ctx = this.ctx
-    const profile = VEHICLE_AUDIO_REGISTRY[vehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    const profile = this.resolveProfile(vehicleId)
     const states: EngineAudioState[] = ['idle', 'low_rpm', 'mid_rpm', 'high_rpm', 'off_throttle']
 
     // Update EQ for vehicle character
@@ -773,7 +834,7 @@ export class RealisticVehicleAudioEngine {
   public updateEngineSound(rpm: number, throttle: number | boolean, speed = 0): void {
     if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
-    const profile = VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    const profile = this.resolveProfile(this.currentVehicleId)
 
     // Normalize inputs
     const curRpm = Math.max(profile.idleRpm * 0.8, Math.min(profile.redlineRpm * 1.1, rpm))
@@ -781,10 +842,15 @@ export class RealisticVehicleAudioEngine {
     const isPressed = throttleVal > 0.05
     const speedKmh = Math.max(0, speed)
 
-    // Detect rapid throttle lift for overrun crackles
+    // Detect rapid throttle lift for overrun crackles & turbo compressor surge / BOV flutter
     const throttleDelta = this.prevThrottle - throttleVal
-    if (throttleDelta > 0.35 && curRpm > profile.baseRpm.mid * 0.9) {
-      this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - profile.baseRpm.mid) / 3500))
+    if (throttleDelta > 0.30 && curRpm > profile.baseRpm.low * 1.25) {
+      if (profile.hasTurbo) {
+        this.triggerTurboBlowOffValve(Math.min(1.0, 0.65 + (curRpm - profile.baseRpm.low) / (profile.redlineRpm * 0.5)))
+      }
+      if (curRpm > profile.baseRpm.mid * 0.85) {
+        this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - profile.baseRpm.mid) / 3500))
+      }
     }
     this.prevThrottle = throttleVal
 
@@ -915,25 +981,29 @@ export class RealisticVehicleAudioEngine {
     }
 
     // ------------------------------------------------------------------------
-    // Load vs. Coasting (Throttle State)
+    // Direct Load-Based Crossfading (On-Load vs. Off-Throttle Engine Braking)
     // ------------------------------------------------------------------------
     if (this.onLoadBus && this.offLoadBus) {
       if (isPressed) {
-        const targetOnLoad = 0.45 + throttleVal * 0.75
-        this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, timeConstant)
-        this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
+        // Direct throttle mapping: full aggressive push under full throttle
+        const targetOnLoad = 0.25 + throttleVal * 0.95
+        this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, 0.025)
+        // Immediately cut off-throttle / engine braking bus
+        this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.02)
       } else {
-        this.onLoadBus.gain.setTargetAtTime(0.08, now, 0.06)
+        // Immediate crossfade away from acceleration load to off-throttle
+        this.onLoadBus.gain.setTargetAtTime(0.0001, now, 0.035)
 
-        if (speedKmh > 5 && curRpm > profile.baseRpm.idle * 1.4) {
+        // Engage off-throttle engine braking when coasting at speed
+        if (speedKmh > 3 && curRpm > profile.baseRpm.idle * 1.25) {
           const offThrottleIntensity = Math.min(
             1.0,
-            ((curRpm - profile.baseRpm.idle * 1.4) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 20)
+            ((curRpm - profile.baseRpm.idle * 1.25) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 15)
           )
-          this.offLoadBus.gain.setTargetAtTime(offThrottleIntensity * 0.90, now, timeConstant)
-          this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, timeConstant)
+          this.offLoadBus.gain.setTargetAtTime(Math.max(0.25, offThrottleIntensity * 0.95), now, 0.03)
+          this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, 0.03)
         } else {
-          this.offLoadBus.gain.setTargetAtTime(0.0001, now, timeConstant)
+          this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.04)
         }
       }
     }
@@ -1084,11 +1154,72 @@ export class RealisticVehicleAudioEngine {
     }
 
     // 7. High-RPM Lift-Off Detection: rapid array of exhaust crackles & backfires
-    if (this.prevThrottle > 0.45 && throttle < 0.12 && rpm > 5000 && !isHoverMode) {
+    if (this.prevThrottle > 0.40 && throttle < 0.15 && rpm > 4200 && !isHoverMode) {
       const crackleCount = Math.floor(Math.random() * 3) + 3 // 3 to 5 rapid crackles
       this.triggerOverrunCrackles(crackleCount, Math.min(1.0, rpm / 7000))
+      const activeProf = this.resolveProfile(vehicleModel)
+      if (activeProf.hasTurbo) {
+        this.triggerTurboBlowOffValve(Math.min(1.0, rpm / 6500))
+      }
     }
     this.prevThrottle = throttle
+  }
+
+  /**
+   * Synthesizes an authentic turbo compressor surge / blow-off valve (BOV) flutter
+   * ("pshh-ch-ch-ch-ch") with modulated resonant bandpass filtering.
+   */
+  public triggerTurboBlowOffValve(intensity = 1.0): void {
+    if (!this.ctx || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    if (now - this.lastBovTime < 0.22) return
+    this.lastBovTime = now
+
+    const ctx = this.ctx
+    const duration = 0.38
+    const sampleRate = ctx.sampleRate
+    const length = Math.floor(sampleRate * duration)
+    const noiseBuffer = ctx.createBuffer(1, length, sampleRate)
+    const data = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.75
+    }
+
+    const noiseSource = ctx.createBufferSource()
+    noiseSource.buffer = noiseBuffer
+
+    // Resonant bandpass filter sweeping downward during venting
+    const bpFilter = ctx.createBiquadFilter()
+    bpFilter.type = 'bandpass'
+    bpFilter.frequency.setValueAtTime(2600, now)
+    bpFilter.frequency.exponentialRampToValueAtTime(1300, now + duration)
+    bpFilter.Q.setValueAtTime(3.6, now)
+
+    // Master envelope for BOV flutter
+    const masterBovGain = ctx.createGain()
+    masterBovGain.gain.setValueAtTime(0.55 * Math.min(1.25, intensity), now)
+    masterBovGain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+
+    // Staccato flutter pulses ("ch-ch-ch-ch")
+    const flutterGain = ctx.createGain()
+    const pulseTimes = [0.0, 0.045, 0.10, 0.16, 0.23, 0.30]
+    pulseTimes.forEach((pt, idx) => {
+      const pTime = now + pt
+      const decay = Math.pow(0.72, idx)
+      flutterGain.gain.setValueAtTime(0.12 * decay, pTime)
+      flutterGain.gain.linearRampToValueAtTime(1.0 * decay, pTime + 0.015)
+      flutterGain.gain.exponentialRampToValueAtTime(0.06 * decay, pTime + 0.04)
+    })
+
+    noiseSource.connect(bpFilter)
+    bpFilter.connect(flutterGain)
+    flutterGain.connect(masterBovGain)
+    masterBovGain.connect(this.sfxMaster)
+
+    try {
+      noiseSource.start(now)
+      noiseSource.stop(now + duration + 0.02)
+    } catch {}
   }
 
   /**
@@ -1155,23 +1286,27 @@ export class RealisticVehicleAudioEngine {
   public triggerGearShift(vehicleModel: VehicleModelType = 'bmw_m3', isDownshift = false): void {
     if (!this.ctx || !this.sfxMaster) return
     const now = this.ctx.currentTime
-    const profile = VEHICLE_AUDIO_REGISTRY[vehicleModel] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    const profile = this.resolveProfile(vehicleModel)
 
-    // Ignition cut: momentarily duck on-load acceleration volume
-    if (this.onLoadBus && vehicleModel !== 'camper') {
-      this.onLoadBus.gain.setValueAtTime(0.04, now)
-      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.05, 0.045)
+    // Ignition cut: momentarily dip on-load acceleration volume and master engine bus
+    if (this.onLoadBus) {
+      this.onLoadBus.gain.setValueAtTime(0.02, now)
+      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.06, 0.035)
+    }
+    if (this.engineMaster) {
+      this.engineMaster.gain.setValueAtTime(0.25, now)
+      this.engineMaster.gain.setTargetAtTime(1.0, now + 0.07, 0.04)
     }
 
     // Explosive ignition backfire / shift pop transient (sharp sub-bass crack)
     try {
       const popOsc = this.ctx.createOscillator()
       popOsc.type = 'triangle'
-      popOsc.frequency.setValueAtTime(140, now)
-      popOsc.frequency.exponentialRampToValueAtTime(35, now + 0.065)
+      popOsc.frequency.setValueAtTime(160, now)
+      popOsc.frequency.exponentialRampToValueAtTime(32, now + 0.07)
 
       const popGain = this.ctx.createGain()
-      popGain.gain.setValueAtTime(0.85, now)
+      popGain.gain.setValueAtTime(0.95, now)
       popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
 
       popOsc.connect(popGain)
@@ -1180,6 +1315,11 @@ export class RealisticVehicleAudioEngine {
       popOsc.stop(now + 0.085)
     } catch {
       // Audio transient fallback
+    }
+
+    // For turbocharged cars, trigger a subtle blow-off surge chirp on upshift
+    if (profile.hasTurbo && !isDownshift) {
+      this.triggerTurboBlowOffValve(0.55)
     }
 
     let shiftBuffer: AudioBuffer | null = null

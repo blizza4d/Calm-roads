@@ -148,8 +148,8 @@ export function getDominantMacroType(z: number): MacroTerrainType {
 // ------------------------------------------------------------------------
 // Bulldozer Road Mask Constants
 // ------------------------------------------------------------------------
-export const ROAD_PROTECTED_RADIUS = 12.0 // Half-width (5.75m) + Shoulder (2.45m) + Safety Margin (3.8m)
-export const ROAD_TRANSITION_RADIUS = 50.0 // Smooth Hermite transition zone into terrain
+export const ROAD_PROTECTED_RADIUS = 14.5 // Half-width (5.75m) + Flat Shoulder (3.25m) + Safety Drainage Margin (5.5m)
+export const ROAD_TRANSITION_RADIUS = 75.0 // Smooth C2 quintic transition zone into natural terrain
 export const ROAD_CLEARANCE_BASE = 0.28   // Depressed sub-asphalt corridor floor (m)
 
 export type BiomeType =
@@ -729,12 +729,12 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     return targetY
   }
 
-  // 2. Smooth Hermite transition zone into natural terrain (ROAD_PROTECTED_RADIUS to ROAD_TRANSITION_RADIUS = 50.0m)
-  // Zero slope at corridor boundary (C1 continuous), smoothly rising to meet natural terrain without cliffs or trenches
+  // 2. Smooth Quintic transition zone into natural terrain (ROAD_PROTECTED_RADIUS to ROAD_TRANSITION_RADIUS = 75.0m)
+  // Zero slope and zero curvature at corridor boundary (C2 continuous), smoothly rising to meet natural terrain without cliffs or trenches
   const distPastCorridor = dist - ROAD_PROTECTED_RADIUS
   const blendDist = ROAD_TRANSITION_RADIUS - ROAD_PROTECTED_RADIUS
   const t = Math.min(1.0, Math.max(0.0, distPastCorridor / blendDist))
-  const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at corridor boundary
+  const smoothBlend = t * t * t * (t * (t * 6.0 - 15.0) + 10.0) // Quintic smootherstep (zero 1st & 2nd derivatives at endpoints)
 
   // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
   const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
@@ -759,12 +759,12 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
   }
 
-  // Distance scaling into mountain massifs (only in mountainous terrain):
+  // Distance scaling into mountain massifs (soft ramp preventing intrusion onto roadbed):
   const mountainRamp = macro.mountainAmplitude > 0
-    ? Math.min(1.25, 0.20 + Math.pow(distPastCorridor / 110.0, 1.1) * 0.95)
+    ? Math.min(1.25, 0.05 + Math.pow(distPastCorridor / 140.0, 1.25) * 1.15)
     : 1.0
   const valleyWallLift = macro.mountainAmplitude > 0
-    ? Math.pow(Math.min(1.0, distPastCorridor / 450.0), 1.4) * (macro.mountainAmplitude * 0.35)
+    ? Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.6) * (macro.mountainAmplitude * 0.35)
     : 0.0
 
   const computedElevation =
@@ -842,4 +842,18 @@ export function getTerrainAngles(x: number, z: number, biomeId: BiomeType = 'for
 export function isRoadSurface(x: number, z: number): boolean {
   const closest = getClosestRoadPoint(x, z)
   return closest.dist <= ROAD_WIDTH / 2 + 0.6
+}
+
+// 9. Ground Surface Normal Vector Y-Component at (x, z)
+// normal.y = 1 / sqrt(dx^2 + dz^2 + 1) = cos(slopeAngle)
+// Returns normal.y in range [0, 1]. A 30-degree slope corresponds to normal.y = cos(30 deg) = 0.866.
+export function getTerrainSlopeNormalY(x: number, z: number, biomeId: BiomeType = 'forest'): number {
+  const eps = 0.5
+  const hL = getTerrainHeight(x - eps, z, biomeId)
+  const hR = getTerrainHeight(x + eps, z, biomeId)
+  const hD = getTerrainHeight(x, z - eps, biomeId)
+  const hU = getTerrainHeight(x, z + eps, biomeId)
+  const dx = (hR - hL) / (2 * eps)
+  const dz = (hU - hD) / (2 * eps)
+  return 1.0 / Math.sqrt(dx * dx + dz * dz + 1.0)
 }

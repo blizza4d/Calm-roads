@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
 import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
@@ -833,7 +833,7 @@ export default function GameEnvironment() {
         <Environment
           preset={envPreset}
           background={false}
-          environmentIntensity={graphicsQuality === 'low' ? 0.40 : celestialData.isNight ? 0.25 : 0.65}
+          environmentIntensity={graphicsQuality === 'low' ? 0.45 : celestialData.isNight ? 0.32 : 0.70}
         />
       </Suspense>
 
@@ -858,17 +858,17 @@ export default function GameEnvironment() {
         <orthographicCamera attach="shadow-camera" args={[-55, 55, 65, -50, 0.5, 200]} />
       </directionalLight>
 
-      {/* Soft Ambient Fill Light (eliminates harsh pitch-black crevices in terrain shadows) */}
+      {/* Soft Ambient Fill Light (guarantees vehicle body panels never become an unlit silhouette) */}
       <ambientLight
         color={celestialData.isNight ? '#38bdf8' : '#fed7aa'}
-        intensity={celestialData.isNight ? 0.20 : 0.38}
+        intensity={celestialData.isNight ? 0.25 : 0.42}
       />
 
       {/* Atmospheric Fill Ambient / Hemisphere Lighting with Softened Ground Bounce */}
       <hemisphereLight
-        color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
+        color={celestialData.isNight ? '#bae6fd' : biomeConfig.skyHemiSky}
         groundColor={celestialData.isNight ? '#334155' : (biomeConfig.skyHemiGround || '#64748b')}
-        intensity={celestialData.isNight ? 0.28 : 0.60}
+        intensity={celestialData.isNight ? 0.32 : 0.68}
       />
 
       {/* Rain or Snow Particles with Soft Circular Alpha Map */}
@@ -886,9 +886,20 @@ export default function GameEnvironment() {
         </points>
       )}
 
-      {/* Cinematic Post-Processing Pass with Clamped Bloom to Prevent Screen Overexposure */}
+      {/* Cinematic Post-Processing Pass with Clamped Bloom & Contact-Shadow SSAO */}
       {graphicsQuality !== 'low' && (
         <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
+          <SSAO
+            resolutionScale={0.5}
+            radius={0.35}
+            intensity={22}
+            luminanceInfluence={0.5}
+            color={new THREE.Color('#0b101b')}
+            worldDistanceThreshold={100}
+            worldDistanceFalloff={10}
+            worldProximityThreshold={0.5}
+            worldProximityFalloff={0.1}
+          />
           <Bloom
             luminanceThreshold={1.05}
             luminanceSmoothing={0.15}
