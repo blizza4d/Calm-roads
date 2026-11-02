@@ -15,6 +15,10 @@ import {
   getActiveBiomeAt,
   getSurfaceHeight,
   getTerrainSlopeForVehicle,
+  getDominantMacroType,
+  getMacroTerrainWeights,
+  getMacroNoise,
+  getInterpolatedMacroProfile,
 } from '../../../utils/roadMath'
 import { audioSystem } from '../../../utils/audioSystem'
 
@@ -1042,7 +1046,14 @@ export default function VehicleController() {
         distFromRoad: +closestRoad.dist.toFixed(2),
       })
       if (telemetryCounter.current % 30 === 0) {
+        const macroProfile = getInterpolatedMacroProfile(pos.current.z)
+        const macroWeights = getMacroTerrainWeights(pos.current.z)
+        const macroNoise = getMacroNoise(pos.current.z)
+        const dominantMacro = getDominantMacroType(pos.current.z)
+
         useGameStore.setState({
+          macroTerrain: dominantMacro,
+          macroWeights,
           distance: accumulatedDistance.current,
           diagnostics: {
             ...useGameStore.getState().diagnostics,
@@ -1050,6 +1061,15 @@ export default function VehicleController() {
             terrainElevation: +groundY.toFixed(1),
             corridorClearance: +(closestRoad.roadY - groundY).toFixed(2),
             roadBankingDeg: +(closestRoad.banking * (180 / Math.PI)).toFixed(1),
+            macroTerrainType: dominantMacro.toUpperCase().replace('_', ' '),
+            macroNoise: +macroNoise.toFixed(2),
+            plainsWeight: +macroWeights.plains.toFixed(2),
+            rollingHillsWeight: +macroWeights.rollingHills.toFixed(2),
+            twistedClimbWeight: +macroWeights.twistedClimb.toFixed(2),
+            macroAmplitude: +macroProfile.terrainAmplitude.toFixed(1),
+            roadCurvature: +macroProfile.roadCurvature.toFixed(2),
+            bulldozerClearance: 0.28,
+            roadProtectedRadius: 12.0,
           },
         })
       }

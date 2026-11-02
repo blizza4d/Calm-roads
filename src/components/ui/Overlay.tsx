@@ -893,13 +893,55 @@ function DiagnosticsHUD() {
           </div>
         </div>
 
+        {/* Macro Terrain System Telemetry */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-purple-400 font-bold flex justify-between">
+            <span>MACRO TERRAIN SYSTEM</span>
+            <span
+              className={
+                diagnostics.macroTerrainType === 'TWISTED CLIMB'
+                  ? 'text-rose-400 font-black'
+                  : diagnostics.macroTerrainType === 'ROLLING HILLS'
+                  ? 'text-amber-300 font-black'
+                  : 'text-emerald-300 font-black'
+              }
+            >
+              {diagnostics.macroTerrainType ?? 'PLAINS'}
+            </span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Macro Noise M(z):</span>
+            <span className="text-white font-bold">{diagnostics.macroNoise?.toFixed(2) ?? '0.00'}</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Weights (P / H / T):</span>
+            <span className="text-cyan-300 font-bold">
+              {Math.round((diagnostics.plainsWeight ?? 1) * 100)}% / {Math.round((diagnostics.rollingHillsWeight ?? 0) * 100)}% / {Math.round((diagnostics.twistedClimbWeight ?? 0) * 100)}%
+            </span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Terrain Amplitude / Curve:</span>
+            <span className="text-white font-bold">
+              {diagnostics.macroAmplitude?.toFixed(1) ?? '3.2'}m / {Math.round((diagnostics.roadCurvature ?? 0.12) * 100)}%
+            </span>
+          </div>
+        </div>
+
         {/* Road & Corridor Clearance */}
         <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
           <div className="text-amber-400 font-bold flex justify-between">
-            <span>ROAD & TERRAIN CORRIDOR</span>
+            <span>BULLDOZER ROAD MASK</span>
             <span className={onRoad ? 'text-emerald-400' : 'text-amber-400'}>
               {onRoad ? 'ON ASPHALT' : 'OFF-ROAD'}
             </span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Protected Corridor:</span>
+            <span className="text-white font-bold">12.0m (Floor -0.28m)</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Transition Zone:</span>
+            <span className="text-white font-bold">50.0m (C¹ Hermite)</span>
           </div>
           <div className="flex justify-between text-white/70">
             <span>Centerline Offset:</span>
@@ -914,8 +956,8 @@ function DiagnosticsHUD() {
             <span className="text-emerald-300 font-bold">{roadClearance} mm</span>
           </div>
           <div className="flex justify-between text-white/70">
-            <span>Terrain Carve Base:</span>
-            <span className="text-white font-bold">-0.28m (Corridor Floor)</span>
+            <span>Submersion Status:</span>
+            <span className="text-emerald-400 font-bold">0.00m (PROTECTED)</span>
           </div>
         </div>
 

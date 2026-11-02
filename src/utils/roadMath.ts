@@ -14,8 +14,143 @@ function mulberry32(a: number) {
 const terrainNoise = createNoise2D(mulberry32(1337))
 const detailNoise = createNoise2D(mulberry32(4242))
 const microNoise = createNoise2D(mulberry32(9999))
+const macroNoise2D = createNoise2D(mulberry32(7777))
 
 export const ROAD_WIDTH = 11.5
+
+// ------------------------------------------------------------------------
+// Macro Terrain Classification & Configuration
+// ------------------------------------------------------------------------
+export type MacroTerrainType = 'plains' | 'rolling_hills' | 'twisted_climb'
+
+export interface MacroTerrainProfile {
+  id: MacroTerrainType
+  name: string
+  terrainAmplitude: number       // Base macro hill/mountain amplitude (m)
+  terrainFrequency: number       // Spatial frequency of terrain noise
+  mountainAmplitude: number      // Additional background mountain massif amplitude (m)
+  mountainFrequency: number      // Spatial frequency for massifs
+  roadCurvature: number          // Winding / hairpin intensity (0 = straight, 1 = intense hairpins)
+  roadElevationVariation: number // Road vertical climb / grade variation (0 = flat, 1 = mountain pass)
+  roadWavelength: number         // Spatial scale of road turns
+  vegetationDensity: number      // Foliage / tree spawning density multiplier
+  rockDensity: number            // Boulder / outcrop spawning density multiplier
+}
+
+export interface MacroTerrainWeights {
+  plains: number
+  rollingHills: number
+  twistedClimb: number
+}
+
+export const MACRO_PROFILES: Record<MacroTerrainType, MacroTerrainProfile> = {
+  plains: {
+    id: 'plains',
+    name: 'Plains',
+    terrainAmplitude: 3.2,
+    terrainFrequency: 0.0022,
+    mountainAmplitude: 0.0,
+    mountainFrequency: 0.0010,
+    roadCurvature: 0.12,
+    roadElevationVariation: 0.10,
+    roadWavelength: 1.35,
+    vegetationDensity: 0.55,
+    rockDensity: 0.35,
+  },
+  rolling_hills: {
+    id: 'rolling_hills',
+    name: 'Rolling Hills',
+    terrainAmplitude: 13.5,
+    terrainFrequency: 0.0035,
+    mountainAmplitude: 8.5,
+    mountainFrequency: 0.0014,
+    roadCurvature: 0.44,
+    roadElevationVariation: 0.40,
+    roadWavelength: 1.05,
+    vegetationDensity: 1.00,
+    rockDensity: 0.85,
+  },
+  twisted_climb: {
+    id: 'twisted_climb',
+    name: 'Twisted Climb',
+    terrainAmplitude: 30.0,
+    terrainFrequency: 0.0050,
+    mountainAmplitude: 48.0,
+    mountainFrequency: 0.0018,
+    roadCurvature: 0.92,
+    roadElevationVariation: 0.88,
+    roadWavelength: 0.80,
+    vegetationDensity: 1.25,
+    rockDensity: 1.40,
+  },
+}
+
+export const MACRO_CYCLE_DISTANCE = 3800
+
+function smoothstep(min: number, max: number, value: number): number {
+  const x = Math.max(0, Math.min(1, (value - min) / (max - min)))
+  return x * x * (3.0 - 2.0 * x)
+}
+
+// Global deterministic macro-noise function
+export function getMacroNoise(z: number): number {
+  const normZ = Math.abs(z) * (1.0 / MACRO_CYCLE_DISTANCE)
+  const n1 = macroNoise2D(0.15, normZ * 1.0) * 0.5 + 0.5
+  const n2 = macroNoise2D(0.85, normZ * 2.3 + 4.2) * 0.5 + 0.5
+  const combined = n1 * 0.75 + n2 * 0.25
+  const clamped = Math.max(0, Math.min(1, (combined - 0.15) / 0.70))
+  return clamped * clamped * (3.0 - 2.0 * clamped)
+}
+
+// Continuous normalized weights for transition bands
+export function getMacroTerrainWeights(z: number): MacroTerrainWeights {
+  const m = getMacroNoise(z)
+  const plainsW = 1.0 - smoothstep(0.24, 0.44, m)
+  const twistedW = smoothstep(0.56, 0.76, m)
+  const hillsW = Math.max(0.001, 1.0 - plainsW - twistedW)
+  const sum = plainsW + hillsW + twistedW
+  return {
+    plains: plainsW / sum,
+    rollingHills: hillsW / sum,
+    twistedClimb: twistedW / sum,
+  }
+}
+
+// Seamless multi-weight parameter interpolation across macro terrain types
+export function getInterpolatedMacroProfile(z: number): MacroTerrainProfile {
+  const w = getMacroTerrainWeights(z)
+  const p = MACRO_PROFILES.plains
+  const h = MACRO_PROFILES.rolling_hills
+  const t = MACRO_PROFILES.twisted_climb
+
+  return {
+    id: w.twistedClimb >= 0.48 ? 'twisted_climb' : w.plains >= 0.48 ? 'plains' : 'rolling_hills',
+    name: w.twistedClimb >= 0.48 ? 'Twisted Climb' : w.plains >= 0.48 ? 'Plains' : 'Rolling Hills',
+    terrainAmplitude: p.terrainAmplitude * w.plains + h.terrainAmplitude * w.rollingHills + t.terrainAmplitude * w.twistedClimb,
+    terrainFrequency: p.terrainFrequency * w.plains + h.terrainFrequency * w.rollingHills + t.terrainFrequency * w.twistedClimb,
+    mountainAmplitude: p.mountainAmplitude * w.plains + h.mountainAmplitude * w.rollingHills + t.mountainAmplitude * w.twistedClimb,
+    mountainFrequency: p.mountainFrequency * w.plains + h.mountainFrequency * w.rollingHills + t.mountainFrequency * w.twistedClimb,
+    roadCurvature: p.roadCurvature * w.plains + h.roadCurvature * w.rollingHills + t.roadCurvature * w.twistedClimb,
+    roadElevationVariation: p.roadElevationVariation * w.plains + h.roadElevationVariation * w.rollingHills + t.roadElevationVariation * w.twistedClimb,
+    roadWavelength: p.roadWavelength * w.plains + h.roadWavelength * w.rollingHills + t.roadWavelength * w.twistedClimb,
+    vegetationDensity: p.vegetationDensity * w.plains + h.vegetationDensity * w.rollingHills + t.vegetationDensity * w.twistedClimb,
+    rockDensity: p.rockDensity * w.plains + h.rockDensity * w.rollingHills + t.rockDensity * w.twistedClimb,
+  }
+}
+
+export function getDominantMacroType(z: number): MacroTerrainType {
+  const w = getMacroTerrainWeights(z)
+  if (w.plains >= 0.48) return 'plains'
+  if (w.twistedClimb >= 0.48) return 'twisted_climb'
+  return 'rolling_hills'
+}
+
+// ------------------------------------------------------------------------
+// Bulldozer Road Mask Constants
+// ------------------------------------------------------------------------
+export const ROAD_PROTECTED_RADIUS = 12.0 // Half-width (5.75m) + Shoulder (2.45m) + Safety Margin (3.8m)
+export const ROAD_TRANSITION_RADIUS = 50.0 // Smooth Hermite transition zone into terrain
+export const ROAD_CLEARANCE_BASE = 0.28   // Depressed sub-asphalt corridor floor (m)
 
 export type BiomeType =
   | 'twisted_mountains'
@@ -340,41 +475,51 @@ export function getBiomeElevationMultiplier(z: number): number {
   return getInterpolatedBiomeCharacter(z).elevationClimbRate
 }
 
-// 2. Procedural Road Centerline (Realistic Alpine Passes, Hairpin Switchbacks & Flowing S-Curves)
+// 2. Procedural Road Centerline (Realistic Alpine Passes, Hairpin Switchbacks, Flowing S-Curves & Open Plains)
+// Influenced by continuous macro terrain profile (Plains = mostly straight, Hills = sweeping curves, Twisted = hairpins)
 // Guaranteed C2 continuous: derivative and curvature are smooth with zero chunk boundary seams
 export function getRoadCenter(z: number): number {
   const char = getInterpolatedBiomeCharacter(z)
+  const macro = getInterpolatedMacroProfile(z)
 
   // 1. Mountain pass switchbacks & hairpins (wavelength 160m - 240m)
-  // Using tanh-shaped sine for realistic alpine hairpin turns with flat approaches and sharp rounded apexes:
+  // Strictly suppressed in Plains (roadCurvature < 0.32), moderate in Hills, full in Twisted Climb:
+  const hairpinGate = Math.max(0.0, Math.min(1.0, (macro.roadCurvature - 0.32) / 0.52))
   const hairpin = Math.tanh(Math.sin(z * 0.0322) * 1.85) * (char.hairpinAmplitude * 0.65)
   const technicalChicane = Math.sin(z * 0.048 + 1.1) * (char.hairpinAmplitude * 0.22)
-  const switchbacks = (hairpin + technicalChicane) * char.switchbackWeight
+  const switchbacks = (hairpin + technicalChicane) * char.switchbackWeight * hairpinGate
 
   // 2. Dynamic flowing S-curves (wavelength 280m - 440m)
-  const sCurves = (Math.sin(z * 0.0175 + 0.6) * 19.0 + Math.cos(z * 0.0131 + 2.1) * 14.0) * char.sCurveWeight
+  // Gentle in Plains, flowing in Hills, strong in Twisted Climb:
+  const sCurveMultiplier = macro.roadCurvature * 0.95
+  const sCurves = (Math.sin(z * 0.0175 + 0.6) * 19.0 + Math.cos(z * 0.0131 + 2.1) * 14.0) * char.sCurveWeight * sCurveMultiplier
 
-  // 3. Regional valley / mountain range sweep (wavelength 750m - 1400m)
-  const valleySweeps = (Math.sin(z * 0.0057 + 1.4) * 32.0 + Math.sin(z * 0.0028 + 0.3) * 20.0) * char.valleySweepWeight
+  // 3. Regional valley / open highway sweep (wavelength 750m - 1400m)
+  // Provides gentle open bends across Plains and massive panoramic sweeps in Mountains:
+  const sweepMultiplier = 0.35 + 0.65 * macro.roadCurvature
+  const valleySweeps = (Math.sin(z * 0.0057 + 1.4) * 28.0 + Math.sin(z * 0.0028 + 0.3) * 18.0) * char.valleySweepWeight * sweepMultiplier
 
   return switchbacks + sCurves + valleySweeps
 }
 
-// 3. Road Elevation (Drivable scenic mountain pass climbs, highway crests and expansive valleys)
+// 3. Road Elevation (Drivable scenic mountain pass climbs, highway crests and expansive plains)
 export function getRoadElevation(z: number): number {
   const char = getInterpolatedBiomeCharacter(z)
+  const macro = getInterpolatedMacroProfile(z)
 
   // 1. Scenic Mountain Pass Climbs (wavelength ~780m, vertical rise up to 48m)
+  // Suppressed in Plains to allow long flat driving stretches:
   const passWave = (Math.sin(z * 0.0080) * 0.5 + 0.5) * 36.0 + (Math.sin(z * 0.0039 + 1.2) * 0.5 + 0.5) * 22.0
+  const passClimbGate = Math.max(0.0, Math.min(1.0, (macro.roadElevationVariation - 0.22) / 0.65))
 
-  // 2. Rolling crests and valley passes (wavelength ~280m, amplitude +-11.0m)
+  // 2. Rolling crests and valley passes (wavelength ~280m, amplitude +-9.5m)
   const valleyWave = Math.sin(z * 0.0224 + 0.8) * 9.5
 
   // 3. Gentle high-speed road undulation (wavelength ~110m, amplitude +-1.8m)
   const microWave = Math.sin(z * 0.057 + 2.1) * 1.8
 
   // Base highway elevation of 24.0m guarantees road is ALWAYS >= 16m above sea level (Y=0)
-  return 24.0 + (passWave + valleyWave + microWave) * char.elevationClimbRate
+  return 24.0 + (passWave * passClimbGate + valleyWave * macro.roadElevationVariation + microWave * 0.5) * char.elevationClimbRate
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (for constant width & banking)
@@ -426,11 +571,11 @@ export interface ClosestRoadPoint {
 // Finds the exact closest point on the road curve to any world (x, z) coordinate,
 // returning Euclidean distance, road elevation, normal vector and signed lateral offset.
 export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
-  // Coarse scan +-60m in 10m steps around z
+  // Coarse scan +-60m in 6m steps around z for robust global basin detection
   let bestU = z
   let bestDistSq = (x - getRoadCenter(z)) ** 2
 
-  for (let offset = -60; offset <= 60; offset += 10) {
+  for (let offset = -60; offset <= 60; offset += 6) {
     if (offset === 0) continue
     const u = z + offset
     const rx = getRoadCenter(u)
@@ -441,16 +586,16 @@ export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
     }
   }
 
-  // Refine with Golden Section search within [bestU - 10, bestU + 10]
-  let a = bestU - 10
-  let b = bestU + 10
+  // Refine with Golden Section search within [bestU - 6, bestU + 6]
+  let a = bestU - 6
+  let b = bestU + 6
   const gr = 0.618033988749895
   let c = b - gr * (b - a)
   let d = a + gr * (b - a)
   let fc = (x - getRoadCenter(c)) ** 2 + (z - c) ** 2
   let fd = (x - getRoadCenter(d)) ** 2 + (z - d) ** 2
 
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     if (fc < fd) {
       b = d
       d = c
@@ -500,95 +645,95 @@ function smoothRidge(n: number): number {
   return 1.0 - clamped * clamped
 }
 
-function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
-  if (bId === 'twisted_mountains') {
-    // Majestic Alpine Massifs and dramatic winter peaks flanked by gentle valleys
-    const primaryPeaks = Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))) * 42.0
-    const alpineRidges = Math.max(0, smoothRidge(detailNoise(x * 0.0055, z * 0.0055))) * 16.0
-    const glacialMoraines = Math.max(0, detailNoise(x * 0.0042, z * 0.0042)) * 9.0
-    const cragDetails = Math.max(0, microNoise(x * 0.016, z * 0.016) * 0.5 + 0.5) * 3.5
-    return Math.max(0.0, primaryPeaks + alpineRidges + glacialMoraines + cragDetails)
-  } else if (bId === 'alpine') {
-    // Sharp high-altitude jagged summits and sheer horn peaks
-    const horns = Math.pow(Math.max(0, smoothRidge(terrainNoise(x * 0.0022, z * 0.0022))), 1.35) * 44.0
-    const sheerRidges = Math.max(0, smoothRidge(detailNoise(x * 0.006, z * 0.006))) * 15.0
-    const screeSlopes = Math.max(0, (microNoise(x * 0.014, z * 0.014) * 0.5 + 0.5)) * 3.5
-    return Math.max(0.0, horns + sheerRidges + screeSlopes)
-  } else if (bId === 'enchanted_forest') {
-    // Rolling mossy foothills with sheltered dells and ancient clearings
-    const mossyHills = (terrainNoise(x * 0.0028, z * 0.0028) * 0.5 + 0.5) * 28.0
-    const forestDells = Math.max(0, smoothRidge(detailNoise(x * 0.007, z * 0.007))) * 10.0
-    const knollMicro = Math.max(0, (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5)) * 3.0
-    return Math.max(0.0, mossyHills + forestDells + knollMicro)
-  } else if (bId === 'coastal') {
-    // Rolling green seaside cliffs falling away toward distant ocean horizons
-    const seaCliffs = (terrainNoise(x * 0.0025, z * 0.0025) * 0.5 + 0.5) * 30.0
-    const coastalShelf = x < 0 ? Math.max(-12, x * 0.03) : 0
-    const headlands = Math.max(0, smoothRidge(detailNoise(x * 0.0065, z * 0.0065))) * 12.0
-    return Math.max(0.0, seaCliffs + coastalShelf + headlands)
-  } else if (bId === 'desert') {
-    const mesaShape = Math.max(0, Math.tanh(terrainNoise(x * 0.0025, z * 0.0025) * 2.2)) * 30.0
-    const duneWave = (Math.sin(x * 0.008 + z * 0.005) * 0.5 + 0.5) * 14.0
-    const duneDetail = (detailNoise(x * 0.012, z * 0.012) * 0.5 + 0.5) * 5.0
-    return Math.max(0.0, mesaShape + duneWave + duneDetail)
-  } else if (bId === 'tundra') {
-    const primaryMassif = Math.max(0, smoothRidge(terrainNoise(x * 0.0024, z * 0.0024))) * 42.0
-    const secondaryRidge = Math.max(0, smoothRidge(detailNoise(x * 0.0065, z * 0.0065))) * 14.0
-    const alpineDetail = Math.max(0, (microNoise(x * 0.015, z * 0.015) * 0.5 + 0.5)) * 3.5
-    return Math.max(0.0, primaryMassif + secondaryRidge + alpineDetail)
-  } else if (bId === 'autumn') {
-    const alpineMassif = Math.max(0, smoothRidge(terrainNoise(x * 0.0028, z * 0.0028))) * 38.0
-    const ridgePasses = Math.max(0, smoothRidge(detailNoise(x * 0.0072, z * 0.0072))) * 13.0
-    const foothillDetail = Math.max(0, (microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5)) * 3.5
-    return Math.max(0.0, alpineMassif + ridgePasses + foothillDetail)
-  } else {
-    // Forest: Lush rolling mountain flanks and forested peaks
-    const rollingCountryside = (terrainNoise(x * 0.0032, z * 0.0032) * 0.5 + 0.5) * 30.0
-    const forestKnolls = Math.max(0, smoothRidge(detailNoise(x * 0.008, z * 0.008))) * 12.0
-    const gentleHills = Math.max(0, (microNoise(x * 0.02, z * 0.02) * 0.5 + 0.5)) * 3.5
-    return Math.max(0.0, rollingCountryside + forestKnolls + gentleHills)
+export function getRawMacroTerrainElevation(
+  x: number,
+  z: number,
+  bId: BiomeType,
+  macro: MacroTerrainProfile
+): number {
+  const tFreq = macro.terrainFrequency
+  const mFreq = macro.mountainFrequency
+  const tAmp = macro.terrainAmplitude
+  const mAmp = macro.mountainAmplitude
+
+  // 1. Base rolling hill / lowland ground wave (scaled by macro terrain amplitude)
+  const baseWave = (terrainNoise(x * tFreq, z * tFreq) * 0.5 + 0.5) * tAmp
+
+  // 2. Mountain Massifs / alpine peaks (active when mountainAmplitude > 0, e.g. in Twisted Climb or background of Rolling Hills)
+  let mountainContribution = 0
+  if (mAmp > 0.1) {
+    if (bId === 'twisted_mountains' || bId === 'alpine' || bId === 'tundra') {
+      const primaryHorns = Math.pow(Math.max(0, smoothRidge(terrainNoise(x * mFreq, z * mFreq))), 1.35) * (mAmp * 0.85)
+      const sharpRidges = Math.max(0, smoothRidge(detailNoise(x * mFreq * 2.5, z * mFreq * 2.5))) * (mAmp * 0.35)
+      mountainContribution = primaryHorns + sharpRidges
+    } else if (bId === 'desert') {
+      const mesas = Math.max(0, Math.tanh(terrainNoise(x * mFreq, z * mFreq) * 2.2)) * (mAmp * 0.80)
+      const canyonWalls = Math.max(0, smoothRidge(detailNoise(x * mFreq * 2.0, z * mFreq * 2.0))) * (mAmp * 0.30)
+      mountainContribution = mesas + canyonWalls
+    } else {
+      const massif = Math.max(0, smoothRidge(terrainNoise(x * mFreq, z * mFreq))) * (mAmp * 0.75)
+      const ridges = Math.max(0, smoothRidge(detailNoise(x * mFreq * 2.2, z * mFreq * 2.2))) * (mAmp * 0.28)
+      mountainContribution = massif + ridges
+    }
   }
+
+  // 3. Local geological micro-relief scaled by terrain amplitude
+  const microScale = Math.min(1.0, 0.25 + (tAmp / 24.0) * 0.75)
+  const detailKnolls = Math.max(0, smoothRidge(detailNoise(x * 0.008, z * 0.008))) * (5.5 * microScale)
+  const surfaceRoughness = Math.max(0, microNoise(x * 0.018, z * 0.018) * 0.5 + 0.5) * (2.2 * microScale)
+
+  // 4. Biome-specific geological nuances
+  let biomeExtra = 0
+  if (bId === 'desert') {
+    biomeExtra = (Math.sin(x * 0.008 + z * 0.005) * 0.5 + 0.5) * (4.5 * microScale)
+  } else if (bId === 'coastal') {
+    biomeExtra = (terrainNoise(x * 0.0035, z * 0.0035) * 0.5 + 0.5) * (5.0 * microScale)
+  }
+
+  return Math.max(0.0, baseWave + mountainContribution + detailKnolls + surfaceRoughness + biomeExtra)
+}
+
+// Backward-compatible wrapper
+export function getRawBiomeElevation(x: number, z: number, bId: BiomeType): number {
+  const macro = getInterpolatedMacroProfile(z)
+  return getRawMacroTerrainElevation(x, z, bId, macro)
 }
 
 // 5. Complete World Terrain Elevation at ANY (x, z)
-// Provides a guaranteed Euclidean road protection corridor following the 2D curved road spline
-// so coarse terrain grid triangles never pierce, submerge, or z-fight the road ribbon in any biome
+// Enforces the Bulldozer Road Mask with a strictly protected roadbed corridor and smooth Hermite transition.
+// The road is always guaranteed to remain a visible, flat, continuous, physically drivable surface.
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const closest = getClosestRoadPoint(x, z)
   const dist = closest.dist
   const roadY = closest.roadY
   const banking = closest.banking
   const lateralOffset = closest.lateralOffset
+  const macro = getInterpolatedMacroProfile(closest.u)
 
   // Calculate the banked roadbed plane at this lateral coordinate:
   const clampedOffset = Math.max(-ROAD_WIDTH / 2 - 2.5, Math.min(ROAD_WIDTH / 2 + 2.5, lateralOffset))
   const bankedCorridorBase = roadY + Math.tan(banking) * clampedOffset
 
-  // 1. Strictly protected roadbed corridor & shoulder (0m to 13.5m from road centerline)
+  // 1. Strictly protected roadbed corridor & shoulder (0m to ROAD_PROTECTED_RADIUS = 12.0m)
   // Flat threshold depressed safely 0.28m below the banked roadbed
   // Guarantees that across the entire road width and shoulder, terrain NEVER pierces or z-fights
-  if (dist <= 13.5) {
-    return bankedCorridorBase - 0.28
+  if (dist <= ROAD_PROTECTED_RADIUS) {
+    return bankedCorridorBase - ROAD_CLEARANCE_BASE
   }
 
   // Coastal beach & sandy dune slope on seaward side (lateralOffset < -13.5m)
   if (biomeId === 'coastal' && lateralOffset < -13.5) {
     const beachDist = -13.5 - lateralOffset
     const duneRipples = Math.sin(x * 0.08 + z * 0.04) * 0.35 + Math.cos(x * 0.03 - z * 0.02) * 0.55
-    const targetY = Math.max(0.0, (bankedCorridorBase - 0.28) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
+    const targetY = Math.max(0.0, (bankedCorridorBase - ROAD_CLEARANCE_BASE) * Math.max(0, 1.0 - beachDist / 75.0) + duneRipples * Math.min(1.0, beachDist / 25.0))
     return targetY
   }
 
-  // 2. Roadside drainage swale & flat outer corridor buffer (13.5m to 28.0m)
-  // Smoothly rises from (bankedCorridorBase - 0.28) to (bankedCorridorBase - 0.12), strictly remaining below roadbed
-  if (dist <= 28.0) {
-    const corridorT = (dist - 13.5) / 14.5 // 0 to 1
-    return bankedCorridorBase - 0.28 + 0.16 * corridorT
-  }
-
-  // 3. Smooth Hermite smoothstep transition into mountains (28.0m to 85.0m)
-  const distPastCorridor = dist - 28.0
-  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / 57.0))
+  // 2. Smooth Hermite transition zone into natural terrain (ROAD_PROTECTED_RADIUS to ROAD_TRANSITION_RADIUS = 50.0m)
+  // Zero slope at corridor boundary (C1 continuous), smoothly rising to meet natural terrain without cliffs or trenches
+  const distPastCorridor = dist - ROAD_PROTECTED_RADIUS
+  const blendDist = ROAD_TRANSITION_RADIUS - ROAD_PROTECTED_RADIUS
+  const t = Math.min(1.0, Math.max(0.0, distPastCorridor / blendDist))
   const smoothBlend = t * t * (3.0 - 2.0 * t) // C1 continuous, zero slope at corridor boundary
 
   // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
@@ -603,23 +748,27 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   if (frac > 0.82) {
     const blendT = (frac - 0.82) / 0.18
     const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
-    const elev1 = getRawBiomeElevation(x, z, BIOME_CYCLE_ORDER[idx])
-    const elev2 = getRawBiomeElevation(x, z, BIOME_CYCLE_ORDER[nextIdx])
+    const elev1 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
+    const elev2 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[nextIdx], macro)
     naturalElevation = elev1 * (1 - sBlend) + elev2 * sBlend
     const mult1 = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
     const mult2 = BIOMES[BIOME_CYCLE_ORDER[nextIdx]].hillHeightMultiplier
     mult = mult1 * (1 - sBlend) + mult2 * sBlend
   } else {
-    naturalElevation = getRawBiomeElevation(x, z, BIOME_CYCLE_ORDER[idx])
+    naturalElevation = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
     mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
   }
 
-  // Distance scaling: Gradual elevation gain into mountain massifs and valley walls
-  const mountainRamp = Math.min(1.35, 0.10 + Math.pow(distPastCorridor / 110.0, 1.1) * 1.05)
-  const valleyWallLift = Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.5) * 26.0
+  // Distance scaling into mountain massifs (only in mountainous terrain):
+  const mountainRamp = macro.mountainAmplitude > 0
+    ? Math.min(1.25, 0.20 + Math.pow(distPastCorridor / 110.0, 1.1) * 0.95)
+    : 1.0
+  const valleyWallLift = macro.mountainAmplitude > 0
+    ? Math.pow(Math.min(1.0, distPastCorridor / 450.0), 1.4) * (macro.mountainAmplitude * 0.35)
+    : 0.0
 
   const computedElevation =
-    (bankedCorridorBase - 0.12) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
+    (bankedCorridorBase - ROAD_CLEARANCE_BASE) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
 
   const MAX_TERRAIN_CEILING = 110.0
   const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)

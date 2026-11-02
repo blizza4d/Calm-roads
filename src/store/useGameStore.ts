@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { BiomeType } from '../utils/roadMath'
+import { BiomeType, MacroTerrainType, MacroTerrainWeights } from '../utils/roadMath'
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
 export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback'
@@ -17,6 +17,12 @@ interface GameState {
   setBiome: (b: BiomeSelection) => void
   currentResolvedBiome: BiomeType
   setCurrentResolvedBiome: (b: BiomeType) => void
+
+  // 2b. Macro Terrain System
+  macroTerrain: MacroTerrainType
+  setMacroTerrain: (m: MacroTerrainType) => void
+  macroWeights: MacroTerrainWeights
+  setMacroWeights: (w: MacroTerrainWeights) => void
 
   // 3. Time of Day & Weather
   timeOfDay: number // 0.0 to 24.0 (hours)
@@ -123,6 +129,15 @@ interface GameState {
     terrainElevation?: number
     corridorClearance?: number
     roadBankingDeg?: number
+    macroTerrainType?: string
+    macroNoise?: number
+    plainsWeight?: number
+    rollingHillsWeight?: number
+    twistedClimbWeight?: number
+    macroAmplitude?: number
+    roadCurvature?: number
+    bulldozerClearance?: number
+    roadProtectedRadius?: number
   }
   setDiagnostics: (
     d: Partial<{
@@ -137,6 +152,15 @@ interface GameState {
       terrainElevation: number
       corridorClearance: number
       roadBankingDeg: number
+      macroTerrainType: string
+      macroNoise: number
+      plainsWeight: number
+      rollingHillsWeight: number
+      twistedClimbWeight: number
+      macroAmplitude: number
+      roadCurvature: number
+      bulldozerClearance: number
+      roadProtectedRadius: number
     }>
   ) => void
 }
@@ -156,6 +180,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   setBiome: (biome) => set({ biome }),
   currentResolvedBiome: 'forest',
   setCurrentResolvedBiome: (currentResolvedBiome) => set({ currentResolvedBiome }),
+
+  // Macro Terrain System
+  macroTerrain: 'plains',
+  setMacroTerrain: (macroTerrain) => set({ macroTerrain }),
+  macroWeights: { plains: 1.0, rollingHills: 0.0, twistedClimb: 0.0 },
+  setMacroWeights: (macroWeights) => set({ macroWeights }),
 
   // Time & Weather
   timeOfDay: 17.5, // Default to stunning Golden Hour
@@ -282,6 +312,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     terrainElevation: 0,
     corridorClearance: 0.28,
     roadBankingDeg: 0,
+    macroTerrainType: 'PLAINS',
+    macroNoise: 0.1,
+    plainsWeight: 1.0,
+    rollingHillsWeight: 0.0,
+    twistedClimbWeight: 0.0,
+    macroAmplitude: 3.2,
+    roadCurvature: 0.12,
+    bulldozerClearance: 0.28,
+    roadProtectedRadius: 12.0,
   },
   setDiagnostics: (d) => set((s) => ({ diagnostics: { ...s.diagnostics, ...d } })),
 }))
