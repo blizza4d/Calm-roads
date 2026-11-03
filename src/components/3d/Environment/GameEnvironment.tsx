@@ -664,6 +664,23 @@ export default function GameEnvironment() {
     }
   }, [weather, timeOfDay, celestialData.isNight, currentResolvedBiome, biomeConfig.skyHemiSky])
 
+  // Dynamic Horizon Fog: seamlessly blends terrain loading horizon with sky atmosphere and biome
+  const activeFogColor = useMemo(() => {
+    if (celestialData.isNight) return '#050a14'
+    if (weather === 'rain') return '#334155'
+    if (weather === 'mist') return '#64748b'
+    if (weather === 'snow' || currentResolvedBiome === 'twisted_mountains' || currentResolvedBiome === 'tundra') return '#cbd5e1'
+    return skyColor
+  }, [celestialData.isNight, weather, currentResolvedBiome, skyColor])
+
+  const activeFogDensity = useMemo(() => {
+    if (weather === 'mist') return 0.0018
+    if (weather === 'rain') return 0.0014
+    if (weather === 'snow') return 0.0010
+    // Clear weather: expansive draw distance with natural aerial perspective (no dark gray void cutoff)
+    return biomeConfig.fogDensity ? Math.min(biomeConfig.fogDensity, 0.00065) : 0.00055
+  }, [weather, biomeConfig.fogDensity])
+
   // Sync background color directly to scene to prevent canvas black void
   useEffect(() => {
     scene.background = new THREE.Color(skyColor)
@@ -796,8 +813,8 @@ export default function GameEnvironment() {
       {/* Dynamic Background Atmosphere Color (Restores Sky from Black Void) */}
       <color attach="background" args={[skyColor]} />
 
-      {/* Horizon Blending Fog: smoothly masks terrain chunk loading distance matching the sky void color */}
-      <fogExp2 attach="fog" color="#4a4a52" density={0.003} />
+      {/* Horizon Blending Fog: seamlessly blends distant terrain into the sky dome */}
+      <fogExp2 attach="fog" color={activeFogColor} density={activeFogDensity} />
 
       {/* Camera-Tracking SkyDome (prevents distance clipping & void) */}
       <group ref={skyFollowRef}>

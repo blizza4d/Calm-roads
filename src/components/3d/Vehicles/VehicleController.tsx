@@ -10,6 +10,7 @@ import {
   getRoadElevation,
   getRoadTangent,
   getRoadBanking,
+  getRoadSplineSample,
   getClosestRoadPoint,
   isRoadSurface,
   getActiveBiomeAt,
@@ -781,8 +782,8 @@ export default function VehicleController() {
         }
       }
 
-      // Slope gravity: uphill resistance, downhill natural momentum
-      const slopeGravity = -4.5 * Math.sin(terrainPitch)
+      // Slope gravity: authentic gravitational acceleration along 3D road grade (uphill resistance, natural downhill momentum)
+      const slopeGravity = -8.2 * Math.sin(terrainPitch)
 
       // Aerodynamic Drag: F_drag proportional to v^2
       const speedNorm = Math.abs(forwardVel.current) / config.maxSpeedMs
@@ -1266,6 +1267,7 @@ export default function VehicleController() {
         const macroWeights = getMacroTerrainWeights(pos.current.z)
         const macroNoise = getMacroNoise(pos.current.z)
         const dominantMacro = getDominantMacroType(pos.current.z)
+        const roadSpline = getRoadSplineSample(pos.current.z)
 
         useGameStore.setState({
           macroTerrain: dominantMacro,
@@ -1277,6 +1279,7 @@ export default function VehicleController() {
             terrainElevation: +groundY.toFixed(1),
             corridorClearance: +(closestRoad.roadY - groundY).toFixed(2),
             roadBankingDeg: +(closestRoad.banking * (180 / Math.PI)).toFixed(1),
+            roadGrade: +(roadSpline.grade * 100).toFixed(1),
             macroTerrainType: dominantMacro.toUpperCase().replace('_', ' '),
             macroNoise: +macroNoise.toFixed(2),
             plainsWeight: +macroWeights.plains.toFixed(2),

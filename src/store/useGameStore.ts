@@ -129,6 +129,7 @@ interface GameState {
     terrainElevation?: number
     corridorClearance?: number
     roadBankingDeg?: number
+    roadGrade?: number
     macroTerrainType?: string
     macroNoise?: number
     plainsWeight?: number
@@ -152,6 +153,7 @@ interface GameState {
       terrainElevation: number
       corridorClearance: number
       roadBankingDeg: number
+      roadGrade: number
       macroTerrainType: string
       macroNoise: number
       plainsWeight: number
@@ -184,7 +186,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Macro Terrain System
   macroTerrain: 'plains',
   setMacroTerrain: (macroTerrain) => set({ macroTerrain }),
-  macroWeights: { plains: 1.0, rollingHills: 0.0, twistedClimb: 0.0 },
+  macroWeights: {
+    plains: 1.0,
+    rolling_hills: 0.0,
+    twisted_climb: 0.0,
+    coastal: 0.0,
+    desert_canyon: 0.0,
+    forest_valleys: 0.0,
+    rollingHills: 0.0,
+    twistedClimb: 0.0,
+  },
   setMacroWeights: (macroWeights) => set({ macroWeights }),
 
   // Time & Weather

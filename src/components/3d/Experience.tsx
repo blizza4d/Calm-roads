@@ -10,7 +10,6 @@ export default function Experience() {
 
   return (
     <>
-      <fogExp2 attach="fog" color="#4a4a52" density={0.003} />
       <ShaderReadinessPipeline />
       {photoMode && (
         <OrbitControls

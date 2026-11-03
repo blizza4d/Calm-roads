@@ -7,6 +7,7 @@ import {
   getRoadElevation,
   getRoadTangent,
   getRoadBanking,
+  getRoadSplineSample,
   getTerrainHeight,
   getClosestRoadPoint,
   ROAD_WIDTH,
@@ -664,37 +665,33 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     for (let i = 0; i <= segments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.085
-      const { nx, nz } = getRoadTangent(worldZ)
-      const banking = getRoadBanking(worldZ)
-      const bankY = Math.tan(banking) * halfW
+      const spline = getRoadSplineSample(worldZ)
       const v = worldZ / 24.0
 
       const baseIdx = i * 9
-      // Left edge (matches physical getSurfaceHeight road boundary exactly)
-      pos[baseIdx] = cx - nx * halfW
-      pos[baseIdx + 1] = cy - bankY
-      pos[baseIdx + 2] = localZ - nz * halfW
-      norm[baseIdx] = -nx * 0.1
-      norm[baseIdx + 1] = 0.98
-      norm[baseIdx + 2] = -nz * 0.1
+      // Left edge (strictly follows 3D orthonormal frame & matches getSurfaceHeight)
+      pos[baseIdx] = spline.x - spline.rx * halfW
+      pos[baseIdx + 1] = spline.y + 0.085 - spline.ry * halfW
+      pos[baseIdx + 2] = localZ - spline.rz * halfW
+      norm[baseIdx] = spline.nx - spline.rx * 0.06
+      norm[baseIdx + 1] = spline.ny
+      norm[baseIdx + 2] = spline.nz - spline.rz * 0.06
 
       // Center crown
-      pos[baseIdx + 3] = cx
-      pos[baseIdx + 4] = cy + 0.025
-      pos[baseIdx + 5] = localZ
-      norm[baseIdx + 3] = 0
-      norm[baseIdx + 4] = 1
-      norm[baseIdx + 5] = 0
+      pos[baseIdx + 3] = spline.x + spline.nx * 0.025
+      pos[baseIdx + 4] = spline.y + 0.085 + spline.ny * 0.025
+      pos[baseIdx + 5] = localZ + spline.nz * 0.025
+      norm[baseIdx + 3] = spline.nx
+      norm[baseIdx + 4] = spline.ny
+      norm[baseIdx + 5] = spline.nz
 
-      // Right edge (matches physical getSurfaceHeight road boundary exactly)
-      pos[baseIdx + 6] = cx + nx * halfW
-      pos[baseIdx + 7] = cy + bankY
-      pos[baseIdx + 8] = localZ + nz * halfW
-      norm[baseIdx + 6] = nx * 0.1
-      norm[baseIdx + 7] = 0.98
-      norm[baseIdx + 8] = nz * 0.1
+      // Right edge (strictly follows 3D orthonormal frame & matches getSurfaceHeight)
+      pos[baseIdx + 6] = spline.x + spline.rx * halfW
+      pos[baseIdx + 7] = spline.y + 0.085 + spline.ry * halfW
+      pos[baseIdx + 8] = localZ + spline.rz * halfW
+      norm[baseIdx + 6] = spline.nx + spline.rx * 0.06
+      norm[baseIdx + 7] = spline.ny
+      norm[baseIdx + 8] = spline.nz + spline.rz * 0.06
 
       const uvIdx = i * 6
       uv[uvIdx] = 0
@@ -745,39 +742,55 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   useMemo(() => {
     const segments = 32
     const pos = shoulderGeo.attributes.position.array as Float32Array
+    const norm = shoulderGeo.attributes.normal.array as Float32Array
     const innerW = ROAD_WIDTH / 2
     const outerW = ROAD_WIDTH / 2 + 2.2
 
     for (let i = 0; i <= segments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.085
-      const { nx, nz } = getRoadTangent(worldZ)
-      const banking = getRoadBanking(worldZ)
-      const bankY = Math.tan(banking) * innerW
-      const bankOuterY = Math.tan(banking) * outerW
+      const spline = getRoadSplineSample(worldZ)
 
       const baseIdx = i * 12
-      // Left shoulder (inner boundary matches road edge, outer slopes to terrain)
-      pos[baseIdx] = cx - nx * innerW
-      pos[baseIdx + 1] = cy - bankY
-      pos[baseIdx + 2] = localZ - nz * innerW
+      // Outer left shoulder (slopes down from road edge to meet terrain floor)
+      pos[baseIdx] = spline.x - spline.rx * outerW
+      pos[baseIdx + 1] = spline.y + 0.015 - spline.ry * outerW
+      pos[baseIdx + 2] = localZ - spline.rz * outerW
 
-      pos[baseIdx + 3] = cx - nx * outerW
-      pos[baseIdx + 4] = cy - 0.070 - bankOuterY
-      pos[baseIdx + 5] = localZ - nz * outerW
+      // Inner left shoulder (seamless match with left road edge)
+      pos[baseIdx + 3] = spline.x - spline.rx * innerW
+      pos[baseIdx + 4] = spline.y + 0.085 - spline.ry * innerW
+      pos[baseIdx + 5] = localZ - spline.rz * innerW
 
-      // Right shoulder (inner boundary matches road edge, outer slopes to terrain)
-      pos[baseIdx + 6] = cx + nx * innerW
-      pos[baseIdx + 7] = cy + bankY
-      pos[baseIdx + 8] = localZ + nz * innerW
+      // Inner right shoulder (seamless match with right road edge)
+      pos[baseIdx + 6] = spline.x + spline.rx * innerW
+      pos[baseIdx + 7] = spline.y + 0.085 + spline.ry * innerW
+      pos[baseIdx + 8] = localZ + spline.rz * innerW
 
-      pos[baseIdx + 9] = cx + nx * outerW
-      pos[baseIdx + 10] = cy - 0.070 + bankOuterY
-      pos[baseIdx + 11] = localZ + nz * outerW
+      // Outer right shoulder (slopes down from road edge to meet terrain floor)
+      pos[baseIdx + 9] = spline.x + spline.rx * outerW
+      pos[baseIdx + 10] = spline.y + 0.015 + spline.ry * outerW
+      pos[baseIdx + 11] = localZ + spline.rz * outerW
+
+      // Sloped shoulder normals tilting outward from roadbed
+      norm[baseIdx] = spline.nx - spline.rx * 0.28
+      norm[baseIdx + 1] = spline.ny * 0.96
+      norm[baseIdx + 2] = spline.nz - spline.rz * 0.28
+
+      norm[baseIdx + 3] = spline.nx - spline.rx * 0.12
+      norm[baseIdx + 4] = spline.ny
+      norm[baseIdx + 5] = spline.nz - spline.rz * 0.12
+
+      norm[baseIdx + 6] = spline.nx + spline.rx * 0.12
+      norm[baseIdx + 7] = spline.ny
+      norm[baseIdx + 8] = spline.nz + spline.rz * 0.12
+
+      norm[baseIdx + 9] = spline.nx + spline.rx * 0.28
+      norm[baseIdx + 10] = spline.ny * 0.96
+      norm[baseIdx + 11] = spline.nz + spline.rz * 0.28
     }
     shoulderGeo.attributes.position.needsUpdate = true
+    shoulderGeo.attributes.normal.needsUpdate = true
     shoulderGeo.computeBoundingSphere()
     shoulderGeo.computeBoundingBox()
   }, [chunkZ, shoulderGeo])
@@ -859,29 +872,28 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const wzStart = chunkZ + localZStart
         const wzEnd = chunkZ + localZEnd
 
-        const cxStart = getRoadCenter(wzStart)
-        const cyStart = getRoadElevation(wzStart) + 0.115
-        const cxEnd = getRoadCenter(wzEnd)
-        const cyEnd = getRoadElevation(wzEnd) + 0.115
+        const sStart = getRoadSplineSample(wzStart)
+        const sEnd = getRoadSplineSample(wzEnd)
 
-        const tanStart = getRoadTangent(wzStart)
-        const tanEnd = getRoadTangent(wzEnd)
+        // Centerline lifted slightly along 3D surface normal N to prevent z-fighting on slopes
+        const lift = 0.014
+        const crownLift = 0.025 + lift
 
-        pos[vOffset] = cxStart - tanStart.nx * halfLineW
-        pos[vOffset + 1] = cyStart
-        pos[vOffset + 2] = localZStart - tanStart.nz * halfLineW
+        pos[vOffset] = sStart.x - sStart.rx * halfLineW + sStart.nx * crownLift
+        pos[vOffset + 1] = sStart.y + 0.085 + sStart.ny * crownLift
+        pos[vOffset + 2] = localZStart - sStart.rz * halfLineW + sStart.nz * crownLift
 
-        pos[vOffset + 3] = cxStart + tanStart.nx * halfLineW
-        pos[vOffset + 4] = cyStart
-        pos[vOffset + 5] = localZStart + tanStart.nz * halfLineW
+        pos[vOffset + 3] = sStart.x + sStart.rx * halfLineW + sStart.nx * crownLift
+        pos[vOffset + 4] = sStart.y + 0.085 + sStart.ny * crownLift
+        pos[vOffset + 5] = localZStart + sStart.rz * halfLineW + sStart.nz * crownLift
 
-        pos[vOffset + 6] = cxEnd - tanEnd.nx * halfLineW
-        pos[vOffset + 7] = cyEnd
-        pos[vOffset + 8] = localZEnd - tanEnd.nz * halfLineW
+        pos[vOffset + 6] = sEnd.x - sEnd.rx * halfLineW + sEnd.nx * crownLift
+        pos[vOffset + 7] = sEnd.y + 0.085 + sEnd.ny * crownLift
+        pos[vOffset + 8] = localZEnd - sEnd.rz * halfLineW + sEnd.nz * crownLift
 
-        pos[vOffset + 9] = cxEnd + tanEnd.nx * halfLineW
-        pos[vOffset + 10] = cyEnd
-        pos[vOffset + 11] = localZEnd + tanEnd.nz * halfLineW
+        pos[vOffset + 9] = sEnd.x + sEnd.rx * halfLineW + sEnd.nx * crownLift
+        pos[vOffset + 10] = sEnd.y + 0.085 + sEnd.ny * crownLift
+        pos[vOffset + 11] = localZEnd + sEnd.rz * halfLineW + sEnd.nz * crownLift
       } else {
         // Degenerate dash outside chunk bounds: collapse safely below ground
         for (let j = 0; j < 4; j++) {
@@ -902,31 +914,34 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     for (let i = 0; i <= edgeSegments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / edgeSegments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.078
-      const { nx, nz } = getRoadTangent(worldZ)
-      const banking = getRoadBanking(worldZ)
-      const bankY = Math.tan(banking) * edgeOffset
+      const s = getRoadSplineSample(worldZ)
+      const edgeLift = 0.010
 
-      const lx = cx - nx * edgeOffset
-      const lz = localZ - nz * edgeOffset
-      pos[vOffset] = lx - nx * edgeHalfW
-      pos[vOffset + 1] = cy - bankY
-      pos[vOffset + 2] = lz - nz * edgeHalfW
+      // Left edge line
+      const lx = s.x - s.rx * edgeOffset
+      const ly = s.y + 0.085 - s.ry * edgeOffset
+      const lz = localZ - s.rz * edgeOffset
 
-      pos[vOffset + 3] = lx + nx * edgeHalfW
-      pos[vOffset + 4] = cy - bankY
-      pos[vOffset + 5] = lz + nz * edgeHalfW
+      pos[vOffset] = lx - s.rx * edgeHalfW + s.nx * edgeLift
+      pos[vOffset + 1] = ly - s.ry * edgeHalfW + s.ny * edgeLift
+      pos[vOffset + 2] = lz - s.rz * edgeHalfW + s.nz * edgeLift
 
-      const rx = cx + nx * edgeOffset
-      const rz = localZ + nz * edgeOffset
-      pos[vOffset + 6] = rx - nx * edgeHalfW
-      pos[vOffset + 7] = cy + bankY
-      pos[vOffset + 8] = rz - nz * edgeHalfW
+      pos[vOffset + 3] = lx + s.rx * edgeHalfW + s.nx * edgeLift
+      pos[vOffset + 4] = ly + s.ry * edgeHalfW + s.ny * edgeLift
+      pos[vOffset + 5] = lz + s.rz * edgeHalfW + s.nz * edgeLift
 
-      pos[vOffset + 9] = rx + nx * edgeHalfW
-      pos[vOffset + 10] = cy + bankY
-      pos[vOffset + 11] = rz + nz * edgeHalfW
+      // Right edge line
+      const rx = s.x + s.rx * edgeOffset
+      const ry = s.y + 0.085 + s.ry * edgeOffset
+      const rz = localZ + s.rz * edgeOffset
+
+      pos[vOffset + 6] = rx - s.rx * edgeHalfW + s.nx * edgeLift
+      pos[vOffset + 7] = ry - s.ry * edgeHalfW + s.ny * edgeLift
+      pos[vOffset + 8] = rz - s.rz * edgeHalfW + s.nz * edgeLift
+
+      pos[vOffset + 9] = rx + s.rx * edgeHalfW + s.nx * edgeLift
+      pos[vOffset + 10] = ry + s.ry * edgeHalfW + s.ny * edgeLift
+      pos[vOffset + 11] = rz + s.rz * edgeHalfW + s.nz * edgeLift
 
       vOffset += 12
     }
@@ -975,41 +990,42 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
       const cx1 = getRoadCenter(wz1)
       const cx2 = getRoadCenter(wz2)
-      const cy1 = getRoadElevation(wz1)
-      const cy2 = getRoadElevation(wz2)
-
-      const tan1 = getRoadTangent(wz1)
-      const tan2 = getRoadTangent(wz2)
 
       const isCurving = Math.abs(cx2 - cx1) > 0.4
       if (isCurving) {
+        const s1 = getRoadSplineSample(wz1)
+        const s2 = getRoadSplineSample(wz2)
         const side = cx2 > cx1 ? 1 : -1
-        const p1x = cx1 + tan1.nx * railOffset * side
-        const p1z = z1 + tan1.nz * railOffset * side
-        const p2x = cx2 + tan2.nx * railOffset * side
-        const p2z = z2 + tan2.nz * railOffset * side
+
+        const p1x = s1.x + s1.rx * railOffset * side
+        const p1y = s1.y + 0.085 + s1.ry * railOffset * side
+        const p1z = z1 + s1.rz * railOffset * side
+
+        const p2x = s2.x + s2.rx * railOffset * side
+        const p2y = s2.y + 0.085 + s2.ry * railOffset * side
+        const p2z = z2 + s2.rz * railOffset * side
 
         const pIdx = quadCount * 12
-        pos[pIdx] = p1x
-        pos[pIdx + 1] = cy1 + railHeight
-        pos[pIdx + 2] = p1z
+        pos[pIdx] = p1x + s1.nx * railHeight
+        pos[pIdx + 1] = p1y + s1.ny * railHeight
+        pos[pIdx + 2] = p1z + s1.nz * railHeight
 
-        pos[pIdx + 3] = p1x
-        pos[pIdx + 4] = cy1 + railHeight - railThickness
-        pos[pIdx + 5] = p1z
+        pos[pIdx + 3] = p1x + s1.nx * (railHeight - railThickness)
+        pos[pIdx + 4] = p1y + s1.ny * (railHeight - railThickness)
+        pos[pIdx + 5] = p1z + s1.nz * (railHeight - railThickness)
 
-        pos[pIdx + 6] = p2x
-        pos[pIdx + 7] = cy2 + railHeight
-        pos[pIdx + 8] = p2z
+        pos[pIdx + 6] = p2x + s2.nx * railHeight
+        pos[pIdx + 7] = p2y + s2.ny * railHeight
+        pos[pIdx + 8] = p2z + s2.nz * railHeight
 
-        pos[pIdx + 9] = p2x
-        pos[pIdx + 10] = cy2 + railHeight - railThickness
-        pos[pIdx + 11] = p2z
+        pos[pIdx + 9] = p2x + s2.nx * (railHeight - railThickness)
+        pos[pIdx + 10] = p2y + s2.ny * (railHeight - railThickness)
+        pos[pIdx + 11] = p2z + s2.nz * (railHeight - railThickness)
 
         for (let j = 0; j < 4; j++) {
-          norm[pIdx + j * 3] = tan1.nx * side
-          norm[pIdx + j * 3 + 1] = 0
-          norm[pIdx + j * 3 + 2] = tan1.nz * side
+          norm[pIdx + j * 3] = s1.rx * side
+          norm[pIdx + j * 3 + 1] = s1.ry * side
+          norm[pIdx + j * 3 + 2] = s1.rz * side
         }
         quadCount++
       }
@@ -1454,6 +1470,44 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       cabinRef.current.instanceMatrix.needsUpdate = true
       cabinWindowRef.current.instanceMatrix.needsUpdate = true
     }
+
+    // Explicitly initialize instance counts and compute accurate bounding volumes
+    // Guarantees instances are fully counted and bounds enclose the actual props
+    if (pineTrunkRef.current) pineTrunkRef.current.count = sceneryData.pines.length
+    if (pineCanopyRef.current) pineCanopyRef.current.count = sceneryData.pines.length
+    if (broadleafTrunkRef.current) broadleafTrunkRef.current.count = sceneryData.broadleafs.length
+    if (broadleafCanopyRef.current) broadleafCanopyRef.current.count = sceneryData.broadleafs.length
+    if (saguaroRef.current) saguaroRef.current.count = sceneryData.saguaros.length
+    if (shrubRef.current) shrubRef.current.count = sceneryData.shrubs.length
+    if (rockRef.current) rockRef.current.count = sceneryData.rocks.length
+    if (grassRef.current) grassRef.current.count = sceneryData.grassTufts.length
+    if (poleRef.current) poleRef.current.count = sceneryData.poles.length
+    if (delineatorPostRef.current) delineatorPostRef.current.count = sceneryData.delineators.length
+    if (delineatorReflectorRef.current) delineatorReflectorRef.current.count = sceneryData.delineators.length
+    if (cabinRef.current) cabinRef.current.count = sceneryData.cabins.length
+    if (cabinWindowRef.current) cabinWindowRef.current.count = sceneryData.cabins.length
+
+    const allInstancedMeshes = [
+      pineTrunkRef.current,
+      pineCanopyRef.current,
+      broadleafTrunkRef.current,
+      broadleafCanopyRef.current,
+      saguaroRef.current,
+      shrubRef.current,
+      rockRef.current,
+      grassRef.current,
+      poleRef.current,
+      delineatorPostRef.current,
+      delineatorReflectorRef.current,
+      cabinRef.current,
+      cabinWindowRef.current,
+    ]
+    allInstancedMeshes.forEach((mesh) => {
+      if (mesh) {
+        mesh.computeBoundingBox()
+        mesh.computeBoundingSphere()
+      }
+    })
   }, [sceneryData])
 
   // Distance-Based Level of Detail (LOD) Culling:
@@ -1574,7 +1628,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
         <instancedMesh
           ref={pineCanopyRef}
@@ -1582,7 +1636,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Organic Broadleaf / Mountain Maples */}
@@ -1592,7 +1646,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
         <instancedMesh
           ref={broadleafCanopyRef}
@@ -1600,7 +1654,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Desert Saguaro Cacti */}
@@ -1610,7 +1664,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.saguaros.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Mountain Shrubs & Roadside Bushes */}
@@ -1619,7 +1673,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           args={[shrubGeo, shrubMat, 24]}
           count={sceneryData.shrubs.length}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Weathered Boulders & Rock Outcrops */}
@@ -1629,7 +1683,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.rocks.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Roadside Wild Grass Tufts */}
@@ -1638,7 +1692,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           args={[grassTuftGeo, grassMat, 36]}
           count={sceneryData.grassTufts.length}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Roadside Highway Utility Poles with Timber Grain */}
@@ -1647,7 +1701,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           args={[poleGeo, sharedPoleMat, 16]}
           count={sceneryData.poles.length}
           castShadow={false}
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Roadside Reflector Delineator Posts (Guide Posts) */}
@@ -1657,7 +1711,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.delineators.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
@@ -1665,7 +1719,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           ref={delineatorReflectorRef}
           args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
           count={sceneryData.delineators.length}
-          frustumCulled={true}
+          frustumCulled={false}
         />
 
         {/* Cozy Alpine Timber Cabins & Roadside Shelters */}
@@ -1675,13 +1729,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.cabins.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={true}
+          frustumCulled={false}
         />
         <instancedMesh
           ref={cabinWindowRef}
           args={[cabinWindowGeo, sharedCabinWindowMat, 4]}
           count={sceneryData.cabins.length}
-          frustumCulled={true}
+          frustumCulled={false}
         />
       </group>
     </group>
