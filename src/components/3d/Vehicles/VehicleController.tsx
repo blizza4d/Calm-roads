@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -425,6 +425,8 @@ export default function VehicleController() {
   const hoverAltitude = useRef(isHoverMode ? 1.25 : config.rideHeight)
   const wheelSuspensions = useRef<[number, number, number, number]>([0, 0, 0, 0])
   const prevThrottleVal = useRef(0)
+  const isBrakingVisualRef = useRef(false)
+  const [isBrakingVisual, setIsBrakingVisual] = useState(false)
 
   // Dynamic Tire Skid Mark Tracking Refs
   const skidQuadCount = useRef(0)
@@ -581,13 +583,25 @@ export default function VehicleController() {
     // 2. User Controls & Input Processing
     const absVel = Math.abs(forwardVel.current)
     const isHover = isHoverMode || vehicleModel === 'hovercraft'
-    const burnoutKey = Boolean((keys as any).burnout) || store.virtualBurnout
-    // Burnout pedal combo: holding Brake + Throttle simultaneously at low speeds (< 8 m/s = 28.8 km/h)
-    const pedalBurnout =
-      (Boolean(keys.brake) || store.virtualBrake) &&
-      (Boolean(keys.forward) || store.virtualThrottle) &&
-      absVel < 8.0
-    const isBurnoutActive = !isHover && (burnoutKey || pedalBurnout)
+
+    // Distinct Input Actions
+    const isThrottle = Boolean(keys.forward) || store.virtualThrottle
+    const isServiceBrake = Boolean(keys.backward) || Boolean(keys.brake) || store.virtualBrake
+    const isHandbrake = Boolean((keys as any).handbrake)
+    const isBurnoutKey = Boolean((keys as any).burnout) || store.virtualBurnout
+
+    // Intentional Burnout Rule:
+    // - Service brake can NEVER activate burnout under any circumstances.
+    // - Requires grounded vehicle, non-hover, active throttle, and deliberate burnout trigger:
+    //   EITHER dedicated burnout key/button OR intentional handbrake + throttle at low speeds (< 3 m/s) in 1st gear.
+    const isBurnoutIntentional =
+      !isHover &&
+      isGrounded.current &&
+      !isServiceBrake &&
+      isThrottle &&
+      (isBurnoutKey || (isHandbrake && absVel < 3.0 && currentGearIndex.current === 1))
+
+    const isBurnoutActive = isBurnoutIntentional
     isBurnoutActiveRef.current = isBurnoutActive
 
     if (store.isBurnout !== isBurnoutActive) {
@@ -615,19 +629,45 @@ export default function VehicleController() {
     } else if (isBurnoutActive) {
       // BURNOUT MODE: Pegged throttle to redline!
       targetThrottle = 1.0
-      // Line-lock: if brake is pressed or triggered via pedal combo, hold vehicle stationary; otherwise roll launch
-      const isHoldingBrake = Boolean(keys.brake) || store.virtualBrake || (!burnoutKey && pedalBurnout)
-      targetBrake = isHoldingBrake ? 0.95 : 0.0
+      // Line-lock: if handbrake is held, pin vehicle stationary; if released, rolling burnout launch!
+      targetBrake = isHandbrake ? 0.95 : 0.0
 
       if (keys.left || store.virtualSteerLeft) steerInput += 1
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     } else {
-      if (keys.forward || store.virtualThrottle) targetThrottle = 1
-      if (keys.backward || store.virtualBrake) {
-        if (forwardVel.current > 1.2) targetBrake = 1
-        else targetThrottle = -0.45
+      // NORMAL DRIVING & SERVICE BRAKING
+      if (isThrottle) {
+        if (forwardVel.current < -0.25) {
+          // Reversing and pressed forward throttle: brake to halt reverse motion first
+          targetBrake = 1.0
+          targetThrottle = 0.0
+        } else {
+          targetThrottle = 1.0
+        }
       }
-      if (keys.brake) targetBrake = 1
+
+      if (isServiceBrake) {
+        if (forwardVel.current > 0.15) {
+          // Traveling forward: apply service brakes to smoothly bring vehicle to standstill
+          targetBrake = 1.0
+          targetThrottle = 0.0
+        } else if (forwardVel.current < -0.15) {
+          // Already reversing: continue accelerating backward
+          targetThrottle = -0.55
+          targetBrake = 0.0
+        } else {
+          // Stationary/crawling: holding service brake smoothly engages reverse gear
+          targetThrottle = -0.55
+          targetBrake = 0.0
+          currentGearIndex.current = 0
+        }
+      }
+
+      if (isHandbrake) {
+        // Emergency/Parking Handbrake: locks rear wheels for controlled drifting
+        targetBrake = Math.max(targetBrake, 0.85)
+      }
+
       if (keys.left || store.virtualSteerLeft) steerInput += 1
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     }
@@ -642,12 +682,27 @@ export default function VehicleController() {
       lateralVel.current = 0
     }
 
-    currentThrottle.current = THREE.MathUtils.lerp(
-      currentThrottle.current,
-      targetThrottle,
-      frameDelta * 3.8
-    )
+    // Fast throttle cut when braking so engine does not fight brakes
+    if (targetBrake > 0.2 || !isThrottle) {
+      currentThrottle.current = THREE.MathUtils.lerp(
+        currentThrottle.current,
+        targetThrottle,
+        frameDelta * 12.0
+      )
+    } else {
+      currentThrottle.current = THREE.MathUtils.lerp(
+        currentThrottle.current,
+        targetThrottle,
+        frameDelta * 3.8
+      )
+    }
     const curThrottleAbs = Math.abs(currentThrottle.current)
+
+    const currentIsBraking = targetBrake > 0.1 || isServiceBrake
+    if (isBrakingVisualRef.current !== currentIsBraking) {
+      isBrakingVisualRef.current = currentIsBraking
+      setIsBrakingVisual(currentIsBraking)
+    }
 
     // ------------------------------------------------------------------------
     // 3. Fixed-Timestep Physics Simulation Substepping (120 Hz)
@@ -1608,7 +1663,7 @@ export default function VehicleController() {
             roughness={roughness}
             steeringAngle={steeringVisual.current}
             wheelRotation={wheelSpin.current}
-            isBraking={useGameStore.getState().brake > 0}
+            isBraking={isBrakingVisual}
             headlightsOn={headlights}
             isHoverMode={isHoverMode}
             wheelSuspensions={wheelSuspensions.current}

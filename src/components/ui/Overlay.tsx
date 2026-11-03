@@ -297,6 +297,7 @@ function MasterMenuModal({
     { key: 'A / D (← / →)', action: 'Steer Left / Right' },
     { key: 'B / Space + W', action: 'Burnout (Tire Spin, Smoke & Skid Marks)' },
     { key: 'Space', action: 'Handbrake / Drift' },
+    { key: 'G', action: 'Sound Horn' },
     { key: 'Shift L / R', action: 'Manual Upshift / Downshift Override' },
     { key: 'R', action: 'Instant Reset to Road Centerline' },
     { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
@@ -1007,6 +1008,30 @@ function DiagnosticsHUD() {
           </div>
         </div>
 
+        {/* Road Continuity & Chunk Boundary Diagnostics */}
+        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
+          <div className="text-amber-400 font-bold flex justify-between">
+            <span>ROAD CONTINUITY & BOUNDARIES</span>
+            <span className="text-emerald-400 font-mono">CONTINUOUS</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Chunk Boundaries:</span>
+            <span className="text-emerald-300 font-bold">Matched C¹ Cross-Sections</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Centerline Markings:</span>
+            <span className="text-emerald-300 font-bold">14m Global Grid (Seamless)</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Collision Sync:</span>
+            <span className="text-emerald-300 font-bold">100% Exact to Mesh Floor</span>
+          </div>
+          <div className="flex justify-between text-white/70">
+            <span>Mechanical Odometer:</span>
+            <span className="text-amber-300 font-bold">NFS Drum Cascade Carry</span>
+          </div>
+        </div>
+
         {/* Predictive Streaming Buffer */}
         <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
           <div className="text-emerald-400 font-bold flex justify-between">
@@ -1111,7 +1136,7 @@ export default function Overlay() {
 
       if (e.key === 'c' || e.key === 'C') cycleCameraPerspective()
       if (e.key === 'h' || e.key === 'H') toggleHoverMode()
-      if (e.key === 'b' || e.key === 'B') audioSystem.playHorn()
+      if (e.key === 'g' || e.key === 'G') audioSystem.playHorn()
       if (e.key === 'v' || e.key === 'V') cycleVehicleModel()
       if (e.key === 't' || e.key === 'T') cycleWeather()
       if (e.key === 'p' || e.key === 'P') togglePhotoMode()

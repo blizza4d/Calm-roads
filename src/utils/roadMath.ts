@@ -786,17 +786,20 @@ export function getSurfaceHeight(x: number, z: number, biomeId: BiomeType = 'for
   const halfRoad = ROAD_WIDTH / 2 // 5.75m
   const shoulderEnd = halfRoad + 2.2 // 7.95m
 
-  if (dist <= halfRoad) {
+  const EPS = 0.02
+
+  if (dist <= halfRoad + EPS) {
     // Road asphalt surface with crown camber and banked superelevation
-    const crown = 0.085 + 0.025 * (1 - dist / halfRoad)
+    const clampedDist = Math.min(halfRoad, dist)
+    const crown = 0.085 + 0.025 * (1 - clampedDist / halfRoad)
     const bankElevation = Math.tan(banking) * lateralOffset
     return roadY + crown + bankElevation
-  } else if (dist <= shoulderEnd) {
+  } else if (dist <= shoulderEnd + EPS) {
     // Roadside shoulder strip sloping gently down and tracking banking
-    const shoulderT = (dist - halfRoad) / 2.2
+    const shoulderT = Math.max(0, Math.min(1, (dist - halfRoad) / 2.2))
     const edgeBank = Math.tan(banking) * Math.sign(lateralOffset) * halfRoad
     const shoulderExtra = Math.tan(banking) * (lateralOffset - Math.sign(lateralOffset) * halfRoad) * 0.75
-    return roadY + 0.07 * (1 - shoulderT) + 0.015 * shoulderT + edgeBank + shoulderExtra
+    return roadY + 0.085 * (1 - shoulderT) + 0.015 * shoulderT + edgeBank + shoulderExtra
   } else {
     // Offroad terrain
     return getTerrainHeight(x, z, biomeId)

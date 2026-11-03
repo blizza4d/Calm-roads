@@ -672,9 +672,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const v = worldZ / 24.0
 
       const baseIdx = i * 9
-      // Left edge
+      // Left edge (matches physical getSurfaceHeight road boundary exactly)
       pos[baseIdx] = cx - nx * halfW
-      pos[baseIdx + 1] = cy - 0.015 - bankY
+      pos[baseIdx + 1] = cy - bankY
       pos[baseIdx + 2] = localZ - nz * halfW
       norm[baseIdx] = -nx * 0.1
       norm[baseIdx + 1] = 0.98
@@ -688,9 +688,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       norm[baseIdx + 4] = 1
       norm[baseIdx + 5] = 0
 
-      // Right edge
+      // Right edge (matches physical getSurfaceHeight road boundary exactly)
       pos[baseIdx + 6] = cx + nx * halfW
-      pos[baseIdx + 7] = cy - 0.015 + bankY
+      pos[baseIdx + 7] = cy + bankY
       pos[baseIdx + 8] = localZ + nz * halfW
       norm[baseIdx + 6] = nx * 0.1
       norm[baseIdx + 7] = 0.98
@@ -752,29 +752,29 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
       const cx = getRoadCenter(worldZ)
-      const cy = getRoadElevation(worldZ) + 0.065
+      const cy = getRoadElevation(worldZ) + 0.085
       const { nx, nz } = getRoadTangent(worldZ)
       const banking = getRoadBanking(worldZ)
       const bankY = Math.tan(banking) * innerW
       const bankOuterY = Math.tan(banking) * outerW
 
       const baseIdx = i * 12
-      // Left shoulder (inner to outer)
+      // Left shoulder (inner boundary matches road edge, outer slopes to terrain)
       pos[baseIdx] = cx - nx * innerW
       pos[baseIdx + 1] = cy - bankY
       pos[baseIdx + 2] = localZ - nz * innerW
 
       pos[baseIdx + 3] = cx - nx * outerW
-      pos[baseIdx + 4] = cy - 0.05 - bankOuterY
+      pos[baseIdx + 4] = cy - 0.070 - bankOuterY
       pos[baseIdx + 5] = localZ - nz * outerW
 
-      // Right shoulder (inner to outer)
+      // Right shoulder (inner boundary matches road edge, outer slopes to terrain)
       pos[baseIdx + 6] = cx + nx * innerW
       pos[baseIdx + 7] = cy + bankY
       pos[baseIdx + 8] = localZ + nz * innerW
 
       pos[baseIdx + 9] = cx + nx * outerW
-      pos[baseIdx + 10] = cy - 0.05 + bankOuterY
+      pos[baseIdx + 10] = cy - 0.070 + bankOuterY
       pos[baseIdx + 11] = localZ + nz * outerW
     }
     shoulderGeo.attributes.position.needsUpdate = true
@@ -785,10 +785,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines (Pooled)
   const markingsGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry()
-    const dashSpacing = 14
-    const numDashes = Math.floor(CHUNK_LEN / dashSpacing) // 14
+    const numDashes = 16
     const edgeSegments = 36
-    const totalVerts = numDashes * 4 + (edgeSegments + 1) * 4 // 56 + 148 = 204
+    const totalVerts = numDashes * 4 + (edgeSegments + 1) * 4
     const posArr = new Float32Array(totalVerts * 3)
     const normArr = new Float32Array(totalVerts * 3)
     const colArr = new Float32Array(totalVerts * 3)
@@ -838,42 +837,59 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const dashSpacing = 14
     const dashLen = 7.0
     const halfLineW = 0.075
-    const numDashes = Math.floor(CHUNK_LEN / dashSpacing)
+    const numDashes = 16
 
     let vOffset = 0
 
-    // A. Yellow Dashed Centerline positions
+    // A. Yellow Dashed Centerline positions strictly locked to global world Z grid
+    const startWorldZ = chunkZ + CHUNK_LEN / 2
+    const firstDashWz = Math.floor(startWorldZ / dashSpacing) * dashSpacing + dashSpacing * 0.5
+
     for (let i = 0; i < numDashes; i++) {
-      const localZCenter = CHUNK_LEN / 2 - (i * dashSpacing + dashSpacing * 0.5)
-      const localZStart = localZCenter + dashLen / 2
-      const localZEnd = localZCenter - dashLen / 2
+      const wzCenter = firstDashWz - i * dashSpacing
+      const localZCenter = wzCenter - chunkZ
+      const rawStart = localZCenter + dashLen / 2
+      const rawEnd = localZCenter - dashLen / 2
 
-      const wzStart = chunkZ + localZStart
-      const wzEnd = chunkZ + localZEnd
+      // Clamp to chunk boundary [-CHUNK_LEN / 2, CHUNK_LEN / 2]
+      const localZStart = Math.min(CHUNK_LEN / 2, Math.max(-CHUNK_LEN / 2, rawStart))
+      const localZEnd = Math.min(CHUNK_LEN / 2, Math.max(-CHUNK_LEN / 2, rawEnd))
 
-      const cxStart = getRoadCenter(wzStart)
-      const cyStart = getRoadElevation(wzStart) + 0.115
-      const cxEnd = getRoadCenter(wzEnd)
-      const cyEnd = getRoadElevation(wzEnd) + 0.115
+      if (localZStart - localZEnd > 0.05) {
+        const wzStart = chunkZ + localZStart
+        const wzEnd = chunkZ + localZEnd
 
-      const tanStart = getRoadTangent(wzStart)
-      const tanEnd = getRoadTangent(wzEnd)
+        const cxStart = getRoadCenter(wzStart)
+        const cyStart = getRoadElevation(wzStart) + 0.115
+        const cxEnd = getRoadCenter(wzEnd)
+        const cyEnd = getRoadElevation(wzEnd) + 0.115
 
-      pos[vOffset] = cxStart - tanStart.nx * halfLineW
-      pos[vOffset + 1] = cyStart
-      pos[vOffset + 2] = localZStart - tanStart.nz * halfLineW
+        const tanStart = getRoadTangent(wzStart)
+        const tanEnd = getRoadTangent(wzEnd)
 
-      pos[vOffset + 3] = cxStart + tanStart.nx * halfLineW
-      pos[vOffset + 4] = cyStart
-      pos[vOffset + 5] = localZStart + tanStart.nz * halfLineW
+        pos[vOffset] = cxStart - tanStart.nx * halfLineW
+        pos[vOffset + 1] = cyStart
+        pos[vOffset + 2] = localZStart - tanStart.nz * halfLineW
 
-      pos[vOffset + 6] = cxEnd - tanEnd.nx * halfLineW
-      pos[vOffset + 7] = cyEnd
-      pos[vOffset + 8] = localZEnd - tanEnd.nz * halfLineW
+        pos[vOffset + 3] = cxStart + tanStart.nx * halfLineW
+        pos[vOffset + 4] = cyStart
+        pos[vOffset + 5] = localZStart + tanStart.nz * halfLineW
 
-      pos[vOffset + 9] = cxEnd + tanEnd.nx * halfLineW
-      pos[vOffset + 10] = cyEnd
-      pos[vOffset + 11] = localZEnd + tanEnd.nz * halfLineW
+        pos[vOffset + 6] = cxEnd - tanEnd.nx * halfLineW
+        pos[vOffset + 7] = cyEnd
+        pos[vOffset + 8] = localZEnd - tanEnd.nz * halfLineW
+
+        pos[vOffset + 9] = cxEnd + tanEnd.nx * halfLineW
+        pos[vOffset + 10] = cyEnd
+        pos[vOffset + 11] = localZEnd + tanEnd.nz * halfLineW
+      } else {
+        // Degenerate dash outside chunk bounds: collapse safely below ground
+        for (let j = 0; j < 4; j++) {
+          pos[vOffset + j * 3] = 0
+          pos[vOffset + j * 3 + 1] = -9999
+          pos[vOffset + j * 3 + 2] = 0
+        }
+      }
 
       vOffset += 12
     }
@@ -1729,11 +1745,6 @@ export default function Terrain() {
 
     const currentBuffer = camZ - minZ
     const telemetrySpeed = useTelemetryStore.getState().speed || 0
-    const speedMs = telemetrySpeed / 3.6
-
-    // Target forward frontier: at least 4,200m ahead (camera far plane)
-    // At high speed (e.g. 80 m/s ~ 288 km/h), scale target buffer to 5,200m!
-    const targetForwardBuffer = Math.min((NUM_CHUNKS - 3.5) * CHUNK_LEN, Math.max(4200, 3600 + speedMs * 20.0))
 
     let recycledCount = 0
     const currentSlots = [...slotsRef.current]
@@ -1759,14 +1770,14 @@ export default function Terrain() {
 
       // Forward driving retire threshold: safely past chase camera and rear-view sightline
       const retireRearThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
-      const needsForwardBuffer = (camZ - frontmostZ) < targetForwardBuffer
+      const retireFrontThreshold = camZ - (NUM_CHUNKS - CHUNKS_BEHIND - 0.25) * CHUNK_LEN
 
-      if (rearmostZ > retireRearThreshold || needsForwardBuffer) {
-        // Forward driving: recycle rearmost chunk to forward horizon
+      if (rearmostZ > retireRearThreshold) {
+        // Forward driving: safely recycle rearmost chunk to forward horizon
         currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
         recycledCount++
-      } else if (frontmostZ < camZ - (NUM_CHUNKS - CHUNKS_BEHIND) * CHUNK_LEN) {
-        // Reverse driving: recycle forward chunk to rear horizon
+      } else if (frontmostZ < retireFrontThreshold) {
+        // Reverse driving: safely recycle forward chunk to rear horizon
         currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
         recycledCount++
       } else {

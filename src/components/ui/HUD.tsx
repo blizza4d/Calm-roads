@@ -8,113 +8,83 @@ import { BIOMES } from '../../utils/roadMath'
 // ------------------------------------------------------------------------
 const DRUM_DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
 
-interface OdometerReelProps {
-  targetDigit: number
-  isFractional?: boolean
-}
-
-const OdometerReel = memo(function OdometerReel({
-  targetDigit,
-  isFractional = false,
-}: OdometerReelProps) {
-  const [displayIndex, setDisplayIndex] = useState(targetDigit)
-  const [animate, setAnimate] = useState(true)
-  const prevDigitRef = useRef(targetDigit)
-
-  useEffect(() => {
-    const prev = prevDigitRef.current
-    prevDigitRef.current = targetDigit
-
-    if (prev === targetDigit) return
-
-    // Clean forward rollover: 9 -> 0 (rolls down to index 10, then seamlessly resets to 0)
-    if (prev === 9 && targetDigit === 0) {
-      setAnimate(true)
-      setDisplayIndex(10)
-      const timer = setTimeout(() => {
-        setAnimate(false)
-        setDisplayIndex(0)
-      }, 250)
-      return () => clearTimeout(timer)
-    }
-
-    // Standard forward or direct value step
-    setAnimate(true)
-    setDisplayIndex(targetDigit)
-  }, [targetDigit])
-
-  return (
-    <div
-      className={`relative inline-block w-[15px] h-[22px] overflow-hidden select-none rounded-[2px] border ${
-        isFractional
-          ? 'bg-[#181208] border-[#FF9D1E]/40 shadow-[inset_0_1px_3px_rgba(0,0,0,0.9)]'
-          : 'bg-[#0d0f12] border-[#252830] shadow-[inset_0_1px_3px_rgba(0,0,0,0.9)]'
-      }`}
-      style={{ perspective: '120px' }}
-    >
-      {/* 3D Convex Drum Curvature Shadow Overlays (Recreates physical rotating cylinder) */}
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/90 via-transparent to-black/90" />
-      <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/[0.08] z-10" />
-
-      {/* Vertical Rolling Digit Strip */}
-      <div
-        className="flex flex-col items-center"
-        style={{
-          transform: `translate3d(0, -${displayIndex * 22}px, 0)`,
-          transition: animate ? 'transform 0.24s cubic-bezier(0.2, 0.9, 0.2, 1)' : 'none',
-        }}
-      >
-        {DRUM_DIGITS.map((d, idx) => (
-          <span
-            key={idx}
-            className={`h-[22px] w-full flex items-center justify-center font-courier font-black text-[12px] leading-none ${
-              isFractional ? 'text-[#FF9D1E]' : 'text-[#FDFBF7]'
-            }`}
-          >
-            {d}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-})
-
 interface RollingOdometerProps {
   unit: 'kmh' | 'mph'
 }
 
 /**
- * Isolated Mechanical Odometer Component
- * Subscribes directly to useTelemetryStore so the main HUD never re-renders when distance ticks.
+ * Need for Speed: Most Wanted (2005) Mechanical Rolling Odometer
+ * Features:
+ * - 5 Whole Digit Drums (White on Charcoal) + 2 Fractional Drums (NFS Amber)
+ * - Stationary Beveled Decimal Separator
+ * - True Mechanical Gear-Train Continuous Carry Physics
+ * - Zero React Re-Renders (Direct DOM Subscriptions via rAF)
  */
 const RollingOdometer = memo(function RollingOdometer({ unit }: RollingOdometerProps) {
-  const [distance, setDistance] = useState(() => useTelemetryStore.getState().distance)
+  const drumRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
-    let lastDist = -1
-    const unsub = useTelemetryStore.subscribe((state) => {
-      // Throttle updates to ~5 meter increments (0.005 km) for steady mechanical drum updates
-      if (Math.abs(state.distance - lastDist) >= 0.005) {
-        lastDist = state.distance
-        setDistance(state.distance)
+    let animId: number
+    let prevDist = -1
+
+    const updateDrums = () => {
+      const dist = useTelemetryStore.getState().distance
+      if (dist !== prevDist) {
+        prevDist = dist
+        const isMph = unit === 'mph'
+        // Centi-distance (1 unit = 0.01 km = 10m)
+        const val = Math.max(0, (isMph ? dist * 0.621371 : dist) * 100)
+
+        // Drum 6 (hundredths fraction): rolls continuously as distance increases
+        const pos6 = val % 10
+        // Mechanical carry engagement zone: as Drum 6 goes from 9.0 to 10.0
+        const carry6 = Math.max(0, Math.min(1, (pos6 - 9.0) / 1.0))
+
+        // Drum 5 (tenths fraction)
+        const d5 = Math.floor(val / 10) % 10
+        const pos5 = (d5 + carry6) % 10
+        const carry5 = d5 === 9 ? carry6 : 0
+
+        // Drum 4 (ones)
+        const d4 = Math.floor(val / 100) % 10
+        const pos4 = (d4 + carry5) % 10
+        const carry4 = d4 === 9 ? carry5 : 0
+
+        // Drum 3 (tens)
+        const d3 = Math.floor(val / 1000) % 10
+        const pos3 = (d3 + carry4) % 10
+        const carry3 = d3 === 9 ? carry4 : 0
+
+        // Drum 2 (hundreds)
+        const d2 = Math.floor(val / 10000) % 10
+        const pos2 = (d2 + carry3) % 10
+        const carry2 = d2 === 9 ? carry3 : 0
+
+        // Drum 1 (thousands)
+        const d1 = Math.floor(val / 100000) % 10
+        const pos1 = (d1 + carry2) % 10
+        const carry1 = d1 === 9 ? carry2 : 0
+
+        // Drum 0 (ten-thousands)
+        const d0 = Math.floor(val / 1000000) % 10
+        const pos0 = (d0 + carry1) % 10
+
+        const positions = [pos0, pos1, pos2, pos3, pos4, pos5, pos6]
+        for (let i = 0; i < 7; i++) {
+          const el = drumRefs.current[i]
+          if (el) {
+            el.style.transform = `translate3d(0, -${(positions[i] * 22).toFixed(2)}px, 0)`
+          }
+        }
       }
-    })
-    return () => unsub()
-  }, [])
+      animId = requestAnimationFrame(updateDrums)
+    }
+
+    animId = requestAnimationFrame(updateDrums)
+    return () => cancelAnimationFrame(animId)
+  }, [unit])
 
   const isMph = unit === 'mph'
-  const val = isMph ? distance * 0.621371 : distance
-
-  // Format into 5 fixed integer drums + 2 decimal fractional drums (e.g. 00006.42)
-  // Uses integer centi-units to avoid IEEE-754 floating point floor truncation
-  const totalCenti = Math.round(val * 100)
-  const wholeVal = Math.min(99999, Math.floor(totalCenti / 100))
-  const wholeStr = wholeVal.toString().padStart(5, '0')
-  const fracVal = totalCenti % 100
-  const fracStr = fracVal.toString().padStart(2, '0')
-
-  const intDigits = wholeStr.split('').map((d) => parseInt(d, 10))
-  const fracDigits = fracStr.split('').map((d) => parseInt(d, 10))
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -132,20 +102,68 @@ const RollingOdometer = memo(function RollingOdometer({ unit }: RollingOdometerP
       </div>
 
       {/* Recessed Mechanical Instrument Bezel */}
-      <div className="flex items-center gap-[1.5px] p-[2.5px] bg-[#08090b] border border-[#2b2f38] rounded-[3px] shadow-[inset_0_2px_5px_rgba(0,0,0,0.9),0_2px_4px_rgba(0,0,0,0.6)]">
-        {/* 5 Integer Drums (White on Charcoal) */}
-        {intDigits.map((d, i) => (
-          <OdometerReel key={`int-${i}`} targetDigit={d} isFractional={false} />
+      <div className="flex items-center gap-[1.5px] p-[2.5px] bg-[#07080a] border border-[#2b2f38] rounded-[3px] shadow-[inset_0_2px_6px_rgba(0,0,0,0.95),0_2px_4px_rgba(0,0,0,0.6)]">
+        {/* 5 Whole Number Drums (White on Charcoal) */}
+        {[0, 1, 2, 3, 4].map((idx) => (
+          <div
+            key={`int-${idx}`}
+            className="relative inline-block w-[15px] h-[22px] overflow-hidden select-none rounded-[2px] border bg-[#0c0e12] border-[#222630] shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]"
+            style={{ perspective: '120px' }}
+          >
+            {/* 3D Convex Drum Curvature Shadow Overlays */}
+            <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/95 via-transparent to-black/95" />
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/[0.07] z-10" />
+
+            {/* Vertical Rolling Digit Strip */}
+            <div
+              ref={(el) => (drumRefs.current[idx] = el)}
+              className="flex flex-col items-center will-change-transform"
+              style={{ transform: 'translate3d(0, 0px, 0)' }}
+            >
+              {DRUM_DIGITS.map((d, dIdx) => (
+                <span
+                  key={dIdx}
+                  className="h-[22px] w-full flex items-center justify-center font-courier font-black text-[12px] leading-none text-[#FDFBF7]"
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
+          </div>
         ))}
 
-        {/* Beveled Decimal Separator Dot Window */}
-        <div className="relative flex items-center justify-center w-[7px] h-[22px] bg-[#0a0c0e] border border-[#252830] rounded-[1px] select-none">
-          <span className="w-1 h-1 rounded-full bg-[#FF9D1E] shadow-[0_0_4px_#FF9D1E]" />
+        {/* Stationary Beveled Decimal Separator Dot Window */}
+        <div className="relative flex items-center justify-center w-[7px] h-[22px] bg-[#0a0c0e] border border-[#222630] rounded-[1px] select-none">
+          <span className="w-1 h-1 rounded-full bg-[#FF9D1E] shadow-[0_0_6px_#FF9D1E]" />
         </div>
 
         {/* 2 Decimal Fractional Drums in NFS Amber */}
-        {fracDigits.map((d, i) => (
-          <OdometerReel key={`frac-${i}`} targetDigit={d} isFractional={true} />
+        {[5, 6].map((idx) => (
+          <div
+            key={`frac-${idx}`}
+            className="relative inline-block w-[15px] h-[22px] overflow-hidden select-none rounded-[2px] border bg-[#161007] border-[#FF9D1E]/40 shadow-[inset_0_2px_4px_rgba(0,0,0,0.95)]"
+            style={{ perspective: '120px' }}
+          >
+            {/* 3D Convex Drum Curvature Shadow Overlays */}
+            <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-black/95 via-transparent to-black/95" />
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[1px] bg-white/[0.07] z-10" />
+
+            {/* Vertical Rolling Digit Strip */}
+            <div
+              ref={(el) => (drumRefs.current[idx] = el)}
+              className="flex flex-col items-center will-change-transform"
+              style={{ transform: 'translate3d(0, 0px, 0)' }}
+            >
+              {DRUM_DIGITS.map((d, dIdx) => (
+                <span
+                  key={dIdx}
+                  className="h-[22px] w-full flex items-center justify-center font-courier font-black text-[12px] leading-none text-[#FF9D1E]"
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </div>

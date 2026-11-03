@@ -10,9 +10,10 @@ import { useLoadingStore } from './store/useLoadingStore'
 const keyboardMap = [
   { name: 'forward', keys: ['ArrowUp', 'w', 'W'] },
   { name: 'backward', keys: ['ArrowDown', 's', 'S'] },
+  { name: 'brake', keys: ['ArrowDown', 's', 'S'] },
+  { name: 'handbrake', keys: ['Space'] },
   { name: 'left', keys: ['ArrowLeft', 'a', 'A'] },
   { name: 'right', keys: ['ArrowRight', 'd', 'D'] },
-  { name: 'brake', keys: ['Space'] },
   { name: 'burnout', keys: ['KeyB', 'b', 'B'] },
 ]
 
