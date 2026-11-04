@@ -163,7 +163,6 @@ export default function App() {
             }}
             style={{ width: '100%', height: '100%' }}
           >
-            <fogExp2 attach="fog" color="#4a4a52" density={0.003} />
             <Suspense fallback={null}>
               <Experience />
             </Suspense>

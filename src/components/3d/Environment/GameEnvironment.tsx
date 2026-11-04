@@ -75,6 +75,8 @@ const milkyWayFragmentShader = `
   }
 `
 
+const SSAO_COLOR = new THREE.Color('#0b101b')
+
 // Cosmic Sky Component: Centered on player camera, renders Stars, Milky Way and Glowing 3D Moon
 function CosmicCelestialSky({
   sunHeight,
@@ -911,7 +913,7 @@ export default function GameEnvironment() {
             radius={0.35}
             intensity={22}
             luminanceInfluence={0.5}
-            color={new THREE.Color('#0b101b')}
+            color={SSAO_COLOR}
             worldDistanceThreshold={100}
             worldDistanceFalloff={10}
             worldProximityThreshold={0.5}

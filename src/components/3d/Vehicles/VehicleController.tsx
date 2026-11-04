@@ -386,6 +386,8 @@ const _skidMaterial = new THREE.MeshBasicMaterial({
 
 const _tempSkidL1 = new THREE.Vector3()
 const _tempSkidR1 = new THREE.Vector3()
+const _prevSkidL = new THREE.Vector3()
+const _prevSkidR = new THREE.Vector3()
 
 export default function VehicleController() {
   const carGroupRef = useRef<THREE.Group>(null)
@@ -432,8 +434,7 @@ export default function VehicleController() {
   // Dynamic Tire Skid Mark Tracking Refs
   const skidQuadCount = useRef(0)
   const skidRingIndex = useRef(0)
-  const prevSkidL = useRef<THREE.Vector3 | null>(null)
-  const prevSkidR = useRef<THREE.Vector3 | null>(null)
+  const hasPrevSkid = useRef(false)
   const isBurnoutActiveRef = useRef(false)
 
   // Custom THREE.Points Tire Kick-Up Particle System Ref, Geometry & Pool
@@ -557,8 +558,7 @@ export default function VehicleController() {
         }
         skidQuadCount.current = 0
         skidRingIndex.current = 0
-        prevSkidL.current = null
-        prevSkidR.current = null
+        hasPrevSkid.current = false
         _skidGeo.setDrawRange(0, 0)
       }
     }
@@ -1015,7 +1015,10 @@ export default function VehicleController() {
     if (isHoverMode) {
       wheelSuspensions.current = [0, 0, 0, 0]
     } else {
-      _wheelCorners.forEach(([lx, lz], idx) => {
+      for (let idx = 0; idx < 4; idx++) {
+        const corner = _wheelCorners[idx]
+        const lx = corner[0]
+        const lz = corner[1]
         const wx = pos.current.x + lx * cosYaw + lz * sinYaw
         const wz = pos.current.z - lx * sinYaw + lz * cosYaw
         const wy = getSurfaceHeight(wx, wz, activeBiomeConfig.id)
@@ -1026,7 +1029,7 @@ export default function VehicleController() {
           clampedComp,
           frameDelta * 18
         )
-      })
+      }
     }
 
     // Dynamic Pitch & Body Roll (Inertia + Suspension + Centrifugal Roll)
@@ -1519,11 +1522,12 @@ export default function VehicleController() {
       curL.y = getSurfaceHeight(curL.x, curL.z, activeBiomeConfig.id) + 0.025
       curR.y = getSurfaceHeight(curR.x, curR.z, activeBiomeConfig.id) + 0.025
 
-      if (!prevSkidL.current || !prevSkidR.current) {
-        prevSkidL.current = curL.clone()
-        prevSkidR.current = curR.clone()
+      if (!hasPrevSkid.current) {
+        _prevSkidL.copy(curL)
+        _prevSkidR.copy(curR)
+        hasPrevSkid.current = true
       } else {
-        const dist = prevSkidL.current.distanceTo(curL)
+        const dist = _prevSkidL.distanceTo(curL)
         const minStep = isBurnoutActive ? 0.16 : 0.42
         if (dist >= minStep) {
           const perpX = rightX * 0.12
@@ -1533,13 +1537,13 @@ export default function VehicleController() {
           // Left wheel quad
           const baseL = ringPair * 4 * 3
           // v0 (prev - perp)
-          _skidPositions[baseL + 0] = prevSkidL.current.x - perpX
-          _skidPositions[baseL + 1] = prevSkidL.current.y
-          _skidPositions[baseL + 2] = prevSkidL.current.z - perpZ
+          _skidPositions[baseL + 0] = _prevSkidL.x - perpX
+          _skidPositions[baseL + 1] = _prevSkidL.y
+          _skidPositions[baseL + 2] = _prevSkidL.z - perpZ
           // v1 (prev + perp)
-          _skidPositions[baseL + 3] = prevSkidL.current.x + perpX
-          _skidPositions[baseL + 4] = prevSkidL.current.y
-          _skidPositions[baseL + 5] = prevSkidL.current.z + perpZ
+          _skidPositions[baseL + 3] = _prevSkidL.x + perpX
+          _skidPositions[baseL + 4] = _prevSkidL.y
+          _skidPositions[baseL + 5] = _prevSkidL.z + perpZ
           // v2 (cur - perp)
           _skidPositions[baseL + 6] = curL.x - perpX
           _skidPositions[baseL + 7] = curL.y
@@ -1552,13 +1556,13 @@ export default function VehicleController() {
           // Right wheel quad
           const baseR = (ringPair + 1) * 4 * 3
           // v0 (prev - perp)
-          _skidPositions[baseR + 0] = prevSkidR.current.x - perpX
-          _skidPositions[baseR + 1] = prevSkidR.current.y
-          _skidPositions[baseR + 2] = prevSkidR.current.z - perpZ
+          _skidPositions[baseR + 0] = _prevSkidR.x - perpX
+          _skidPositions[baseR + 1] = _prevSkidR.y
+          _skidPositions[baseR + 2] = _prevSkidR.z - perpZ
           // v1 (prev + perp)
-          _skidPositions[baseR + 3] = prevSkidR.current.x + perpX
-          _skidPositions[baseR + 4] = prevSkidR.current.y
-          _skidPositions[baseR + 5] = prevSkidR.current.z + perpZ
+          _skidPositions[baseR + 3] = _prevSkidR.x + perpX
+          _skidPositions[baseR + 4] = _prevSkidR.y
+          _skidPositions[baseR + 5] = _prevSkidR.z + perpZ
           // v2 (cur - perp)
           _skidPositions[baseR + 6] = curR.x - perpX
           _skidPositions[baseR + 7] = curR.y
@@ -1568,8 +1572,8 @@ export default function VehicleController() {
           _skidPositions[baseR + 10] = curR.y
           _skidPositions[baseR + 11] = curR.z + perpZ
 
-          prevSkidL.current.copy(curL)
-          prevSkidR.current.copy(curR)
+          _prevSkidL.copy(curL)
+          _prevSkidR.copy(curR)
 
           skidRingIndex.current = (skidRingIndex.current + 1) % (MAX_SKID_QUADS / 2)
           skidQuadCount.current = Math.min(MAX_SKID_QUADS, skidQuadCount.current + 2)
@@ -1578,8 +1582,7 @@ export default function VehicleController() {
         }
       }
     } else {
-      prevSkidL.current = null
-      prevSkidR.current = null
+      hasPrevSkid.current = false
     }
 
     // ------------------------------------------------------------------------

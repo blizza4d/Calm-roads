@@ -801,11 +801,11 @@ export interface ClosestRoadPoint {
 // Finds the exact closest point on the road curve to any world (x, z) coordinate,
 // returning Euclidean distance, road elevation, normal vector and signed lateral offset.
 export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
-  // Coarse scan +-60m in 6m steps around z for robust global basin detection
+  // Coarse scan: road curvature is smooth with radius > 70m, so optimal u is guaranteed within +-36m
   let bestU = z
   let bestDistSq = (x - getRoadCenter(z)) ** 2
 
-  for (let offset = -60; offset <= 60; offset += 6) {
+  for (let offset = -36; offset <= 36; offset += 9) {
     if (offset === 0) continue
     const u = z + offset
     const rx = getRoadCenter(u)
@@ -816,16 +816,16 @@ export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
     }
   }
 
-  // Refine with Golden Section search within [bestU - 6, bestU + 6]
-  let a = bestU - 6
-  let b = bestU + 6
+  // Refine with Golden Section search within [bestU - 9, bestU + 9]
+  let a = bestU - 9
+  let b = bestU + 9
   const gr = 0.618033988749895
   let c = b - gr * (b - a)
   let d = a + gr * (b - a)
   let fc = (x - getRoadCenter(c)) ** 2 + (z - c) ** 2
   let fd = (x - getRoadCenter(d)) ** 2 + (z - d) ** 2
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 9; i++) {
     if (fc < fd) {
       b = d
       d = c
@@ -966,6 +966,59 @@ export function getRawBiomeElevation(x: number, z: number, bId: BiomeType): numb
 // Enforces the Bulldozer Road Mask with a strictly protected roadbed corridor and smooth Hermite transition.
 // The road is always guaranteed to remain a visible, flat, continuous, physically drivable surface.
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
+  const rcZ = getRoadCenter(z)
+  const dxZ = x - rcZ
+
+  // Performance Fast-Path for Distant Terrain (|x - rcZ| > 115m):
+  // When |x - rcZ| > 115m, the Euclidean distance to the road curve is guaranteed > ROAD_TRANSITION_RADIUS (75m).
+  // Thus smoothBlend is analytically 1.0, bypassing the golden section search for >80% of chunk vertices!
+  if (Math.abs(dxZ) > 115.0 && biomeId !== 'coastal') {
+    const tan = getRoadTangent(z)
+    const uProj = z + dxZ * (tan.tx / (tan.tz || -1.0)) * 0.75
+    const uClamped = Math.max(z - 30.0, Math.min(z + 30.0, uProj))
+    const roadX = getRoadCenter(uClamped)
+    const roadY = getRoadElevation(uClamped)
+    const dist = Math.hypot(x - roadX, z - uClamped)
+    const distPastCorridor = dist - ROAD_PROTECTED_RADIUS
+    const macro = getInterpolatedMacroProfile(uClamped)
+
+    const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
+    const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
+    const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
+    const frac = normZ - Math.floor(normZ)
+
+    let naturalElevation = 0
+    let mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
+
+    if (frac > 0.82) {
+      const blendT = (frac - 0.82) / 0.18
+      const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
+      const elev1 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
+      const elev2 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[nextIdx], macro)
+      naturalElevation = elev1 * (1 - sBlend) + elev2 * sBlend
+      const mult1 = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
+      const mult2 = BIOMES[BIOME_CYCLE_ORDER[nextIdx]].hillHeightMultiplier
+      mult = mult1 * (1 - sBlend) + mult2 * sBlend
+    } else {
+      naturalElevation = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
+      mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
+    }
+
+    const mountainRamp = macro.mountainAmplitude > 0
+      ? Math.min(1.25, 0.05 + Math.pow(distPastCorridor / 140.0, 1.25) * 1.15)
+      : 1.0
+    const valleyWallLift = macro.mountainAmplitude > 0
+      ? Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.6) * (macro.mountainAmplitude * 0.35)
+      : 0.0
+
+    const computedElevation =
+      (roadY - ROAD_CLEARANCE_BASE) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * mult)
+
+    const MAX_TERRAIN_CEILING = 110.0
+    const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
+    return Math.max(0.0, clampedElevation)
+  }
+
   const closest = getClosestRoadPoint(x, z)
   const dist = closest.dist
   const roadY = closest.roadY

@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { VehicleModelType } from '../../../store/useGameStore'
+import { VehicleModelType, useGameStore } from '../../../store/useGameStore'
 
 interface CarModelProps {
   type: VehicleModelType
@@ -31,6 +31,13 @@ function HeadlightBeams({
   color?: string
   intensity?: number
 }) {
+  const timeOfDay = useGameStore((s) => s.timeOfDay)
+  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
+  // Dynamic shadow casting: Only cast headlight spotlight shadows at night/sunset (hours < 6.5 or > 18.5)
+  // when graphics is High, completely eliminating 2 redundant 512x512 shadow passes during daytime and on medium/low presets.
+  const isDark = timeOfDay < 6.5 || timeOfDay > 18.5
+  const shouldCastShadow = graphicsQuality === 'high' && isDark
+
   // Low-beam targets (spread outward to illuminate shoulders and pavement)
   const targetLowL = useMemo(() => {
     const o = new THREE.Object3D()
@@ -74,7 +81,7 @@ function HeadlightBeams({
         distance={75}
         intensity={intensity}
         color={color}
-        castShadow
+        castShadow={shouldCastShadow}
         shadow-bias={-0.002}
         shadow-mapSize={[512, 512]}
       />
@@ -87,7 +94,7 @@ function HeadlightBeams({
         distance={75}
         intensity={intensity}
         color={color}
-        castShadow
+        castShadow={shouldCastShadow}
         shadow-bias={-0.002}
         shadow-mapSize={[512, 512]}
       />

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import HUD from './HUD'
+import PerformanceProfiler from './PerformanceProfiler'
 import {
   CloudSun,
   Camera,
@@ -174,51 +175,49 @@ function MasterMenuModal({
   showTouchControls: boolean
   setShowTouchControls: (v: boolean) => void
 }) {
-  const {
-    // Atmosphere
-    timeOfDay,
-    setTimeOfDay,
-    autoTimeCycle,
-    toggleAutoTimeCycle,
-    weather,
-    setWeather,
-    biome,
-    setBiome,
-    graphicsQuality,
-    setGraphicsQuality,
-    // Garage
-    vehicleModel,
-    setVehicleModel,
-    paintColor,
-    setPaintColor,
-    metallic,
-    setMetallic,
-    roughness,
-    setRoughness,
-    isHoverMode,
-    toggleHoverMode,
-    // Radio & Audio
-    isMusicPlaying,
-    toggleMusic,
-    currentTrackIndex,
-    nextTrack,
-    prevTrack,
-    musicVolume,
-    setMusicVolume,
-    sfxVolume,
-    setSfxVolume,
-    // Tools
-    autoDrive,
-    toggleAutoDrive,
-    speedUnit,
-    toggleSpeedUnit,
-    showDiagnostics,
-    toggleDiagnostics,
-    isFullscreen,
-    toggleFullscreen,
-    togglePhotoMode,
-    toggleZenMode,
-  } = useGameStore()
+  // Atmosphere
+  const timeOfDay = useGameStore((s) => s.timeOfDay)
+  const setTimeOfDay = useGameStore((s) => s.setTimeOfDay)
+  const autoTimeCycle = useGameStore((s) => s.autoTimeCycle)
+  const toggleAutoTimeCycle = useGameStore((s) => s.toggleAutoTimeCycle)
+  const weather = useGameStore((s) => s.weather)
+  const setWeather = useGameStore((s) => s.setWeather)
+  const biome = useGameStore((s) => s.biome)
+  const setBiome = useGameStore((s) => s.setBiome)
+  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
+  const setGraphicsQuality = useGameStore((s) => s.setGraphicsQuality)
+  // Garage
+  const vehicleModel = useGameStore((s) => s.vehicleModel)
+  const setVehicleModel = useGameStore((s) => s.setVehicleModel)
+  const paintColor = useGameStore((s) => s.paintColor)
+  const setPaintColor = useGameStore((s) => s.setPaintColor)
+  const metallic = useGameStore((s) => s.metallic)
+  const setMetallic = useGameStore((s) => s.setMetallic)
+  const roughness = useGameStore((s) => s.roughness)
+  const setRoughness = useGameStore((s) => s.setRoughness)
+  const isHoverMode = useGameStore((s) => s.isHoverMode)
+  const toggleHoverMode = useGameStore((s) => s.toggleHoverMode)
+  // Radio & Audio
+  const isMusicPlaying = useGameStore((s) => s.isMusicPlaying)
+  const toggleMusic = useGameStore((s) => s.toggleMusic)
+  const currentTrackIndex = useGameStore((s) => s.currentTrackIndex)
+  const nextTrack = useGameStore((s) => s.nextTrack)
+  const prevTrack = useGameStore((s) => s.prevTrack)
+  const musicVolume = useGameStore((s) => s.musicVolume)
+  const setMusicVolume = useGameStore((s) => s.setMusicVolume)
+  const sfxVolume = useGameStore((s) => s.sfxVolume)
+  const setSfxVolume = useGameStore((s) => s.setSfxVolume)
+  // Tools
+  const autoDrive = useGameStore((s) => s.autoDrive)
+  const toggleAutoDrive = useGameStore((s) => s.toggleAutoDrive)
+  const speedUnit = useGameStore((s) => s.speedUnit)
+  const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
+  const showDiagnostics = useGameStore((s) => s.showDiagnostics)
+  const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
+  const isFullscreen = useGameStore((s) => s.isFullscreen)
+  const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
+  const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
+  const toggleZenMode = useGameStore((s) => s.toggleZenMode)
 
   const formatTime = (t: number) => {
     const hours = Math.floor(t)
@@ -309,6 +308,7 @@ function MasterMenuModal({
     { key: 'M', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'F', action: 'Toggle Fullscreen' },
     { key: 'F3', action: 'Toggle Telemetry & Diagnostics HUD' },
+    { key: 'F4', action: 'Toggle Real-Time Engine & GPU Profiler HUD' },
     { key: 'Esc', action: 'Close / Open Menu' },
   ]
 
@@ -1138,6 +1138,7 @@ function PhotoModeView() {
 // ----------------------------------------------------------------
 export default function Overlay() {
   const [showTouchControls, setShowTouchControls] = useState(false)
+  const [showProfiler, setShowProfiler] = useState(false)
 
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const cycleCameraPerspective = useGameStore((s) => s.cycleCameraPerspective)
@@ -1181,6 +1182,10 @@ export default function Overlay() {
       if (e.key === 'F3') {
         e.preventDefault()
         toggleDiagnostics()
+      }
+      if (e.key === 'F4') {
+        e.preventDefault()
+        setShowProfiler((prev) => !prev)
       }
     }
 
@@ -1272,6 +1277,9 @@ export default function Overlay() {
 
       {/* ----------------- REAL-TIME DEV TELEMETRY HUD ----------------- */}
       {showDiagnostics && <DiagnosticsHUD />}
+
+      {/* ----------------- REAL-TIME ENGINE PROFILER HUD ----------------- */}
+      {showProfiler && <PerformanceProfiler onClose={() => setShowProfiler(false)} />}
 
       {/* ----------------- BOTTOM HUD / SPEEDOMETER ----------------- */}
       <SpeedometerHUD />
