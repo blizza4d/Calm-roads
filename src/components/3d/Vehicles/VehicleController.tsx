@@ -1223,6 +1223,34 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 6. Real-Time Layered Audio Ecosystem & Dynamic Telemetry
     // ------------------------------------------------------------------------
+    // Authoritative Surface Type determination
+    let currentSurfaceType: 'asphalt' | 'wet' | 'snow' | 'gravel' | 'sand' = 'asphalt'
+    const isWetWeather = activeBiomeConfig.weatherPreset === 'rain'
+    const isSnowBiome = activeBiomeConfig.id === 'twisted_mountains' || activeBiomeConfig.id === 'alpine' || activeBiomeConfig.id === 'tundra' || activeBiomeConfig.weatherPreset === 'snow'
+    const isDesertBiome = activeBiomeConfig.id === 'desert'
+
+    if (!onRoad) {
+      if (isSnowBiome) currentSurfaceType = 'snow'
+      else if (isDesertBiome) currentSurfaceType = 'sand'
+      else currentSurfaceType = 'gravel'
+    } else {
+      if (isWetWeather) currentSurfaceType = 'wet'
+      else if (isSnowBiome) currentSurfaceType = 'snow'
+      else currentSurfaceType = 'asphalt'
+    }
+
+    // Authoritative Engine Load decoupling (free-wheeling vs full loaded drivetrain strain)
+    let engineLoad = 0.0
+    if (!isGrounded.current) {
+      engineLoad = 0.20 // Airborne free-wheeling
+    } else if (isBurnoutActive) {
+      engineLoad = 1.0 // Pinned against tire friction
+    } else if (currentSpeedKmh < 1.0) {
+      engineLoad = curThrottleAbs * 0.35 // Standstill free-revving
+    } else if (curThrottleAbs > 0.05) {
+      engineLoad = Math.min(1.0, curThrottleAbs * (forwardVel.current > 0 ? 1.0 : 0.6))
+    }
+
     // Dynamic 3D Spatial Audio Tracking (Engine & Exhaust follow car in camera space)
     state.camera.getWorldDirection(_tempCamForward)
     audioSystem.updateSpatialPosition(pos.current, state.camera.position, _tempCamForward)
@@ -1231,12 +1259,17 @@ export default function VehicleController() {
       speedKmh: currentSpeedKmh,
       rpm: finalRpm,
       throttle: isBurnoutActive ? 1.0 : curThrottleAbs,
+      gear: calculatedGear,
+      engineLoad,
+      isGrounded: isGrounded.current,
       isOffRoad: !onRoad,
+      surfaceType: currentSurfaceType,
       isHoverMode,
       vehicleModel,
       isDecelerating: isDecel,
       lateralSlip: isBurnoutActive ? 1.0 : lateralSlip,
       isBurnout: isBurnoutActive,
+      drivenWheelSpeed: isBurnoutActive ? config.redlineRpm * 0.85 : (currentSpeedKmh / 3.6) / 0.33,
     })
 
     // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)

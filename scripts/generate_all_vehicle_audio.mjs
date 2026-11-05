@@ -589,14 +589,210 @@ function generateHatchbackAudio(outDir) {
   }
 }
 
-// Generate for all 5 vehicles in public/audio/cars/<vehicle_id>/
+// ============================================================================
+// 6. MODERN SUPERCAR: 6.5L Naturally Aspirated 60° Screaming V12 Hypercar
+// ============================================================================
+function generateModernSupercarAudio(outDir) {
+  console.log(`Generating Modern Supercar V12 Audio -> ${outDir}`);
+
+  function genV12(rpm, throttle = 1.0, duration = 3.2) {
+    const totalSamples = Math.floor(sampleRate * duration);
+    const left = new Float32Array(totalSamples);
+    const right = new Float32Array(totalSamples);
+    const revPerSec = rpm / 60;
+    const firingFreq = revPerSec * 6.0; // 12 cylinders / 2 revs = 6 firings per rev
+
+    const fMid = new ResonantFilter(450, 2.8); // High mid-intake runner resonance
+    const fScream = new ResonantFilter(1150, 3.4); // Screaming high harmonic acoustic cavity
+
+    for (let i = 0; i < totalSamples; i++) {
+      const t = i / sampleRate;
+      // V12 firing tone: pure, intense high-harmonic density
+      const h1 = Math.sin(2 * Math.PI * firingFreq * t) * 0.85;
+      const h2 = Math.sin(2 * Math.PI * (firingFreq * 2.0) * t + 0.3) * 0.60;
+      const h3 = Math.sin(2 * Math.PI * (firingFreq * 3.0) * t + 0.7) * 0.40;
+      const h4 = Math.sin(2 * Math.PI * (firingFreq * 4.0) * t + 1.1) * 0.28;
+      const h6 = Math.sin(2 * Math.PI * (firingFreq * 6.0) * t + 1.5) * 0.20;
+      const sub = Math.sin(2 * Math.PI * (firingFreq * 0.5) * t) * 0.35;
+
+      let s = (h1 + h2 + h3 + h4 + h6 + sub) * throttle;
+      s = fMid.process(s) * 0.65 + fScream.process(s) * 0.75;
+      s = Math.tanh(s * 1.65) * 0.90;
+
+      left[i] = s;
+      right[i] = s * 0.98;
+    }
+    return createWav(2, [left, right]);
+  }
+
+  saveAudio(outDir, 'idle.wav', genV12(1100, 0.38, 3.2));
+  saveAudio(outDir, 'low_rpm.wav', genV12(3200, 0.75, 3.2));
+  saveAudio(outDir, 'mid_rpm.wav', genV12(6200, 0.90, 3.2));
+  saveAudio(outDir, 'high_rpm.wav', genV12(9200, 1.0, 3.2));
+
+  // V12 Deceleration & High-RPM Overrun
+  {
+    const dur = 3.0;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const curRpm = 8600 * Math.exp(-t * 0.8) + 1200;
+      const freq = (curRpm / 60) * 6.0;
+      const scream = Math.sin(2 * Math.PI * freq * t) * 0.5 + Math.sin(2 * Math.PI * (freq * 2) * t) * 0.3;
+      const crackle = (Math.random() > 0.982) ? (Math.random() - 0.5) * 1.5 : 0;
+      const s = (scream * 0.65 + crackle) * 0.88;
+      left[i] = s; right[i] = s;
+    }
+    saveAudio(outDir, 'off_throttle.wav', createWav(2, [left, right]));
+  }
+
+  // Ultra-Fast Dual-Clutch 80ms Shift Snap
+  {
+    const dur = 0.16;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const snap = Math.sin(2 * Math.PI * 2600 * t) * Math.exp(-t * 140) * 0.8;
+      const boom = Math.sin(2 * Math.PI * 145 * t) * Math.exp(-t * 50) * 0.95;
+      const s = snap + boom;
+      left[i] = s; right[i] = s;
+    }
+    saveAudio(outDir, 'gear_shift.wav', createWav(2, [left, right]));
+  }
+
+  // Titanium Exhaust Flame Crackle
+  {
+    const dur = 0.36;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const gunshot = Math.sin(2 * Math.PI * 210 * t) * Math.exp(-t * 60) * 0.95;
+      const hiss = (Math.random() - 0.5) * Math.exp(-t * 30) * 0.55;
+      left[i] = gunshot + hiss;
+      right[i] = gunshot + hiss;
+    }
+    saveAudio(outDir, 'overrun.wav', createWav(2, [left, right]));
+  }
+}
+
+// ============================================================================
+// 7. VINTAGE HATCH: 1.8L Turbocharged 16V Flat-4 Boxer Engine
+// ============================================================================
+function generateVintageHatchAudio(outDir) {
+  console.log(`Generating Vintage Hatch Boxer Flat-4 Audio -> ${outDir}`);
+
+  function genBoxer(rpm, throttle = 1.0, duration = 3.2) {
+    const totalSamples = Math.floor(sampleRate * duration);
+    const left = new Float32Array(totalSamples);
+    const right = new Float32Array(totalSamples);
+    const revPerSec = rpm / 60;
+    const cycleRad = 4 * Math.PI;
+    let crankAngle = 0;
+
+    // Asymmetric unequal-length header firing intervals producing iconic boxer throb
+    const bAngles = [0, 0.46 * cycleRad, 0.98 * cycleRad, 1.48 * cycleRad];
+    const fBoxerLow = new ResonantFilter(210, 2.4);
+    const fBoxerMid = new ResonantFilter(560, 2.2);
+
+    for (let i = 0; i < totalSamples; i++) {
+      crankAngle += (revPerSec * 2 * Math.PI) / sampleRate;
+      const cPos = crankAngle % cycleRad;
+
+      let p = 0;
+      for (let c = 0; c < 4; c++) {
+        let d = cPos - bAngles[c]; if (d < 0) d += cycleRad;
+        if (d < 1.1) {
+          const tRel = d / 1.1;
+          p += Math.sin(Math.PI * Math.pow(tRel, 0.42)) * Math.exp(-3.5 * tRel);
+        }
+      }
+
+      // Turbo spool whistle
+      const turboFreq = 1600 + (rpm / 7500) * 2400;
+      const turboWhistle = Math.sin(2 * Math.PI * turboFreq * (i / sampleRate)) * (0.05 + throttle * 0.18);
+
+      let s = p * throttle + turboWhistle;
+      s = fBoxerLow.process(s) * 0.70 + fBoxerMid.process(s) * 0.55;
+      s = Math.tanh(s * 1.5) * 0.88;
+
+      left[i] = s;
+      right[i] = s * 0.95;
+    }
+    return createWav(2, [left, right]);
+  }
+
+  saveAudio(outDir, 'idle.wav', genBoxer(900, 0.38, 3.2));
+  saveAudio(outDir, 'low_rpm.wav', genBoxer(2600, 0.75, 3.2));
+  saveAudio(outDir, 'mid_rpm.wav', genBoxer(4800, 0.90, 3.2));
+  saveAudio(outDir, 'high_rpm.wav', genBoxer(7400, 1.0, 3.2));
+
+  // Boxer Off-Throttle Deceleration
+  {
+    const dur = 2.8;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const curRpm = 6400 * Math.exp(-t * 0.7) + 950;
+      const freq = (curRpm / 60) * 2.0;
+      const throb = Math.sin(2 * Math.PI * freq * t) * 0.45;
+      const burble = (Math.random() > 0.986) ? (Math.random() - 0.5) * 1.3 : 0;
+      const s = (throb * 0.7 + burble) * 0.85;
+      left[i] = s; right[i] = s;
+    }
+    saveAudio(outDir, 'off_throttle.wav', createWav(2, [left, right]));
+  }
+
+  // Dog-Box Gate Snick-Clack Shift
+  {
+    const dur = 0.20;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const clack = Math.sin(2 * Math.PI * 1350 * t) * Math.exp(-t * 85) * 0.65;
+      const thump = Math.sin(2 * Math.PI * 110 * t) * Math.exp(-t * 35) * 0.9;
+      const s = clack + thump;
+      left[i] = s; right[i] = s;
+    }
+    saveAudio(outDir, 'gear_shift.wav', createWav(2, [left, right]));
+  }
+
+  // Raspy Pop-and-Bang Overrun
+  {
+    const dur = 0.32;
+    const tot = Math.floor(sampleRate * dur);
+    const left = new Float32Array(tot);
+    const right = new Float32Array(tot);
+    for (let i = 0; i < tot; i++) {
+      const t = i / sampleRate;
+      const pop = Math.sin(2 * Math.PI * 155 * t) * Math.exp(-t * 45) * 1.0;
+      const rasp = (Math.random() - 0.5) * Math.exp(-t * 20) * 0.5;
+      left[i] = Math.tanh(pop + rasp);
+      right[i] = Math.tanh(pop + rasp);
+    }
+    saveAudio(outDir, 'overrun.wav', createWav(2, [left, right]));
+  }
+}
+
+// Generate for all 7 vehicles in public/audio/cars/<vehicle_id>/
 const baseDir = path.join('public', 'audio', 'cars');
 
 generateBmwAudio(path.join(baseDir, 'bmw_m3'));
 generateSupercarAudio(path.join(baseDir, 'supercar'));
+generateModernSupercarAudio(path.join(baseDir, 'modern_supercar'));
 generateHovercraftAudio(path.join(baseDir, 'hovercraft'));
 generateCamperAudio(path.join(baseDir, 'camper'));
 generateHatchbackAudio(path.join(baseDir, 'hatchback'));
+generateVintageHatchAudio(path.join(baseDir, 'vintage_hatch'));
 
 // Also copy bmw_m3 audio to public/sounds for backward compatibility
 const soundsDir = path.join('public', 'sounds');
@@ -631,7 +827,7 @@ const masterManifest = {
         gearShift: '/audio/cars/bmw_m3/gear_shift.wav',
         overrun: '/audio/cars/bmw_m3/overrun.wav',
       },
-      rawRecordingLayers: ['/audio/raw/bmw_m3_gt2_2010.ogg', '/audio/raw/bmw_e46_engine.opus'],
+      rawRecordingLayers: ['/audio/raw/bmw_m3_gt2_2010.ogg', '/audio/raw/bmw_e46_engine.opus', '/audio/m3_gtr_screaming.mp3'],
     },
     supercar: {
       id: 'supercar',
@@ -649,6 +845,25 @@ const masterManifest = {
         offThrottle: '/audio/cars/supercar/off_throttle.wav',
         gearShift: '/audio/cars/supercar/gear_shift.wav',
         overrun: '/audio/cars/supercar/overrun.wav',
+      },
+      rawRecordingLayers: ['/audio/raw/v8_idle_and_revs.ogg'],
+    },
+    modern_supercar: {
+      id: 'modern_supercar',
+      name: 'Modern Exotic V12 Supercar',
+      engineType: '6.5L Naturally Aspirated 60° Screaming V12 Hypercar',
+      transmission: '7-Speed Dual-Clutch Transmission (DCT)',
+      redlineRpm: 9500,
+      idleRpm: 1100,
+      soundCharacteristics: 'Pure Formula 1-style 12-cylinder howl, dual intake runner resonance at 450Hz & 1150Hz, ultra-fast 80ms DCT paddle-shift crackles',
+      files: {
+        idle: '/audio/cars/modern_supercar/idle.wav',
+        lowRPM: '/audio/cars/modern_supercar/low_rpm.wav',
+        midRPM: '/audio/cars/modern_supercar/mid_rpm.wav',
+        highRPM: '/audio/cars/modern_supercar/high_rpm.wav',
+        offThrottle: '/audio/cars/modern_supercar/off_throttle.wav',
+        gearShift: '/audio/cars/modern_supercar/gear_shift.wav',
+        overrun: '/audio/cars/modern_supercar/overrun.wav',
       },
       rawRecordingLayers: ['/audio/raw/v8_idle_and_revs.ogg'],
     },
@@ -704,6 +919,25 @@ const masterManifest = {
         offThrottle: '/audio/cars/hatchback/off_throttle.wav',
         gearShift: '/audio/cars/hatchback/gear_shift.wav',
         overrun: '/audio/cars/hatchback/overrun.wav',
+      },
+      rawRecordingLayers: ['/audio/raw/audi_quattro_rally.ogg'],
+    },
+    vintage_hatch: {
+      id: 'vintage_hatch',
+      name: 'Vintage Raspy Turbo Flat-4 Hot Hatch',
+      engineType: '1.8L Turbocharged 16V Flat-4 Boxer Engine',
+      transmission: 'Close-Ratio 5-Speed Manual Dog-Box',
+      redlineRpm: 7800,
+      idleRpm: 900,
+      soundCharacteristics: 'Unequal-length header boxer burble, throaty induction rasp at 210Hz & 560Hz, dog-box gate snick-clack, raspy pop-and-bang overrun',
+      files: {
+        idle: '/audio/cars/vintage_hatch/idle.wav',
+        lowRPM: '/audio/cars/vintage_hatch/low_rpm.wav',
+        midRPM: '/audio/cars/vintage_hatch/mid_rpm.wav',
+        highRPM: '/audio/cars/vintage_hatch/high_rpm.wav',
+        offThrottle: '/audio/cars/vintage_hatch/off_throttle.wav',
+        gearShift: '/audio/cars/vintage_hatch/gear_shift.wav',
+        overrun: '/audio/cars/vintage_hatch/overrun.wav',
       },
       rawRecordingLayers: ['/audio/raw/audi_quattro_rally.ogg'],
     },

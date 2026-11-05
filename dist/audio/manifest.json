@@ -24,7 +24,8 @@
       },
       "rawRecordingLayers": [
         "/audio/raw/bmw_m3_gt2_2010.ogg",
-        "/audio/raw/bmw_e46_engine.opus"
+        "/audio/raw/bmw_e46_engine.opus",
+        "/audio/m3_gtr_screaming.mp3"
       ]
     },
     "supercar": {
@@ -43,6 +44,27 @@
         "offThrottle": "/audio/cars/supercar/off_throttle.wav",
         "gearShift": "/audio/cars/supercar/gear_shift.wav",
         "overrun": "/audio/cars/supercar/overrun.wav"
+      },
+      "rawRecordingLayers": [
+        "/audio/raw/v8_idle_and_revs.ogg"
+      ]
+    },
+    "modern_supercar": {
+      "id": "modern_supercar",
+      "name": "Modern Exotic V12 Supercar",
+      "engineType": "6.5L Naturally Aspirated 60° Screaming V12 Hypercar",
+      "transmission": "7-Speed Dual-Clutch Transmission (DCT)",
+      "redlineRpm": 9500,
+      "idleRpm": 1100,
+      "soundCharacteristics": "Pure Formula 1-style 12-cylinder howl, dual intake runner resonance at 450Hz & 1150Hz, ultra-fast 80ms DCT paddle-shift crackles",
+      "files": {
+        "idle": "/audio/cars/modern_supercar/idle.wav",
+        "lowRPM": "/audio/cars/modern_supercar/low_rpm.wav",
+        "midRPM": "/audio/cars/modern_supercar/mid_rpm.wav",
+        "highRPM": "/audio/cars/modern_supercar/high_rpm.wav",
+        "offThrottle": "/audio/cars/modern_supercar/off_throttle.wav",
+        "gearShift": "/audio/cars/modern_supercar/gear_shift.wav",
+        "overrun": "/audio/cars/modern_supercar/overrun.wav"
       },
       "rawRecordingLayers": [
         "/audio/raw/v8_idle_and_revs.ogg"
@@ -100,6 +122,27 @@
         "offThrottle": "/audio/cars/hatchback/off_throttle.wav",
         "gearShift": "/audio/cars/hatchback/gear_shift.wav",
         "overrun": "/audio/cars/hatchback/overrun.wav"
+      },
+      "rawRecordingLayers": [
+        "/audio/raw/audi_quattro_rally.ogg"
+      ]
+    },
+    "vintage_hatch": {
+      "id": "vintage_hatch",
+      "name": "Vintage Raspy Turbo Flat-4 Hot Hatch",
+      "engineType": "1.8L Turbocharged 16V Flat-4 Boxer Engine",
+      "transmission": "Close-Ratio 5-Speed Manual Dog-Box",
+      "redlineRpm": 7800,
+      "idleRpm": 900,
+      "soundCharacteristics": "Unequal-length header boxer burble, throaty induction rasp at 210Hz & 560Hz, dog-box gate snick-clack, raspy pop-and-bang overrun",
+      "files": {
+        "idle": "/audio/cars/vintage_hatch/idle.wav",
+        "lowRPM": "/audio/cars/vintage_hatch/low_rpm.wav",
+        "midRPM": "/audio/cars/vintage_hatch/mid_rpm.wav",
+        "highRPM": "/audio/cars/vintage_hatch/high_rpm.wav",
+        "offThrottle": "/audio/cars/vintage_hatch/off_throttle.wav",
+        "gearShift": "/audio/cars/vintage_hatch/gear_shift.wav",
+        "overrun": "/audio/cars/vintage_hatch/overrun.wav"
       },
       "rawRecordingLayers": [
         "/audio/raw/audi_quattro_rally.ogg"

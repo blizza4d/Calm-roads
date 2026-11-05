@@ -16,7 +16,7 @@
  * - Surface friction, tire squeal, aerodynamic wind rush, horn, and Lo-Fi ambient radio.
  */
 
-import { VehicleModelType } from '../store/useGameStore'
+import type { VehicleModelType } from '../store/useGameStore.ts'
 
 export interface TrackInfo {
   id: number
@@ -32,6 +32,23 @@ export const LOFI_PLAYLIST: TrackInfo[] = [
   { id: 3, title: 'Midnight Highway', artist: 'Distant Horizon', vibe: 'Analog Synth & Vinyl Glow' },
   { id: 4, title: 'Desert Mirage', artist: 'Sahara Breeze', vibe: 'Warm Dunes & Ambient Guitars' },
 ]
+
+export interface VehicleAudioTelemetry {
+  speedKmh: number
+  rpm: number
+  throttle: number
+  gear?: string
+  engineLoad?: number
+  isGrounded?: boolean
+  isOffRoad?: boolean
+  surfaceType?: 'asphalt' | 'wet' | 'snow' | 'gravel' | 'sand'
+  isHoverMode?: boolean
+  vehicleModel?: VehicleModelType
+  isDecelerating?: boolean
+  lateralSlip?: number
+  isBurnout?: boolean
+  drivenWheelSpeed?: number
+}
 
 export type EngineAudioState = 'idle' | 'low_rpm' | 'mid_rpm' | 'high_rpm' | 'off_throttle'
 
@@ -228,44 +245,44 @@ export const VEHICLE_AUDIO_REGISTRY: Record<VehicleModelType, VehicleAudioProfil
   modern_supercar: {
     vehicleId: 'modern_supercar',
     name: 'Modern Exotic V12 Supercar',
-    engineType: '6.5L Naturally Aspirated 60° Screaming V12',
+    engineType: '6.5L Naturally Aspirated 60° Screaming V12 Hypercar',
     transmission: '7-Speed Dual-Clutch Transmission (DCT)',
-    idleRpm: 1050,
-    redlineRpm: 9000,
-    hasTurbo: true,
-    baseRpm: { idle: 1050, low: 3000, mid: 5800, high: 8600, offThrottle: 5000 },
+    idleRpm: 1100,
+    redlineRpm: 9500,
+    hasTurbo: false,
+    baseRpm: { idle: 1100, low: 3200, mid: 6200, high: 9200, offThrottle: 5200 },
     urls: {
-      idle: ['/audio/cars/supercar/idle.wav', '/sounds/engine_idle.wav'],
-      low_rpm: ['/audio/cars/supercar/low_rpm.wav', '/sounds/engine_low.wav'],
-      mid_rpm: ['/audio/cars/supercar/mid_rpm.wav', '/sounds/engine_mid.wav'],
-      high_rpm: ['/audio/cars/supercar/high_rpm.wav', '/sounds/engine_high.wav'],
-      off_throttle: ['/audio/cars/supercar/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
-      gear_shift: ['/audio/cars/supercar/gear_shift.wav', '/sounds/gear_shift.wav'],
-      overrun: ['/audio/cars/supercar/overrun.wav', '/sounds/exhaust_pop.wav'],
+      idle: ['/audio/cars/modern_supercar/idle.wav'],
+      low_rpm: ['/audio/cars/modern_supercar/low_rpm.wav'],
+      mid_rpm: ['/audio/cars/modern_supercar/mid_rpm.wav'],
+      high_rpm: ['/audio/cars/modern_supercar/high_rpm.wav'],
+      off_throttle: ['/audio/cars/modern_supercar/off_throttle.wav'],
+      gear_shift: ['/audio/cars/modern_supercar/gear_shift.wav'],
+      overrun: ['/audio/cars/modern_supercar/overrun.wav'],
     },
-    eqProfile: { subBassFreq: 110, subBassGain: 4.2, growlFreq: 380, growlGain: 4.5 },
+    eqProfile: { subBassFreq: 115, subBassGain: 4.6, growlFreq: 450, growlGain: 5.2 },
     rawRecordingUrl: '/audio/raw/v8_idle_and_revs.ogg',
     screamerUrls: ['/audio/raw/v8_idle_and_revs.ogg'],
   },
   vintage_hatch: {
     vehicleId: 'vintage_hatch',
-    name: 'Vintage Raspy Turbo Flat-4 / Group B',
-    engineType: '2.1L Turbocharged Homologation Rally Engine',
-    transmission: 'Close-Ratio 5-Speed Sequential Dog-Box',
-    idleRpm: 940,
-    redlineRpm: 7500,
+    name: 'Vintage Raspy Turbo Flat-4 Hot Hatch',
+    engineType: '1.8L Turbocharged 16V Flat-4 Boxer Engine',
+    transmission: 'Close-Ratio 5-Speed Manual Dog-Box',
+    idleRpm: 900,
+    redlineRpm: 7800,
     hasTurbo: true,
-    baseRpm: { idle: 940, low: 2500, mid: 4600, high: 7200, offThrottle: 4000 },
+    baseRpm: { idle: 900, low: 2600, mid: 4800, high: 7400, offThrottle: 4200 },
     urls: {
-      idle: ['/audio/cars/hatchback/idle.wav', '/sounds/engine_idle.wav'],
-      low_rpm: ['/audio/cars/hatchback/low_rpm.wav', '/sounds/engine_low.wav'],
-      mid_rpm: ['/audio/cars/hatchback/mid_rpm.wav', '/sounds/engine_mid.wav'],
-      high_rpm: ['/audio/cars/hatchback/high_rpm.wav', '/sounds/engine_high.wav'],
-      off_throttle: ['/audio/cars/hatchback/off_throttle.wav', '/sounds/engine_off_throttle.wav'],
-      gear_shift: ['/audio/cars/hatchback/gear_shift.wav', '/sounds/gear_shift.wav'],
-      overrun: ['/audio/cars/hatchback/overrun.wav', '/sounds/exhaust_pop.wav'],
+      idle: ['/audio/cars/vintage_hatch/idle.wav'],
+      low_rpm: ['/audio/cars/vintage_hatch/low_rpm.wav'],
+      mid_rpm: ['/audio/cars/vintage_hatch/mid_rpm.wav'],
+      high_rpm: ['/audio/cars/vintage_hatch/high_rpm.wav'],
+      off_throttle: ['/audio/cars/vintage_hatch/off_throttle.wav'],
+      gear_shift: ['/audio/cars/vintage_hatch/gear_shift.wav'],
+      overrun: ['/audio/cars/vintage_hatch/overrun.wav'],
     },
-    eqProfile: { subBassFreq: 85, subBassGain: 4.8, growlFreq: 280, growlGain: 4.0 },
+    eqProfile: { subBassFreq: 82, subBassGain: 5.2, growlFreq: 260, growlGain: 4.2 },
     rawRecordingUrl: '/audio/raw/audi_quattro_rally.ogg',
     screamerUrls: ['/audio/raw/audi_quattro_rally.ogg'],
   },
@@ -370,13 +387,11 @@ export class RealisticVehicleAudioEngine {
   }
 
   /**
-   * Helper to resolve vehicle profile from ID with alias support
+   * Helper to resolve vehicle profile from ID with full 7-vehicle support
    */
   public resolveProfile(id?: string): VehicleAudioProfile {
     if (!id) return VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
-    if (id === 'modern_supercar') return VEHICLE_AUDIO_REGISTRY.supercar
-    if (id === 'vintage_hatch') return VEHICLE_AUDIO_REGISTRY.hatchback
-    return VEHICLE_AUDIO_REGISTRY[id as VehicleModelType] || VEHICLE_AUDIO_REGISTRY.bmw_m3
+    return VEHICLE_AUDIO_REGISTRY[id as VehicleModelType] || VEHICLE_AUDIO_REGISTRY[this.currentVehicleId] || VEHICLE_AUDIO_REGISTRY.bmw_m3
   }
 
   /**
@@ -830,8 +845,15 @@ export class RealisticVehicleAudioEngine {
 
   /**
    * Primary frame update function: maps vehicle telemetry to the active vehicle's profile.
+   * Authoritatively decouples engine speed (RPM) from engine load (free revving vs acceleration strain).
    */
-  public updateEngineSound(rpm: number, throttle: number | boolean, speed = 0): void {
+  public updateEngineSound(
+    rpm: number,
+    throttle: number | boolean,
+    speed = 0,
+    engineLoad = 1.0,
+    isGrounded = true
+  ): void {
     if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
     const profile = this.resolveProfile(this.currentVehicleId)
@@ -841,6 +863,10 @@ export class RealisticVehicleAudioEngine {
     const throttleVal = typeof throttle === 'boolean' ? (throttle ? 1.0 : 0.0) : Math.max(0, Math.min(1, throttle))
     const isPressed = throttleVal > 0.05
     const speedKmh = Math.max(0, speed)
+
+    // Authoritative engine load decoupling:
+    // Airborne or free-revving at standstill produces crisp revs without heavy driveline strain
+    const effectiveLoad = isGrounded ? Math.max(0, Math.min(1, engineLoad)) : 0.25
 
     // Detect rapid throttle lift for overrun crackles & turbo compressor surge / BOV flutter
     const throttleDelta = this.prevThrottle - throttleVal
@@ -902,8 +928,8 @@ export class RealisticVehicleAudioEngine {
       gainHigh = 1.0
     }
 
-    const midLoadBoost = 1.0 + throttleVal * 0.35
-    const highLoadBoost = 1.0 + throttleVal * 0.45
+    const midLoadBoost = 1.0 + throttleVal * effectiveLoad * 0.40
+    const highLoadBoost = 1.0 + throttleVal * effectiveLoad * 0.50
     const timeConstant = 0.045
 
     this.loops.idle.gain?.gain.setTargetAtTime(gainIdle * (1 - throttleVal * 0.65), now, timeConstant)
@@ -911,34 +937,34 @@ export class RealisticVehicleAudioEngine {
     this.loops.mid_rpm.gain?.gain.setTargetAtTime(gainMid * midLoadBoost, now, timeConstant)
     this.loops.high_rpm.gain?.gain.setTargetAtTime(gainHigh * highLoadBoost, now, timeConstant)
 
-    // Dynamic Load Filter
+    // Dynamic Load Filter: opens wide when heavy load and throttle are pinned
     if (this.onLoadFilter) {
       const targetFilterFreq = isPressed
-        ? 4500 + throttleVal * 12500 + (curRpm / profile.redlineRpm) * 3000
-        : 2800
+        ? 3400 + throttleVal * effectiveLoad * 13500 + (curRpm / profile.redlineRpm) * 3200
+        : 2600
       this.onLoadFilter.frequency.setTargetAtTime(Math.min(20000, targetFilterFreq), now, timeConstant)
     }
 
-    // Dynamic Sub-Bass & Manifold Growl Swell
+    // Dynamic Sub-Bass & Manifold Growl Swell based on load
     if (this.subBassEQ) {
-      const targetBass = profile.eqProfile.subBassGain + throttleVal * 3.5
+      const targetBass = profile.eqProfile.subBassGain + throttleVal * effectiveLoad * 3.8
       this.subBassEQ.gain.setTargetAtTime(targetBass, now, timeConstant)
     }
     if (this.growlEQ) {
-      const targetGrowl = profile.eqProfile.growlGain + throttleVal * 3.2
+      const targetGrowl = profile.eqProfile.growlGain + throttleVal * effectiveLoad * 3.5
       this.growlEQ.gain.setTargetAtTime(targetGrowl, now, timeConstant)
     }
 
     // High-Octane Aggressive Overdrive & Dynamic Compression
     if (this.overdriveGain && this.engineCompressor) {
-      // Direct high-frequency saturation: meaner growl and distortion when pinned
-      const driveGain = Math.pow(throttleVal, 1.5) * 0.45
+      // Direct high-frequency saturation: meaner growl and distortion when pinned under load
+      const driveGain = Math.pow(throttleVal * effectiveLoad, 1.5) * 0.48
       this.overdriveGain.gain.setTargetAtTime(driveGain, now, timeConstant)
 
       // Dynamic compression: punchier, tighter, more compressed engine roar under load
-      const compThreshold = -12 - throttleVal * 12 // -12dB at idle to -24dB at full throttle
+      const compThreshold = -12 - throttleVal * effectiveLoad * 14 // -12dB at idle to -26dB under full power
       this.engineCompressor.threshold.setTargetAtTime(compThreshold, now, timeConstant)
-      this.engineCompressor.ratio.setTargetAtTime(4.0 + throttleVal * 4.0, now, timeConstant)
+      this.engineCompressor.ratio.setTargetAtTime(4.0 + throttleVal * effectiveLoad * 4.5, now, timeConstant)
     }
 
     // Supplemental Raw Texture Layer (Real GT2 V8 / Rally Quattro / V10 recordings)
@@ -946,7 +972,7 @@ export class RealisticVehicleAudioEngine {
       const normRpm = Math.max(0, Math.min(1, (curRpm - profile.idleRpm) / (profile.redlineRpm - profile.idleRpm)))
       const recPitch = 0.82 + normRpm * 0.68
       this.rawSource.playbackRate.setTargetAtTime(recPitch, now, 0.045)
-      const targetRecGain = (0.35 + throttleVal * 0.65) * Math.min(1.0, 0.4 + normRpm * 0.7)
+      const targetRecGain = (0.35 + throttleVal * effectiveLoad * 0.65) * Math.min(1.0, 0.4 + normRpm * 0.7)
       this.rawGain.gain.setTargetAtTime(targetRecGain, now, 0.045)
     }
 
@@ -957,7 +983,7 @@ export class RealisticVehicleAudioEngine {
         const screamerPitch = 0.90 + screamerNorm * 0.45
         this.screamerSource.playbackRate.setTargetAtTime(screamerPitch, now, 0.045)
 
-        const screamerVolume = Math.pow(screamerNorm, 1.25) * Math.pow(throttleVal, 1.1) * 0.95
+        const screamerVolume = Math.pow(screamerNorm, 1.25) * Math.pow(throttleVal * (0.6 + effectiveLoad * 0.4), 1.1) * 0.95
         this.screamerGain.gain.setTargetAtTime(screamerVolume, now, 0.045)
       } else {
         this.screamerGain.gain.setTargetAtTime(0.0001, now, 0.045)
@@ -972,7 +998,7 @@ export class RealisticVehicleAudioEngine {
         this.gearWhineFilter.frequency.setTargetAtTime(whineFreq, now, timeConstant)
 
         const speedFactor = Math.min(1.0, speedKmh / 140)
-        const loadFactor = isPressed ? 0.14 + throttleVal * 0.12 : 0.075
+        const loadFactor = isPressed ? 0.14 + throttleVal * effectiveLoad * 0.14 : 0.075
         const targetWhineGain = speedFactor * loadFactor * 0.45
         this.gearWhineGain.gain.setTargetAtTime(targetWhineGain, now, timeConstant)
       } else {
@@ -985,8 +1011,8 @@ export class RealisticVehicleAudioEngine {
     // ------------------------------------------------------------------------
     if (this.onLoadBus && this.offLoadBus) {
       if (isPressed) {
-        // Direct throttle mapping: full aggressive push under full throttle
-        const targetOnLoad = 0.25 + throttleVal * 0.95
+        // Direct throttle mapping: full aggressive push under full throttle and load
+        const targetOnLoad = (0.2 + throttleVal * 0.9) * (0.35 + effectiveLoad * 0.65)
         this.onLoadBus.gain.setTargetAtTime(targetOnLoad, now, 0.025)
         // Immediately cut off-throttle / engine braking bus
         this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.02)
@@ -1009,8 +1035,8 @@ export class RealisticVehicleAudioEngine {
     }
   }
 
-  public update(rpm: number, throttle: number | boolean, speed = 0): void {
-    this.updateEngineSound(rpm, throttle, speed)
+  public update(rpm: number, throttle: number | boolean, speed = 0, engineLoad = 1.0, isGrounded = true): void {
+    this.updateEngineSound(rpm, throttle, speed, engineLoad, isGrounded)
   }
 
   /**
@@ -1059,19 +1085,10 @@ export class RealisticVehicleAudioEngine {
 
   /**
    * Full environmental vehicle audio update method supporting hover mode,
-   * tire lateral slip squeal, road friction, aerodynamics, and dynamic vehicle switching.
+   * tire lateral slip squeal, road surface friction (asphalt, wet, snow, gravel, sand),
+   * aerodynamics, airborne states, and dynamic vehicle switching.
    */
-  public updateVehicleAudio(params: {
-    speedKmh: number
-    rpm: number
-    throttle: number
-    isOffRoad?: boolean
-    isHoverMode?: boolean
-    vehicleModel?: VehicleModelType
-    isDecelerating?: boolean
-    lateralSlip?: number
-    isBurnout?: boolean
-  }): void {
+  public updateVehicleAudio(params: VehicleAudioTelemetry): void {
     if (!this.ctx || !this.isInitialized) return
     const now = this.ctx.currentTime
 
@@ -1079,11 +1096,16 @@ export class RealisticVehicleAudioEngine {
       speedKmh,
       rpm,
       throttle,
+      gear,
+      engineLoad = 1.0,
+      isGrounded = true,
       isOffRoad = false,
+      surfaceType = 'asphalt',
       isHoverMode = false,
       vehicleModel = 'bmw_m3',
       lateralSlip = 0,
       isBurnout = false,
+      drivenWheelSpeed = 0,
     } = params
 
     // Dynamic vehicle switching check
@@ -1107,33 +1129,71 @@ export class RealisticVehicleAudioEngine {
     // 2. Combustion Mode Active
     this.hoverGain?.gain.setTargetAtTime(0.0001, now, 0.06)
     this.engineMaster?.gain.setTargetAtTime(1.0, now, 0.05)
-    this.updateEngineSound(rpm, throttle, speedKmh)
 
-    // 3. Surface Friction Noise (asphalt vs off-road/grass)
+    // Modulate drivetrain acoustic velocity with driven wheel speed (e.g. during burnout wheel-spin)
+    const effectiveDriveSpeed = drivenWheelSpeed > 0 ? Math.max(speedKmh, (drivenWheelSpeed / 100) * 12) : speedKmh
+    const effectiveLoad = (gear === 'N' || gear === 'P') ? 0.22 : engineLoad
+
+    this.updateEngineSound(rpm, throttle, effectiveDriveSpeed, effectiveLoad, isGrounded)
+
+    // 3. Surface Friction Noise (surface-dependent: asphalt, wet, snow, gravel, sand)
     if (this.frictionGain && this.frictionFilter) {
-      if (speedKmh < 3) {
+      if (!isGrounded || speedKmh < 2.5) {
         this.frictionGain.gain.setTargetAtTime(0.0001, now, 0.08)
       } else {
         const speedNorm = Math.min(1.0, speedKmh / 160)
-        const targetFriction = isOffRoad ? speedNorm * 0.14 : speedNorm * 0.05
+        let targetFriction = speedNorm * 0.05
+        let targetFilterFreq = 1200
+        let targetQ = 0.8
+
+        switch (surfaceType) {
+          case 'wet':
+            targetFriction = speedNorm * 0.085
+            targetFilterFreq = 3100
+            targetQ = 1.8
+            break
+          case 'snow':
+            targetFriction = speedNorm * 0.09
+            targetFilterFreq = 720
+            targetQ = 1.2
+            break
+          case 'gravel':
+            targetFriction = speedNorm * 0.15
+            targetFilterFreq = 580
+            targetQ = 2.0
+            break
+          case 'sand':
+            targetFriction = speedNorm * 0.095
+            targetFilterFreq = 880
+            targetQ = 1.0
+            break
+          case 'asphalt':
+          default:
+            targetFriction = isOffRoad ? speedNorm * 0.12 : speedNorm * 0.05
+            targetFilterFreq = isOffRoad ? 600 : 1200
+            targetQ = 1.0
+            break
+        }
+
         this.frictionGain.gain.setTargetAtTime(targetFriction, now, 0.05)
-        this.frictionFilter.frequency.setTargetAtTime(isOffRoad ? 500 : 1200, now, 0.08)
+        this.frictionFilter.frequency.setTargetAtTime(targetFilterFreq, now, 0.08)
+        this.frictionFilter.Q.setTargetAtTime(targetQ, now, 0.08)
       }
     }
 
     // 4. Lateral Slip Tire Squeal & Burnout Screech
     if (this.tireSquealGain && this.tireSquealFilter) {
-      if (!isBurnout && (speedKmh < 15 || lateralSlip < 0.08)) {
+      if (!isGrounded || (!isBurnout && (speedKmh < 12 || lateralSlip < 0.08))) {
         this.tireSquealGain.gain.setTargetAtTime(0.0001, now, 0.05)
       } else {
-        const slipIntensity = isBurnout ? 1.0 : Math.min(1.0, (lateralSlip - 0.08) * 2.8)
-        const speedFactor = isBurnout ? 1.0 : Math.min(1.0, speedKmh / 50)
-        const targetSquealGain = slipIntensity * speedFactor * (isBurnout ? 0.46 : 0.38)
+        const slipIntensity = isBurnout ? 1.0 : Math.min(1.0, (lateralSlip - 0.08) * 3.0)
+        const speedFactor = isBurnout ? 1.0 : Math.min(1.0, speedKmh / 45)
+        const targetSquealGain = slipIntensity * speedFactor * (isBurnout ? 0.48 : 0.40)
         this.tireSquealGain.gain.setTargetAtTime(targetSquealGain, now, 0.03)
 
         const squealFreq = isBurnout
-          ? 1750 + Math.random() * 250
-          : 1000 + (speedKmh / 220) * 450 + slipIntensity * 320
+          ? 1750 + Math.sin(now * 32) * 140
+          : 1050 + (speedKmh / 220) * 450 + slipIntensity * 320
         this.tireSquealFilter.frequency.setTargetAtTime(squealFreq, now, 0.04)
       }
     }
@@ -1288,14 +1348,25 @@ export class RealisticVehicleAudioEngine {
     const now = this.ctx.currentTime
     const profile = this.resolveProfile(vehicleModel)
 
-    // Ignition cut: momentarily dip on-load acceleration volume and master engine bus
-    if (this.onLoadBus) {
-      this.onLoadBus.gain.setValueAtTime(0.02, now)
-      this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.06, 0.035)
-    }
-    if (this.engineMaster) {
-      this.engineMaster.gain.setValueAtTime(0.25, now)
-      this.engineMaster.gain.setTargetAtTime(1.0, now + 0.07, 0.04)
+    if (isDownshift) {
+      // Heel-and-toe rev match throttle blip: momentary flare of on-load combustion tone
+      if (this.onLoadBus) {
+        this.onLoadBus.gain.setValueAtTime(0.75, now)
+        this.onLoadBus.gain.setTargetAtTime(0.12, now + 0.08, 0.035)
+      }
+      if (this.engineMaster) {
+        this.engineMaster.gain.setValueAtTime(1.0, now)
+      }
+    } else {
+      // Upshift ignition cut: momentarily dip on-load acceleration volume and master engine bus
+      if (this.onLoadBus) {
+        this.onLoadBus.gain.setValueAtTime(0.02, now)
+        this.onLoadBus.gain.setTargetAtTime(0.85, now + 0.06, 0.035)
+      }
+      if (this.engineMaster) {
+        this.engineMaster.gain.setValueAtTime(0.25, now)
+        this.engineMaster.gain.setTargetAtTime(1.0, now + 0.07, 0.04)
+      }
     }
 
     // Explosive ignition backfire / shift pop transient (sharp sub-bass crack)
