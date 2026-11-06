@@ -402,8 +402,29 @@ function PanoramicMountainHorizon({
 }
 
 // ------------------------------------------------------------------------
-// Realistic Coastal Beach Ocean Surface: Dynamic animated sea surface with wave swells & specular highlights
+// Realistic Coastal Beach Ocean Surface: Dynamic GPU-accelerated sea surface with wave swells & specular highlights
 // ------------------------------------------------------------------------
+const oceanUniforms = {
+  uTime: { value: 0 },
+}
+
+function onOceanMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
+  shader.uniforms.uTime = oceanUniforms.uTime
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+     uniform float uTime;`
+  )
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+     float wave = sin(transformed.x * 0.015 + uTime * 1.4) * 0.28 +
+                  cos(transformed.z * 0.022 + uTime * 0.95) * 0.22 +
+                  sin((transformed.x + transformed.z) * 0.035 + uTime * 2.1) * 0.12;
+     transformed.y += wave;`
+  )
+}
+
 function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiome: string }) {
   const { camera } = useThree()
   const oceanRef = useRef<THREE.Mesh>(null)
@@ -412,50 +433,40 @@ function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiom
 
   const oceanGeo = useMemo(() => {
     // Spans 2,600m in X and 3,800m in Z with subdivisions for natural undulating swells
-    const geo = new THREE.PlaneGeometry(2600, 3800, 48, 48)
+    const geo = new THREE.PlaneGeometry(2600, 3800, 64, 64)
     geo.rotateX(-Math.PI / 2)
     return geo
   }, [])
 
+  const oceanMat = useMemo(() => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: isNight ? '#061325' : '#0d5c75',
+      roughness: 0.18,
+      metalness: 0.15,
+      envMapIntensity: isNight ? 0.6 : 1.35,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    })
+    mat.onBeforeCompile = onOceanMaterialCompile
+    return mat
+  }, [isNight])
+
   useFrame((state) => {
     if (oceanRef.current && isCoastal) {
+      oceanUniforms.uTime.value = state.clock.getElapsedTime() * 1.15
       const roadCx = getRoadCenter(camera.position.z)
       // Anchored at sea level Y = 0.0, strictly on the seaward side:
       // Center of ocean plane is placed at roadCx - 1380m so nearest edge is 80m from road,
       // completely on the ocean side of the beach dunes!
       oceanRef.current.position.set(roadCx - 1380, 0.0, camera.position.z)
-
-      const time = state.clock.getElapsedTime() * 1.15
-      const pos = oceanGeo.attributes.position
-      const count = pos.count
-
-      for (let i = 0; i < count; i++) {
-        const x = pos.getX(i)
-        const z = pos.getZ(i)
-        const wave =
-          Math.sin(x * 0.015 + time * 1.4) * 0.28 +
-          Math.cos(z * 0.022 + time * 0.95) * 0.22 +
-          Math.sin((x + z) * 0.035 + time * 2.1) * 0.12
-        pos.setY(i, wave)
-      }
-      pos.needsUpdate = true
     }
   })
 
   if (!isCoastal) return null
 
   return (
-    <mesh ref={oceanRef} geometry={oceanGeo} position={[-1380, 0, 0]} receiveShadow>
-      <meshStandardMaterial
-        color={isNight ? '#061325' : '#0d5c75'}
-        roughness={0.22}
-        metalness={0.12}
-        envMapIntensity={isNight ? 0.6 : 1.2}
-        transparent
-        opacity={0.88}
-        depthWrite={false}
-      />
-    </mesh>
+    <mesh ref={oceanRef} geometry={oceanGeo} material={oceanMat} position={[-1380, 0, 0]} receiveShadow />
   )
 }
 
@@ -910,8 +921,8 @@ export default function GameEnvironment() {
         <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
           <SSAO
             resolutionScale={0.5}
-            radius={0.35}
-            intensity={22}
+            radius={0.28}
+            intensity={14}
             luminanceInfluence={0.5}
             color={SSAO_COLOR}
             worldDistanceThreshold={100}

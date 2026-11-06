@@ -17,7 +17,17 @@ import {
   ROAD_PROTECTED_RADIUS,
   getTerrainSlopeNormalY,
 } from '../../../utils/roadMath'
-import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
+import {
+  getAsphaltTexture,
+  getAsphaltBumpTexture,
+  getAsphaltRoughnessTexture,
+  getWoodBumpTexture,
+  getSandNormalTexture,
+  getRockStrataTexture,
+  getGrassSodTexture,
+  getGalvanizedMetalTexture,
+  getTreeBarkTexture,
+} from '../../../utils/asphaltTexture'
 import { getGrassAlphaTexture } from './Scenery'
 
 const CHUNK_LEN = 200
@@ -273,8 +283,10 @@ cabinWindowGeo.boundingSphere = CHUNK_SPHERE
 // ----------------------------------------------------------------------------
 const sharedGuardrailMat = new THREE.MeshStandardMaterial({
   color: '#cbd5e1',
-  metalness: 0.85,
-  roughness: 0.25,
+  bumpMap: getGalvanizedMetalTexture(),
+  bumpScale: 0.022,
+  metalness: 0.86,
+  roughness: 0.28,
 })
 
 const sharedMarkingsMat = new THREE.MeshStandardMaterial({
@@ -363,16 +375,26 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
      float bSum = triWeight.x + triWeight.y + triWeight.z;
      triWeight /= bSum;
 
-     // Continuous per-pixel altitude-based alpine snow blending on mountain peaks
+     // Continuous per-pixel altitude-based alpine snow blending on mountain peaks with slope-aware rock exposure
      float snowLine = 48.0;
      float snowCeiling = 82.0;
      float altT = clamp((vCustomWorldPos.y - snowLine) / (snowCeiling - snowLine), 0.0, 1.0);
      float snowCoverage = smoothstep(0.0, 1.0, altT);
-     float slopeHold = clamp(vCustomWorldNorm.y * 1.25, 0.0, 1.0);
-     float finalSnow = snowCoverage * (0.35 + 0.65 * slopeHold);
-     vec3 alpineSnow = vec3(0.95, 0.97, 1.0);
-     diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.85);
-     roughnessFactor = mix(roughnessFactor, 0.42, finalSnow * 0.85);`
+
+     // Steep cliff faces (low Normal Y) shed snow and expose dark, rugged rocky crags
+     float slopeHold = smoothstep(0.48, 0.78, vCustomWorldNorm.y);
+     float finalSnow = snowCoverage * slopeHold;
+
+     // Dark exposed rock on steep high-altitude faces
+     vec3 exposedRock = vec3(0.18, 0.17, 0.16);
+     float rockExpose = altT * (1.0 - slopeHold) * 0.75;
+     diffuseColor.rgb = mix(diffuseColor.rgb, exposedRock, rockExpose);
+     roughnessFactor = mix(roughnessFactor, 0.94, rockExpose);
+
+     // Soft alpine snow on peaks and gentle mountain slopes (never blown out plastic)
+     vec3 alpineSnow = vec3(0.96, 0.975, 0.99);
+     diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.92);
+     roughnessFactor = mix(roughnessFactor, 0.52, finalSnow * 0.92);`
   )
 }
 
@@ -398,26 +420,43 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const asphaltTex = getAsphaltTexture()
   const asphaltBumpTex = getAsphaltBumpTexture()
-  const terrainBumpTex = getTerrainBumpTexture()
+  const asphaltRoughnessTex = getAsphaltRoughnessTexture()
+  const sandNormalTex = getSandNormalTexture()
+  const rockStrataTex = getRockStrataTexture()
+  const grassSodTex = getGrassSodTexture()
+  const treeBarkTex = getTreeBarkTexture()
   const grassAlphaTex = getGrassAlphaTexture()
+
+  // Select biome-specific micro-surface relief
+  let terrainBump = grassSodTex
+  let terrainBumpScale = 0.032
+  if (biomeConfig.id === 'desert' || biomeConfig.id === 'coastal') {
+    terrainBump = sandNormalTex
+    terrainBumpScale = 0.038
+  } else if (biomeConfig.id === 'twisted_mountains' || biomeConfig.id === 'tundra') {
+    terrainBump = rockStrataTex
+    terrainBumpScale = 0.048
+  }
 
   const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    bumpMap: terrainBumpTex,
-    bumpScale: 0.032,
+    bumpMap: terrainBump,
+    bumpScale: terrainBumpScale,
     roughness: biomeConfig.roughness,
     metalness: 0.04,
   })
   terrainMat.onBeforeCompile = onTerrainMaterialCompile
 
+  // Balanced PBR asphalt: authentic dark tarmac with aggregate roughness, never a plastic mirror in rain
   const roadMat = new THREE.MeshStandardMaterial({
     map: asphaltTex,
     bumpMap: asphaltBumpTex,
-    bumpScale: 0.018,
+    bumpScale: 0.016,
+    roughnessMap: asphaltRoughnessTex,
     color: '#ffffff',
-    roughness: isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.78 : 0.82,
-    metalness: isRaining ? 0.45 : 0.04,
-    envMapIntensity: isRaining ? 1.6 : 0.4,
+    roughness: isRaining ? 0.38 : biomeConfig.id === 'tundra' ? 0.78 : 0.82,
+    metalness: isRaining ? 0.06 : 0.03,
+    envMapIntensity: isRaining ? 0.95 : 0.45,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
@@ -425,6 +464,8 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const shoulderMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.shoulderColor,
+    bumpMap: terrainBump,
+    bumpScale: 0.024,
     roughness: 0.92,
     metalness: 0.06,
     polygonOffset: true,
@@ -434,6 +475,8 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const pineTrunkMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.treeTrunkColor,
+    bumpMap: treeBarkTex,
+    bumpScale: 0.034,
     roughness: 0.88,
   })
 
@@ -446,6 +489,8 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const broadleafTrunkMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.treeTrunkColor,
+    bumpMap: treeBarkTex,
+    bumpScale: 0.034,
     roughness: 0.88,
   })
 
@@ -465,7 +510,9 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const rockMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.rockColor,
-    roughness: 0.92,
+    bumpMap: rockStrataTex,
+    bumpScale: 0.045,
+    roughness: 0.90,
     metalness: 0.04,
   })
 

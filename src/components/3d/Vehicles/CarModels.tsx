@@ -133,15 +133,29 @@ function HeadlightBeams({
 // 1. Authentic BMW M3 GTR '05 (ALMS / GT Widebody Monocoque)
 // ----------------------------------------------------
 
-// Shared wheel materials to avoid redundant allocations across 4 wheels
+// Shared wheel geometries and materials to avoid redundant allocations across 4 wheels
 const sharedTireMat = new THREE.MeshStandardMaterial({
   color: new THREE.Color('#1c1d20'),
   roughness: 0.88,
   metalness: 0.04,
 })
 
+const sharedCaliperGeo = new THREE.BoxGeometry(0.075, 0.11, 0.08)
 const sharedCaliperMat = new THREE.MeshStandardMaterial({
   color: new THREE.Color('#d97706'), // Brembo racing gold/amber
+  metalness: 0.85,
+  roughness: 0.22,
+})
+
+const sharedRotorGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.022, 28)
+const sharedRotorMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#cbd5e1'),
+  metalness: 0.92,
+  roughness: 0.25,
+})
+
+const sharedRimMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#cbd5e1'),
   metalness: 0.85,
   roughness: 0.22,
 })
@@ -221,23 +235,24 @@ function BmwGtrWheel({
         <group rotation={[0, steeringAngle, 0]}>
           {/* Non-spinning Brembo racing brake caliper fixed to wheel knuckle */}
           <mesh
+            geometry={sharedCaliperGeo}
+            material={sharedCaliperMat}
             position={[side === 1 ? 0.05 : -0.05, 0.13, -0.11]}
             rotation={[0, 0, side === 1 ? -0.38 : 0.38]}
             castShadow
-          >
-            <boxGeometry args={[0.075, 0.11, 0.08]} />
-            <meshStandardMaterial color="#d97706" metalness={0.85} roughness={0.22} />
-          </mesh>
+          />
 
           {/* Outboard wheel rim face alignment: Left wheel side===1 rotates 180° around Y to face outboard (-X) */}
           <group rotation={[0, side === 1 ? Math.PI : 0, 0]}>
             {/* Wheel spin around axle (X). Rolls forward synchronized with car motion */}
             <group rotation={[side === 1 ? wheelRotation : -wheelRotation, 0, 0]}>
               {/* Ventilated Drilled Steel Racing Brake Rotor */}
-              <mesh rotation={[0, 0, Math.PI / 2]} position={[-0.028, 0, 0]}>
-                <cylinderGeometry args={[0.23, 0.23, 0.022, 28]} />
-                <meshStandardMaterial color="#cbd5e1" metalness={0.92} roughness={0.25} />
-              </mesh>
+              <mesh
+                geometry={sharedRotorGeo}
+                material={sharedRotorMat}
+                rotation={[0, 0, Math.PI / 2]}
+                position={[-0.028, 0, 0]}
+              />
 
               {/* Scaled from 5.0m mesh diameter to exact 0.68m visual wheel diameter (0.34m radius) */}
               <group scale={0.136}>
@@ -605,7 +620,7 @@ export function SupercarModel({
         } else if (matName.includes('tire') || matName.includes('rubber') || meshName.includes('tire') || meshName.includes('rubber')) {
           child.material = sharedTireMat
         } else if (matName.includes('rim') || matName.includes('wheel') || meshName.includes('rim') || meshName.includes('spoke')) {
-          child.material = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.85, roughness: 0.22 })
+          child.material = sharedRimMat
         } else if (
           matName.includes('taillight') ||
           meshName.includes('lights_red') ||
