@@ -407,6 +407,7 @@ export default function VehicleController() {
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const headlights = useGameStore((s) => s.headlights)
   const photoMode = useGameStore((s) => s.photoMode)
+  const travelCounter = useGameStore((s) => s.travelCounter)
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
@@ -543,10 +544,11 @@ export default function VehicleController() {
         const curZ = pos.current.z
         pos.current.x = getRoadCenter(curZ)
         pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : config.rideHeight)
+        const tan = getRoadTangent(curZ)
+        yawAngle.current = Math.atan2(-tan.tx, -tan.tz)
         forwardVel.current = 0
         lateralVel.current = 0
         verticalVel.current = 0
-        yawAngle.current = 0
         currentSteerAngle.current = 0
         wheelSpin.current = 0
         steeringVisual.current = 0
@@ -566,6 +568,44 @@ export default function VehicleController() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isHoverMode, vehicleModel, config])
+
+  // Instant Biome Travel Re-alignment Listener
+  const lastTravelRef = useRef(travelCounter)
+  useEffect(() => {
+    if (travelCounter !== lastTravelRef.current) {
+      lastTravelRef.current = travelCounter
+      const destZ = 0
+      const startX = getRoadCenter(destZ)
+      const startY = getRoadElevation(destZ) + (isHoverMode ? 1.25 : config.rideHeight)
+      pos.current.set(startX, startY, destZ)
+
+      const tan = getRoadTangent(destZ)
+      const startYaw = Math.atan2(-tan.tx, -tan.tz)
+      yawAngle.current = startYaw
+
+      forwardVel.current = 0
+      lateralVel.current = 0
+      verticalVel.current = 0
+      currentSteerAngle.current = 0
+      wheelSpin.current = 0
+      steeringVisual.current = 0
+      currentGearIndex.current = 1
+      isGrounded.current = true
+      isFirstCamFrameRef.current = true
+      if (lastOdoPos.current) {
+        lastOdoPos.current.set(startX, startY, destZ)
+      }
+      skidQuadCount.current = 0
+      skidRingIndex.current = 0
+      hasPrevSkid.current = false
+      _skidGeo.setDrawRange(0, 0)
+
+      if (carGroupRef.current) {
+        carGroupRef.current.position.set(startX, startY, destZ)
+        carGroupRef.current.rotation.set(0, startYaw, 0)
+      }
+    }
+  }, [travelCounter, isHoverMode, config.rideHeight])
 
   useFrame((state, delta) => {
     if (!carGroupRef.current || photoMode) return

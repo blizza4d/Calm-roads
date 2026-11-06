@@ -1,10 +1,21 @@
 import { create } from 'zustand'
-import type { BiomeType, MacroTerrainType, MacroTerrainWeights } from '../utils/roadMath.ts'
+import { setWorldGenerationConfig, type BiomeType, type MacroTerrainType, type MacroTerrainWeights } from '../utils/roadMath.ts'
+import { getDestinationById, type DestinationId } from '../utils/destinations.ts'
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
 export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback' | 'modern_supercar' | 'vintage_hatch'
 export type CameraPerspectiveType = 'chase' | 'dashboard' | 'drone' | 'bumper'
 export type BiomeSelection = 'dynamic' | BiomeType
+
+export interface DestinationBannerState {
+  name: string
+  subtitle: string
+  roadType: string
+  visible: boolean
+}
+
+let _bannerTimer: ReturnType<typeof setTimeout> | null = null
+let _travelTimer: ReturnType<typeof setTimeout> | null = null
 
 interface GameState {
   // 1. Antigravity & Physics Mode
@@ -18,7 +29,15 @@ interface GameState {
   currentResolvedBiome: BiomeType
   setCurrentResolvedBiome: (b: BiomeType) => void
 
-  // 2b. Macro Terrain System
+  // 2b. Macro Terrain System & Seeded Travel
+  worldSeed: number
+  setWorldSeed: (s: number) => void
+  randomizeWorldSeed: () => number
+  travelCounter: number
+  isTraveling: boolean
+  destinationBanner: DestinationBannerState | null
+  setDestinationBanner: (b: DestinationBannerState | null) => void
+  travelToBiome: (destId: DestinationId, customSeed?: number) => void
   macroTerrain: MacroTerrainType
   setMacroTerrain: (m: MacroTerrainType) => void
   macroWeights: MacroTerrainWeights
@@ -104,8 +123,8 @@ interface GameState {
   zenMode: boolean
   setZenMode: (z: boolean) => void
   toggleZenMode: () => void
-  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings'
-  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
+  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings' | 'travel'
+  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings' | 'travel') => void
   speedUnit: 'kmh' | 'mph'
   toggleSpeedUnit: () => void
   graphicsQuality: 'low' | 'medium' | 'high'
@@ -185,11 +204,87 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleHoverMode: () => set((s) => ({ isHoverMode: !s.isHoverMode })),
   setHoverMode: (isHoverMode) => set({ isHoverMode }),
 
-  // Biomes
+  // Biomes & Seeded Travel
   biome: 'dynamic',
-  setBiome: (biome) => set({ biome }),
+  setBiome: (biome) => {
+    set({ biome })
+    setWorldGenerationConfig(get().worldSeed, biome)
+  },
   currentResolvedBiome: 'forest',
   setCurrentResolvedBiome: (currentResolvedBiome) => set({ currentResolvedBiome }),
+
+  worldSeed: 1337,
+  setWorldSeed: (worldSeed) => {
+    set({ worldSeed })
+    setWorldGenerationConfig(worldSeed, get().biome)
+  },
+  randomizeWorldSeed: () => {
+    const newSeed = Math.floor(Math.random() * 900000) + 100000
+    set({ worldSeed: newSeed })
+    setWorldGenerationConfig(newSeed, get().biome)
+    return newSeed
+  },
+  travelCounter: 0,
+  isTraveling: false,
+  destinationBanner: null,
+  setDestinationBanner: (destinationBanner) => set({ destinationBanner }),
+  travelToBiome: (destId: DestinationId, customSeed?: number) => {
+    const s = get()
+    let chosenId = destId
+    if (chosenId === 'random') {
+      const candidates: BiomeType[] = [
+        'plains',
+        'rolling_hills',
+        'twisted_mountains',
+        'desert',
+        'coastal',
+        'forest',
+        'autumn',
+        'alpine',
+        'tundra',
+        'enchanted_forest',
+      ]
+      chosenId = candidates[Math.floor(Math.random() * candidates.length)]
+    }
+
+    const targetSeed = customSeed !== undefined ? customSeed : (destId === 'random' ? Math.floor(Math.random() * 900000) + 100000 : s.worldSeed)
+    const effectiveBiome: BiomeSelection = chosenId === 'dynamic' ? 'dynamic' : (chosenId as BiomeType)
+
+    // 1. Authoritatively reconfigure procedural world generation noise and parameters
+    setWorldGenerationConfig(targetSeed, effectiveBiome)
+
+    const destInfo = getDestinationById(chosenId)
+
+    // 2. Clear lingering timers
+    if (_bannerTimer) clearTimeout(_bannerTimer)
+    if (_travelTimer) clearTimeout(_travelTimer)
+
+    // 3. Update store state
+    set({
+      biome: effectiveBiome,
+      worldSeed: targetSeed,
+      travelCounter: s.travelCounter + 1,
+      isTraveling: true,
+      activePanel: 'none',
+      destinationBanner: {
+        name: destInfo.name,
+        subtitle: destInfo.subtitle,
+        roadType: destInfo.roadPersonality,
+        visible: true,
+      },
+    })
+
+    // 4. Smooth transition timers
+    _travelTimer = setTimeout(() => {
+      set({ isTraveling: false })
+    }, 600)
+
+    _bannerTimer = setTimeout(() => {
+      set((curr) => ({
+        destinationBanner: curr.destinationBanner ? { ...curr.destinationBanner, visible: false } : null,
+      }))
+    }, 4500)
+  },
 
   // Macro Terrain System
   macroTerrain: 'plains',

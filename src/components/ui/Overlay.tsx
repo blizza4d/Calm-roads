@@ -32,6 +32,7 @@ import {
   Settings,
   Menu,
   Sliders,
+  Shuffle,
 } from 'lucide-react'
 import {
   useGameStore,
@@ -43,6 +44,7 @@ import {
 } from '../../store/useGameStore'
 import { audioSystem, LOFI_PLAYLIST } from '../../utils/audioSystem'
 import { BIOMES } from '../../utils/roadMath'
+import { DESTINATIONS, DestinationId } from '../../utils/destinations'
 
 // ----------------------------------------------------------------
 // 1. Optional On-Screen Touch Controls (Hidden by default)
@@ -120,44 +122,110 @@ function SpeedometerHUD() {
   return <HUD />
 }
 
+function getDestinationIcon(iconName: string) {
+  switch (iconName) {
+    case 'Sun':
+      return <Sun size={14} />
+    case 'Mountain':
+      return <Mountain size={14} />
+    case 'Snowflake':
+      return <Snowflake size={14} />
+    case 'Trees':
+      return <Trees size={14} />
+    case 'Compass':
+      return <Compass size={14} />
+    case 'Flame':
+      return <Flame size={14} />
+    case 'Wind':
+      return <Wind size={14} />
+    case 'Sparkles':
+      return <Sparkles size={14} />
+    default:
+      return <Compass size={14} />
+  }
+}
+
 // ----------------------------------------------------------------
-// 2.5 Region Discovery Banner (Toast on entering new biome/region)
+// 2.5 Cinematic Destination Intro Banner & Region Discovery Toast
 // ----------------------------------------------------------------
-function RegionDiscoveryBanner() {
+function DestinationIntroBanner() {
+  const destinationBanner = useGameStore((s) => s.destinationBanner)
+  const isTraveling = useGameStore((s) => s.isTraveling)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
-  const [visible, setVisible] = useState(false)
+  const [cycleToastVisible, setCycleToastVisible] = useState(false)
   const [activeBiome, setActiveBiome] = useState(currentResolvedBiome)
 
   useEffect(() => {
     setActiveBiome(currentResolvedBiome)
-    setVisible(true)
-    const timer = setTimeout(() => {
-      setVisible(false)
-    }, 4500)
-    return () => clearTimeout(timer)
-  }, [currentResolvedBiome])
+    // Only show cycling toast if manual destination banner is not active
+    if (!destinationBanner?.visible) {
+      setCycleToastVisible(true)
+      const timer = setTimeout(() => {
+        setCycleToastVisible(false)
+      }, 4500)
+      return () => clearTimeout(timer)
+    }
+  }, [currentResolvedBiome, destinationBanner])
 
   const info = BIOMES[activeBiome] || BIOMES.twisted_mountains
+  const showDestBanner = destinationBanner && destinationBanner.visible
 
   return (
-    <div
-      className={`fixed top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
-        visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'
-      }`}
-    >
-      <div className="backdrop-blur-2xl bg-black/75 border border-white/20 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3.5 text-white">
-        <span className="text-amber-400 font-mono font-bold text-[10px] tracking-widest uppercase bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/25">
-          DISCOVERED REGION
-        </span>
-        <span className="h-4 w-px bg-white/20" />
-        <span className="font-bold text-sm tracking-wide text-white">{info.name}</span>
-        {info.tagline && (
-          <span className="text-xs text-white/50 hidden sm:inline font-medium">
-            • {info.tagline}
-          </span>
+    <>
+      {/* Fullscreen subtle cinematic travel fade during instant world load */}
+      <div
+        className={`fixed inset-0 z-40 bg-black pointer-events-none transition-opacity duration-500 ease-in-out ${
+          isTraveling ? 'opacity-85' : 'opacity-0'
+        }`}
+      />
+
+      {/* Primary Cinematic Location Intro Banner */}
+      <div
+        className={`fixed top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
+          showDestBanner
+            ? 'opacity-100 translate-y-0 scale-100'
+            : cycleToastVisible
+            ? 'opacity-100 translate-y-0 scale-100'
+            : 'opacity-0 -translate-y-4 scale-95'
+        }`}
+      >
+        {showDestBanner ? (
+          <div className="backdrop-blur-2xl bg-black/85 border border-emerald-400/50 px-7 py-3 rounded-full shadow-[0_0_35px_rgba(16,185,129,0.35)] flex items-center gap-4 text-white">
+            <span className="text-emerald-400 font-mono font-bold text-[10px] tracking-widest uppercase bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-400/40 flex items-center gap-1.5">
+              <Compass size={12} className="text-emerald-400" />
+              DESTINATION ARRIVAL
+            </span>
+            <span className="h-4 w-px bg-white/20" />
+            <div className="flex flex-col text-left">
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm tracking-widest text-white uppercase">
+                  {destinationBanner.name}
+                </span>
+                <span className="text-xs text-white/60 font-medium">
+                  • {destinationBanner.subtitle}
+                </span>
+              </div>
+              <span className="text-[10px] text-amber-300 font-mono">
+                {destinationBanner.roadType}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="backdrop-blur-2xl bg-black/75 border border-white/20 px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3.5 text-white">
+            <span className="text-amber-400 font-mono font-bold text-[10px] tracking-widest uppercase bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/25">
+              DISCOVERED REGION
+            </span>
+            <span className="h-4 w-px bg-white/20" />
+            <span className="font-bold text-sm tracking-wide text-white">{info.name}</span>
+            {info.tagline && (
+              <span className="text-xs text-white/50 hidden sm:inline font-medium">
+                • {info.tagline}
+              </span>
+            )}
+          </div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -170,11 +238,21 @@ function MasterMenuModal({
   showTouchControls,
   setShowTouchControls,
 }: {
-  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings'
-  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
+  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings' | 'travel'
+  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings' | 'travel') => void
   showTouchControls: boolean
   setShowTouchControls: (v: boolean) => void
 }) {
+  // Destinations & Seeded World Travel
+  const worldSeed = useGameStore((s) => s.worldSeed)
+  const setWorldSeed = useGameStore((s) => s.setWorldSeed)
+  const randomizeWorldSeed = useGameStore((s) => s.randomizeWorldSeed)
+  const travelToBiome = useGameStore((s) => s.travelToBiome)
+  const biome = useGameStore((s) => s.biome)
+  const setBiome = useGameStore((s) => s.setBiome)
+  const [selectedDestId, setSelectedDestId] = useState<DestinationId>(biome === 'dynamic' ? 'dynamic' : biome)
+  const [customSeedInput, setCustomSeedInput] = useState<string>(String(worldSeed))
+
   // Atmosphere
   const timeOfDay = useGameStore((s) => s.timeOfDay)
   const setTimeOfDay = useGameStore((s) => s.setTimeOfDay)
@@ -182,8 +260,6 @@ function MasterMenuModal({
   const toggleAutoTimeCycle = useGameStore((s) => s.toggleAutoTimeCycle)
   const weather = useGameStore((s) => s.weather)
   const setWeather = useGameStore((s) => s.setWeather)
-  const biome = useGameStore((s) => s.biome)
-  const setBiome = useGameStore((s) => s.setBiome)
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
   const setGraphicsQuality = useGameStore((s) => s.setGraphicsQuality)
   // Garage
@@ -229,6 +305,8 @@ function MasterMenuModal({
 
   const biomes: { id: BiomeSelection; name: string; icon: React.ReactNode }[] = [
     { id: 'dynamic', name: 'Dynamic (Cycle)', icon: <Sparkles size={14} /> },
+    { id: 'plains', name: 'Plains', icon: <Sun size={14} /> },
+    { id: 'rolling_hills', name: 'Rolling Hills', icon: <Mountain size={14} /> },
     { id: 'twisted_mountains', name: 'Twisted Mountains', icon: <Snowflake size={14} /> },
     { id: 'alpine', name: 'Alpine Highlands', icon: <Mountain size={14} /> },
     { id: 'enchanted_forest', name: 'Enchanted Forest', icon: <Trees size={14} /> },
@@ -312,6 +390,7 @@ function MasterMenuModal({
     { key: 'Shift L / R', action: 'Manual Upshift / Downshift Override' },
     { key: 'R', action: 'Instant Reset to Road Centerline' },
     { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
+    { key: 'N', action: 'Open Destinations & Biome Travel Menu' },
     { key: 'H', action: 'Toggle Antigravity Hover Mode' },
     { key: 'V', action: 'Switch Vehicle' },
     { key: 'T', action: 'Cycle Weather' },
@@ -326,7 +405,7 @@ function MasterMenuModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md pointer-events-auto">
-      <div className="backdrop-blur-xl bg-neutral-900/95 border border-white/20 max-w-2xl w-full p-6 rounded-3xl shadow-2xl relative text-white max-h-[85vh] flex flex-col">
+      <div className="backdrop-blur-xl bg-neutral-900/95 border border-white/20 max-w-3xl w-full p-6 rounded-3xl shadow-2xl relative text-white max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2.5">
@@ -335,7 +414,7 @@ function MasterMenuModal({
               <h2 className="text-sm font-black tracking-widest text-white leading-none uppercase">
                 CALM ROADS MENU
               </h2>
-              <span className="text-[10px] text-white/50 font-mono">Customize atmosphere, vehicle, audio & preferences</span>
+              <span className="text-[10px] text-white/50 font-mono">Select destinations, customize vehicle, atmosphere & preferences</span>
             </div>
           </div>
           <button
@@ -349,6 +428,7 @@ function MasterMenuModal({
         {/* Tab Navigation Pill Bar */}
         <div className="flex flex-wrap gap-1.5 py-3 border-b border-white/10 text-xs font-bold">
           {[
+            { id: 'travel', label: 'Destinations', icon: <Compass size={14} /> },
             { id: 'environment', label: 'Atmosphere', icon: <CloudSun size={14} /> },
             { id: 'garage', label: 'Garage', icon: <Palette size={14} /> },
             { id: 'audio', label: 'Radio & Audio', icon: <Radio size={14} /> },
@@ -372,6 +452,140 @@ function MasterMenuModal({
 
         {/* Tab Content Panels */}
         <div className="flex-1 overflow-y-auto pr-1 py-4 space-y-4">
+          {/* TAB 0: DESTINATIONS & BIOMES TRAVEL */}
+          {activePanel === 'travel' && (
+            <div className="space-y-4">
+              {/* World Seed Controls & Quick Actions Bar */}
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <span className="text-xs uppercase tracking-wider font-bold text-white/80 flex items-center gap-1.5 whitespace-nowrap">
+                    <Sparkles size={14} className="text-amber-400" />
+                    World Seed:
+                  </span>
+                  <input
+                    type="number"
+                    value={customSeedInput}
+                    onChange={(e) => {
+                      setCustomSeedInput(e.target.value)
+                      const val = parseInt(e.target.value, 10)
+                      if (!isNaN(val)) setWorldSeed(val)
+                    }}
+                    className="w-28 px-2.5 py-1 text-xs font-mono font-bold bg-black/50 border border-white/20 rounded-lg text-emerald-400 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={() => {
+                      const newSeed = randomizeWorldSeed()
+                      setCustomSeedInput(String(newSeed))
+                    }}
+                    title="Randomize World Seed"
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-mono"
+                  >
+                    <Shuffle size={14} />
+                    <span className="hidden sm:inline">Randomize</span>
+                  </button>
+                </div>
+
+                {/* Surprise Destination Button */}
+                <button
+                  onClick={() => {
+                    travelToBiome('random')
+                  }}
+                  className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md"
+                >
+                  <Sparkles size={14} className="text-amber-400" />
+                  <span>Surprise Destination</span>
+                </button>
+              </div>
+
+              {/* Seed explanation caption */}
+              <div className="text-[11px] text-white/50 px-1">
+                Selecting a destination generates the actual biome, unique road personality, and continuous collision terrain. Seeds deterministically govern mountains, valleys, curves, and scenery layout.
+              </div>
+
+              {/* Destination Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {DESTINATIONS.map((dest) => {
+                  const isCurrent = (dest.id === 'dynamic' && biome === 'dynamic') || (biome === dest.id)
+                  const isSelected = selectedDestId === dest.id
+
+                  return (
+                    <div
+                      key={dest.id}
+                      onClick={() => setSelectedDestId(dest.id)}
+                      className={`relative p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 text-left ${
+                        isSelected
+                          ? 'border-emerald-400 bg-white/10 shadow-[0_0_20px_rgba(16,185,129,0.25)] ring-1 ring-emerald-400/50'
+                          : 'border-white/10 bg-white/5 hover:bg-white/[0.08] hover:border-white/20'
+                      }`}
+                    >
+                      <div>
+                        {/* Card Header: Icon, Name & Current Badge */}
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-md"
+                              style={{ backgroundColor: dest.accentColor }}
+                            >
+                              {getDestinationIcon(dest.iconName)}
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-black text-white leading-tight tracking-wide">
+                                {dest.name}
+                              </h3>
+                              <span className="text-[10px] text-white/50 font-mono">
+                                {dest.subtitle}
+                              </span>
+                            </div>
+                          </div>
+
+                          {isCurrent && (
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-xs text-white/70 mt-2 line-clamp-2 leading-relaxed">
+                          {dest.description}
+                        </p>
+
+                        {/* Tags: Terrain & Road Personality */}
+                        <div className="mt-3 space-y-1 text-[10px]">
+                          <div className="flex items-center gap-1.5 text-white/60">
+                            <span className="font-mono text-white/40 uppercase">Terrain:</span>
+                            <span className="text-white/80 font-medium truncate">{dest.terrainType}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white/60">
+                            <span className="font-mono text-white/40 uppercase">Road:</span>
+                            <span className="text-amber-300/90 font-medium truncate">{dest.roadPersonality}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Travel Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedDestId(dest.id)
+                          travelToBiome(dest.id, parseInt(customSeedInput, 10) || worldSeed)
+                        }}
+                        className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md ${
+                          isCurrent
+                            ? 'bg-white/10 hover:bg-white/15 text-white/80 border border-white/20'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                        }`}
+                      >
+                        <Compass size={14} />
+                        <span>{isCurrent ? 'Restart at Starting Line' : `Travel to ${dest.name}`}</span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* TAB 1: ATMOSPHERE & WEATHER */}
           {activePanel === 'environment' && (
             <div className="space-y-4">
@@ -1182,6 +1396,7 @@ export default function Overlay() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
       if (e.key === 'c' || e.key === 'C') cycleCameraPerspective()
+      if (e.key === 'n' || e.key === 'N') setActivePanel(activePanel === 'travel' ? 'none' : 'travel')
       if (e.key === 'h' || e.key === 'H') toggleHoverMode()
       if (e.key === 'g' || e.key === 'G') audioSystem.playHorn()
       if (e.key === 'v' || e.key === 'V') cycleVehicleModel()
@@ -1204,6 +1419,7 @@ export default function Overlay() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    activePanel,
     cycleCameraPerspective,
     toggleHoverMode,
     cycleVehicleModel,
@@ -1237,8 +1453,8 @@ export default function Overlay() {
 
   return (
     <div className="w-full h-full p-4 md:p-6 flex flex-col justify-between pointer-events-none select-none font-sans">
-      {/* ----------------- REGION DISCOVERY BANNER ----------------- */}
-      <RegionDiscoveryBanner />
+      {/* ----------------- CINEMATIC DESTINATION INTRO BANNER ----------------- */}
+      <DestinationIntroBanner />
 
       {/* ----------------- TOP NAVBAR: DECLUTTERED & STREAMLINED ----------------- */}
       <div className="flex items-center justify-between w-full pointer-events-auto">
@@ -1268,9 +1484,24 @@ export default function Overlay() {
             <span className="text-[9px] text-white/40 font-mono">[C]</span>
           </button>
 
+          {/* Quick Biome Travel / Destinations Button */}
+          <button
+            onClick={() => setActivePanel(activePanel === 'travel' ? 'none' : 'travel')}
+            className={`backdrop-blur-md px-3.5 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all border shadow-lg ${
+              activePanel === 'travel'
+                ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                : 'bg-black/40 hover:bg-black/60 text-white border-white/15'
+            }`}
+            title="Explore Destinations & Travel [N]"
+          >
+            <Compass size={15} className="text-emerald-400" />
+            <span className="tracking-wider">DESTINATIONS</span>
+            <span className="text-[9px] text-white/40 font-mono">[N]</span>
+          </button>
+
           {/* Master Menu Button */}
           <button
-            onClick={() => setActivePanel(activePanel === 'none' ? 'environment' : 'none')}
+            onClick={() => setActivePanel(activePanel === 'none' ? 'travel' : 'none')}
             className={`backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all border shadow-lg ${
               activePanel !== 'none'
                 ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'

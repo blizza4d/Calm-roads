@@ -547,6 +547,8 @@ interface ChunkProps {
   biomeConfig: BiomeConfig
   isRaining: boolean
   graphicsQuality: 'low' | 'medium' | 'high'
+  worldSeed: number
+  travelCounter: number
 }
 
 // Single Procedural Infinite Chunk Tile containing:
@@ -556,7 +558,7 @@ interface ChunkProps {
 // 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines
 // 5. Realistic Steel W-Beam Guardrails on curved segments
 // 6. Biome-Specific Instanced Scenery (Pines, Maples, Cacti, Boulders, Grass Tufts, Poles)
-const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining, graphicsQuality }: ChunkProps) {
+const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining, graphicsQuality, worldSeed, travelCounter }: ChunkProps) {
   // Shared Biome Materials from singleton cache (Zero material recompilation or state churn across 28 chunks)
   const mats = useMemo(() => getBiomeMaterials(biomeConfig, isRaining), [biomeConfig, isRaining])
 
@@ -725,7 +727,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     terrainGeo.attributes.uv.needsUpdate = true
     colorAttr.needsUpdate = true
     validateChunkGeometry(terrainGeo, 'terrainGeo')
-  }, [chunkZ, biomeConfig, terrainGeo])
+  }, [chunkZ, biomeConfig, terrainGeo, worldSeed, travelCounter])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
   const roadGeo = useMemo(() => {
@@ -814,7 +816,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     roadGeo.computeBoundingSphere()
     roadGeo.computeBoundingBox()
     validateChunkGeometry(roadGeo, 'roadGeo')
-  }, [chunkZ, roadGeo])
+  }, [chunkZ, roadGeo, worldSeed, travelCounter])
 
   // 3. Roadside Gravel / Dirt Shoulder Strips (Pooled)
   const shoulderGeo = useMemo(() => {
@@ -900,7 +902,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     shoulderGeo.attributes.normal.needsUpdate = true
     shoulderGeo.computeBoundingSphere()
     shoulderGeo.computeBoundingBox()
-  }, [chunkZ, shoulderGeo])
+  }, [chunkZ, shoulderGeo, worldSeed, travelCounter])
 
   // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines (Pooled)
   const markingsGeo = useMemo(() => {
@@ -1056,7 +1058,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     markingsGeo.attributes.position.needsUpdate = true
     markingsGeo.computeBoundingSphere()
     markingsGeo.computeBoundingBox()
-  }, [chunkZ, markingsGeo])
+  }, [chunkZ, markingsGeo, worldSeed, travelCounter])
 
   // 5. Realistic Steel Highway Guardrails on Curved Outer Segments (Pooled)
   const guardrailGeo = useMemo(() => {
@@ -1147,7 +1149,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     } else {
       guardrailGeo.setDrawRange(0, 0)
     }
-  }, [chunkZ, guardrailGeo])
+  }, [chunkZ, guardrailGeo, worldSeed, travelCounter])
 
   // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles, Alpine Cabins)
   const sceneryData = useMemo(() => {
@@ -1407,7 +1409,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
 
     return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators, cabins }
-  }, [chunkZ, biomeConfig.id])
+  }, [chunkZ, biomeConfig.id, worldSeed, travelCounter])
 
   // Instanced Meshes for Vegetation & Scenery Props
   const pineTrunkRef = useRef<THREE.InstancedMesh>(null)
@@ -1870,7 +1872,14 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       </group>
     </group>
   )
-}, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)
+}, (prev, next) =>
+  prev.chunkZ === next.chunkZ &&
+  prev.biomeConfig.id === next.biomeConfig.id &&
+  prev.isRaining === next.isRaining &&
+  prev.graphicsQuality === next.graphicsQuality &&
+  prev.worldSeed === next.worldSeed &&
+  prev.travelCounter === next.travelCounter
+)
 
 // Predictive High-Speed World Horizon Streaming Engine:
 // Pre-generates 28 active chunks (5.6 kilometers continuous highway coverage).
@@ -1883,9 +1892,12 @@ export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
   const weather = useGameStore((state) => state.weather)
   const graphicsQuality = useGameStore((state) => state.graphicsQuality)
+  const worldSeed = useGameStore((state) => state.worldSeed)
+  const travelCounter = useGameStore((state) => state.travelCounter)
   const setDiagnostics = useGameStore((state) => state.setDiagnostics)
   const { camera } = useThree()
   const diagCounter = useRef(0)
+  const lastTravelCounter = useRef(travelCounter)
 
   // Initial chunks spanning 600m behind down to -5000m ahead
   const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
@@ -1900,6 +1912,20 @@ export default function Terrain() {
   const slotsRef = useRef<number[]>(chunkSlots)
   slotsRef.current = chunkSlots
   const lastCamZ = useRef<number>(camera.position.z)
+
+  // Listen for biome travel transition: immediate reset to z=0
+  useEffect(() => {
+    if (travelCounter !== lastTravelCounter.current) {
+      lastTravelCounter.current = travelCounter
+      const initial: number[] = []
+      for (let i = 0; i < NUM_CHUNKS; i++) {
+        initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
+      }
+      slotsRef.current = initial
+      setChunkSlots(initial)
+      lastCamZ.current = 0
+    }
+  }, [travelCounter])
 
   useFrame(() => {
     const camZ = camera.position.z
@@ -2000,6 +2026,8 @@ export default function Terrain() {
             biomeConfig={chunkBiome}
             isRaining={weather === 'rain'}
             graphicsQuality={graphicsQuality}
+            worldSeed={worldSeed}
+            travelCounter={travelCounter}
           />
         )
       })}
