@@ -15,6 +15,7 @@ import {
   isRoadSurface,
   getActiveBiomeAt,
   getSurfaceHeight,
+  getSpawnTransform,
   getTerrainSlopeForVehicle,
   getDominantMacroType,
   getMacroTerrainWeights,
@@ -408,18 +409,19 @@ export default function VehicleController() {
   const headlights = useGameStore((s) => s.headlights)
   const photoMode = useGameStore((s) => s.photoMode)
   const travelCounter = useGameStore((s) => s.travelCounter)
+  const generationId = useGameStore((s) => s.generationId)
+  const startZ = useGameStore((s) => s.startZ)
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
-  // State Variables - initialized on the road at Z=0 with calibrated ride height
-  const initialSpawnY = getRoadElevation(0) + (isHoverMode ? 1.25 : config.rideHeight)
-  const initialSpawnX = getRoadCenter(0)
-  const pos = useRef(new THREE.Vector3(initialSpawnX, initialSpawnY, 0))
+  // State Variables - initialized safely on the continuous road at startZ with calibrated ride height & heading
+  const initialSpawn = getSpawnTransform(startZ, isHoverMode ? 1.25 : config.rideHeight)
+  const pos = useRef(new THREE.Vector3(initialSpawn.x, initialSpawn.y, initialSpawn.z))
   const forwardVel = useRef(0) // meters per second
   const lateralVel = useRef(0) // drift velocity (m/s)
   const verticalVel = useRef(0) // vertical velocity (m/s) for gravity and jumps
   const isGrounded = useRef(true) // authoritative ground contact tracking
-  const yawAngle = useRef(0) // radians
+  const yawAngle = useRef(initialSpawn.yaw) // radians
   const currentSteerAngle = useRef(0) // dynamic smoothed steering angle (radians)
   const steeringVisual = useRef(0)
   const wheelSpin = useRef(0)
@@ -569,19 +571,17 @@ export default function VehicleController() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isHoverMode, vehicleModel, config])
 
-  // Instant Biome Travel Re-alignment Listener
+  // Instant Biome Travel / Generation Re-alignment Listener
   const lastTravelRef = useRef(travelCounter)
+  const lastGenRef = useRef(generationId)
   useEffect(() => {
-    if (travelCounter !== lastTravelRef.current) {
+    if (travelCounter !== lastTravelRef.current || generationId !== lastGenRef.current) {
       lastTravelRef.current = travelCounter
-      const destZ = 0
-      const startX = getRoadCenter(destZ)
-      const startY = getRoadElevation(destZ) + (isHoverMode ? 1.25 : config.rideHeight)
-      pos.current.set(startX, startY, destZ)
-
-      const tan = getRoadTangent(destZ)
-      const startYaw = Math.atan2(-tan.tx, -tan.tz)
-      yawAngle.current = startYaw
+      lastGenRef.current = generationId
+      const destZ = useGameStore.getState().startZ || 0
+      const spawn = getSpawnTransform(destZ, isHoverMode ? 1.25 : config.rideHeight)
+      pos.current.set(spawn.x, spawn.y, spawn.z)
+      yawAngle.current = spawn.yaw
 
       forwardVel.current = 0
       lateralVel.current = 0
@@ -593,7 +593,7 @@ export default function VehicleController() {
       isGrounded.current = true
       isFirstCamFrameRef.current = true
       if (lastOdoPos.current) {
-        lastOdoPos.current.set(startX, startY, destZ)
+        lastOdoPos.current.set(spawn.x, spawn.y, spawn.z)
       }
       skidQuadCount.current = 0
       skidRingIndex.current = 0
@@ -601,18 +601,28 @@ export default function VehicleController() {
       _skidGeo.setDrawRange(0, 0)
 
       if (carGroupRef.current) {
-        carGroupRef.current.position.set(startX, startY, destZ)
-        carGroupRef.current.rotation.set(0, startYaw, 0)
+        carGroupRef.current.position.set(spawn.x, spawn.y, spawn.z)
+        carGroupRef.current.rotation.set(0, spawn.yaw, 0)
       }
     }
-  }, [travelCounter, isHoverMode, config.rideHeight])
+  }, [travelCounter, generationId, isHoverMode, config.rideHeight])
 
   useFrame((state, delta) => {
     if (!carGroupRef.current || photoMode) return
 
+    const store = useGameStore.getState()
+    // Freeze vehicle during travel transitions until chunks and collision are 100% ready
+    if (store.isTraveling || !store.isWorldReady) {
+      forwardVel.current = 0
+      lateralVel.current = 0
+      verticalVel.current = 0
+      carGroupRef.current.position.copy(pos.current)
+      carGroupRef.current.rotation.set(0, yawAngle.current, 0)
+      return
+    }
+
     const frameDelta = Math.min(delta, 0.08)
     const keys = getKeys()
-    const store = useGameStore.getState()
 
     // 1. Resolve active biome at current Z position without thrashing store if unchanged
     const activeBiomeConfig = getActiveBiomeAt(pos.current.z, biome)

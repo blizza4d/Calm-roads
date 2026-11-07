@@ -532,11 +532,11 @@ export default function GameEnvironment() {
   const timeOfDayRef = useRef(timeOfDay)
   const lastDispatchedTime = useRef(timeOfDay)
 
-  // Auto-advance time of day smoothly for directional lighting, throttling Zustand dispatches to avoid 60fps React rerenders
+  // Auto-advance time of day smoothly for directional lighting, throttling Zustand dispatches to avoid unnecessary React rerenders
   useFrame((_, delta) => {
     if (autoTimeCycle) {
       timeOfDayRef.current = (timeOfDayRef.current + delta * (24 / 720)) % 24
-      if (Math.abs(timeOfDayRef.current - lastDispatchedTime.current) > 0.08) {
+      if (Math.abs(timeOfDayRef.current - lastDispatchedTime.current) > 0.25) {
         lastDispatchedTime.current = timeOfDayRef.current
         setTimeOfDay(timeOfDayRef.current)
       }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useLoadingStore } from '../../store/useLoadingStore'
+import { useGameStore } from '../../store/useGameStore'
 
 /**
  * ShaderReadinessPipeline
@@ -16,6 +17,20 @@ export default function ShaderReadinessPipeline() {
   const { gl, scene, camera } = useThree()
   const isExecutingRef = useRef(false)
   const retryCount = useLoadingStore((s) => s.retryCount)
+  const generationId = useGameStore((s) => s.generationId)
+  const prevGenRef = useRef(generationId)
+
+  // Asynchronous shader pre-warming on biome replacement
+  useEffect(() => {
+    if (generationId !== prevGenRef.current) {
+      prevGenRef.current = generationId
+      if (typeof gl.compileAsync === 'function') {
+        gl.compileAsync(scene, camera).catch(() => {})
+      } else if (typeof gl.compile === 'function') {
+        gl.compile(scene, camera)
+      }
+    }
+  }, [generationId, gl, scene, camera])
 
   // WebGL Context Loss & Restoration Handling
   useEffect(() => {

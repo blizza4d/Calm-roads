@@ -27,6 +27,9 @@ import {
   getGrassSodTexture,
   getGalvanizedMetalTexture,
   getTreeBarkTexture,
+  getSoilBumpTexture,
+  getSnowNormalTexture,
+  getSandstoneStrataTexture,
 } from '../../../utils/asphaltTexture'
 import { getGrassAlphaTexture } from './Scenery'
 
@@ -426,16 +429,38 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
   const grassSodTex = getGrassSodTexture()
   const treeBarkTex = getTreeBarkTexture()
   const grassAlphaTex = getGrassAlphaTexture()
+  const soilBumpTex = getSoilBumpTexture()
+  const snowNormalTex = getSnowNormalTexture()
+  const sandstoneStrataTex = getSandstoneStrataTexture()
 
-  // Select biome-specific micro-surface relief
+  // Select biome-specific micro-surface relief and rock stratification
   let terrainBump = grassSodTex
   let terrainBumpScale = 0.032
-  if (biomeConfig.id === 'desert' || biomeConfig.id === 'coastal') {
+  let rockBump = rockStrataTex
+  let rockBumpScale = 0.045
+
+  if (biomeConfig.id === 'desert') {
+    terrainBump = sandNormalTex
+    terrainBumpScale = 0.042
+    rockBump = sandstoneStrataTex
+    rockBumpScale = 0.055
+  } else if (biomeConfig.id === 'coastal') {
     terrainBump = sandNormalTex
     terrainBumpScale = 0.038
-  } else if (biomeConfig.id === 'twisted_mountains' || biomeConfig.id === 'tundra') {
+  } else if (biomeConfig.id === 'tundra' || biomeConfig.id === 'alpine') {
+    terrainBump = snowNormalTex
+    terrainBumpScale = 0.046
+  } else if (biomeConfig.id === 'twisted_mountains') {
     terrainBump = rockStrataTex
-    terrainBumpScale = 0.048
+    terrainBumpScale = 0.052
+  } else if (
+    biomeConfig.id === 'plains' ||
+    biomeConfig.id === 'forest' ||
+    biomeConfig.id === 'autumn' ||
+    biomeConfig.id === 'enchanted_forest'
+  ) {
+    terrainBump = soilBumpTex
+    terrainBumpScale = 0.036
   }
 
   const terrainMat = new THREE.MeshStandardMaterial({
@@ -510,8 +535,8 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const rockMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.rockColor,
-    bumpMap: rockStrataTex,
-    bumpScale: 0.045,
+    bumpMap: rockBump,
+    bumpScale: rockBumpScale,
     roughness: 0.90,
     metalness: 0.04,
   })
@@ -549,6 +574,7 @@ interface ChunkProps {
   graphicsQuality: 'low' | 'medium' | 'high'
   worldSeed: number
   travelCounter: number
+  generationId: number
 }
 
 // Single Procedural Infinite Chunk Tile containing:
@@ -558,7 +584,7 @@ interface ChunkProps {
 // 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines
 // 5. Realistic Steel W-Beam Guardrails on curved segments
 // 6. Biome-Specific Instanced Scenery (Pines, Maples, Cacti, Boulders, Grass Tufts, Poles)
-const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining, graphicsQuality, worldSeed, travelCounter }: ChunkProps) {
+const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, isRaining, graphicsQuality, worldSeed, travelCounter, generationId }: ChunkProps) {
   // Shared Biome Materials from singleton cache (Zero material recompilation or state churn across 28 chunks)
   const mats = useMemo(() => getBiomeMaterials(biomeConfig, isRaining), [biomeConfig, isRaining])
 
@@ -727,7 +753,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     terrainGeo.attributes.uv.needsUpdate = true
     colorAttr.needsUpdate = true
     validateChunkGeometry(terrainGeo, 'terrainGeo')
-  }, [chunkZ, biomeConfig, terrainGeo, worldSeed, travelCounter])
+  }, [chunkZ, biomeConfig, terrainGeo, worldSeed, travelCounter, generationId])
 
   // 2. Curved Asphalt Highway Ribbon Geometry (Pooled)
   const roadGeo = useMemo(() => {
@@ -816,7 +842,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     roadGeo.computeBoundingSphere()
     roadGeo.computeBoundingBox()
     validateChunkGeometry(roadGeo, 'roadGeo')
-  }, [chunkZ, roadGeo, worldSeed, travelCounter])
+  }, [chunkZ, roadGeo, worldSeed, travelCounter, generationId])
 
   // 3. Roadside Gravel / Dirt Shoulder Strips (Pooled)
   const shoulderGeo = useMemo(() => {
@@ -902,7 +928,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     shoulderGeo.attributes.normal.needsUpdate = true
     shoulderGeo.computeBoundingSphere()
     shoulderGeo.computeBoundingBox()
-  }, [chunkZ, shoulderGeo, worldSeed, travelCounter])
+  }, [chunkZ, shoulderGeo, worldSeed, travelCounter, generationId])
 
   // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines (Pooled)
   const markingsGeo = useMemo(() => {
@@ -1058,7 +1084,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     markingsGeo.attributes.position.needsUpdate = true
     markingsGeo.computeBoundingSphere()
     markingsGeo.computeBoundingBox()
-  }, [chunkZ, markingsGeo, worldSeed, travelCounter])
+  }, [chunkZ, markingsGeo, worldSeed, travelCounter, generationId])
 
   // 5. Realistic Steel Highway Guardrails on Curved Outer Segments (Pooled)
   const guardrailGeo = useMemo(() => {
@@ -1149,7 +1175,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     } else {
       guardrailGeo.setDrawRange(0, 0)
     }
-  }, [chunkZ, guardrailGeo, worldSeed, travelCounter])
+  }, [chunkZ, guardrailGeo, worldSeed, travelCounter, generationId])
 
   // 6. Natural Clustered Roadside Scenery (Trees, Boulders, Grass Tufts, Poles, Alpine Cabins)
   const sceneryData = useMemo(() => {
@@ -1409,7 +1435,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
 
     return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators, cabins }
-  }, [chunkZ, biomeConfig.id, worldSeed, travelCounter])
+  }, [chunkZ, biomeConfig.id, worldSeed, travelCounter, generationId])
 
   // Instanced Meshes for Vegetation & Scenery Props
   const pineTrunkRef = useRef<THREE.InstancedMesh>(null)
@@ -1878,7 +1904,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   prev.isRaining === next.isRaining &&
   prev.graphicsQuality === next.graphicsQuality &&
   prev.worldSeed === next.worldSeed &&
-  prev.travelCounter === next.travelCounter
+  prev.travelCounter === next.travelCounter &&
+  prev.generationId === next.generationId
 )
 
 // Predictive High-Speed World Horizon Streaming Engine:
@@ -1894,16 +1921,20 @@ export default function Terrain() {
   const graphicsQuality = useGameStore((state) => state.graphicsQuality)
   const worldSeed = useGameStore((state) => state.worldSeed)
   const travelCounter = useGameStore((state) => state.travelCounter)
+  const generationId = useGameStore((state) => state.generationId)
+  const startZ = useGameStore((state) => state.startZ)
   const setDiagnostics = useGameStore((state) => state.setDiagnostics)
   const { camera } = useThree()
   const diagCounter = useRef(0)
   const lastTravelCounter = useRef(travelCounter)
+  const lastGenId = useRef(generationId)
 
-  // Initial chunks spanning 600m behind down to -5000m ahead
+  // Initial chunks spanning 600m behind down to -4800m ahead of startZ
   const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
     const initial: number[] = []
+    const currentStartZ = useGameStore.getState().startZ || 0
     for (let i = 0; i < NUM_CHUNKS; i++) {
-      initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
+      initial.push(currentStartZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
     }
     return initial
   })
@@ -1913,19 +1944,20 @@ export default function Terrain() {
   slotsRef.current = chunkSlots
   const lastCamZ = useRef<number>(camera.position.z)
 
-  // Listen for biome travel transition: immediate reset to z=0
+  // Listen for biome travel transition & generation reset: immediate reset centered on current startZ
   useEffect(() => {
-    if (travelCounter !== lastTravelCounter.current) {
+    if (travelCounter !== lastTravelCounter.current || generationId !== lastGenId.current) {
       lastTravelCounter.current = travelCounter
+      lastGenId.current = generationId
       const initial: number[] = []
       for (let i = 0; i < NUM_CHUNKS; i++) {
-        initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
+        initial.push(startZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
       }
       slotsRef.current = initial
       setChunkSlots(initial)
-      lastCamZ.current = 0
+      lastCamZ.current = startZ
     }
-  }, [travelCounter])
+  }, [travelCounter, generationId, startZ])
 
   useFrame(() => {
     const camZ = camera.position.z
@@ -1959,8 +1991,8 @@ export default function Terrain() {
     let recycledCount = 0
     const currentSlots = [...slotsRef.current]
 
-    // Allow recycling up to 3 chunks per frame to guarantee the frontier is NEVER outrun
-    while (recycledCount < 3) {
+    // Allow recycling up to 1 chunk per frame to guarantee silky 60fps frame pacing without multi-chunk burst spikes
+    while (recycledCount < 1) {
       let rearmostIdx = 0
       let rearmostZ = currentSlots[0]
       let frontmostIdx = 0
@@ -2028,6 +2060,7 @@ export default function Terrain() {
             graphicsQuality={graphicsQuality}
             worldSeed={worldSeed}
             travelCounter={travelCounter}
+            generationId={generationId}
           />
         )
       })}

@@ -13,6 +13,7 @@ function mulberry32(a: number) {
 // World Seed & Procedural Generation Session State
 let _activeWorldSeed = 1337
 let _activeStartBiome: 'dynamic' | BiomeType = 'dynamic'
+let _activeStartZ = 0
 
 // High-precision Simplex Noise generators for realistic multi-octave geological terrain
 let terrainNoise = createNoise2D(mulberry32(1337))
@@ -21,13 +22,18 @@ let microNoise = createNoise2D(mulberry32(9999))
 let macroNoise2D = createNoise2D(mulberry32(7777))
 
 /**
- * Configure authoritative world seed and starting biome.
+ * Configure authoritative world seed, starting biome, and route start position.
  * Re-seeds all terrain noise generators deterministically, guaranteeing that
  * the same seed reproduces the exact same landscape, and different seeds generate unique worlds.
  */
-export function setWorldGenerationConfig(seed: number, biome: 'dynamic' | BiomeType = 'dynamic') {
+export function setWorldGenerationConfig(
+  seed: number,
+  biome: 'dynamic' | BiomeType = 'dynamic',
+  startZ: number = 0
+) {
   _activeWorldSeed = seed
   _activeStartBiome = biome
+  _activeStartZ = startZ
   terrainNoise = createNoise2D(mulberry32((seed * 17 + 1337) >>> 0))
   detailNoise = createNoise2D(mulberry32((seed * 31 + 4242) >>> 0))
   microNoise = createNoise2D(mulberry32((seed * 53 + 9999) >>> 0))
@@ -40,6 +46,23 @@ export function getWorldSeed(): number {
 
 export function getWorldStartBiome(): 'dynamic' | BiomeType {
   return _activeStartBiome
+}
+
+export function getWorldStartZ(): number {
+  return _activeStartZ
+}
+
+/**
+ * Computes exact 3D spawn coordinate and tangent yaw heading for the vehicle
+ * safely on the continuous road centerline at any arbitrary Z position.
+ */
+export function getSpawnTransform(startZ?: number, rideHeight: number = 0.32) {
+  const z = startZ !== undefined ? startZ : _activeStartZ
+  const x = getRoadCenter(z)
+  const y = getRoadElevation(z) + rideHeight
+  const tan = getRoadTangent(z)
+  const yaw = Math.atan2(-tan.tx, -tan.tz)
+  return { x, y, z, yaw, grade: tan.grade }
 }
 
 export const ROAD_WIDTH = 11.5

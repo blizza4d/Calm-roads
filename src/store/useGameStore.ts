@@ -1,11 +1,42 @@
 import { create } from 'zustand'
-import { setWorldGenerationConfig, type BiomeType, type MacroTerrainType, type MacroTerrainWeights } from '../utils/roadMath.ts'
+import {
+  setWorldGenerationConfig,
+  type BiomeType,
+  type MacroTerrainType,
+  type MacroTerrainWeights,
+} from '../utils/roadMath.ts'
 import { getDestinationById, type DestinationId } from '../utils/destinations.ts'
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
 export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback' | 'modern_supercar' | 'vintage_hatch'
 export type CameraPerspectiveType = 'chase' | 'dashboard' | 'drone' | 'bumper'
 export type BiomeSelection = 'dynamic' | BiomeType
+
+export const SUPPORTED_STARTING_BIOMES: BiomeType[] = [
+  'plains',
+  'rolling_hills',
+  'twisted_mountains',
+  'desert',
+  'coastal',
+  'forest',
+  'autumn',
+  'alpine',
+  'tundra',
+  'enchanted_forest',
+]
+
+export const START_Z_COORDINATES = [0, -400, -800, -1200, -1600, -2000, -2400, -2800]
+
+export interface WorldConfiguration {
+  sessionId: string
+  generationId: number
+  biomeId: BiomeSelection
+  worldSeed: number
+  startZ: number
+  spawnPoint: { x: number; y: number; z: number; yaw: number }
+  roadProfileId: string
+  weatherPreset: WeatherType
+}
 
 export interface DestinationBannerState {
   name: string
@@ -29,7 +60,12 @@ interface GameState {
   currentResolvedBiome: BiomeType
   setCurrentResolvedBiome: (b: BiomeType) => void
 
-  // 2b. Macro Terrain System & Seeded Travel
+  // 2b. Macro Terrain System, World Lifecycle & Seeded Travel
+  sessionId: string
+  generationId: number
+  startZ: number
+  isWorldReady: boolean
+  setIsWorldReady: (r: boolean) => void
   worldSeed: number
   setWorldSeed: (s: number) => void
   randomizeWorldSeed: () => number
@@ -37,7 +73,9 @@ interface GameState {
   isTraveling: boolean
   destinationBanner: DestinationBannerState | null
   setDestinationBanner: (b: DestinationBannerState | null) => void
-  travelToBiome: (destId: DestinationId, customSeed?: number) => void
+  initNewGameSession: (customSeed?: number, customBiome?: BiomeSelection, customStartZ?: number) => void
+  replaceActiveBiome: (destId: DestinationId, customSeed?: number, customStartZ?: number) => void
+  travelToBiome: (destId: DestinationId, customSeed?: number, customStartZ?: number) => void
   macroTerrain: MacroTerrainType
   setMacroTerrain: (m: MacroTerrainType) => void
   macroWeights: MacroTerrainWeights
@@ -198,73 +236,86 @@ const VEHICLES: VehicleModelType[] = [
 ]
 const CAMERAS: CameraPerspectiveType[] = ['chase', 'dashboard', 'drone', 'bumper']
 
+// Generate initial randomized session configuration
+const _initialSeed = Math.floor(Math.random() * 900000) + 100000
+const _initialBiome = SUPPORTED_STARTING_BIOMES[Math.floor(Math.random() * SUPPORTED_STARTING_BIOMES.length)]
+const _initialStartZ = START_Z_COORDINATES[Math.floor(Math.random() * START_Z_COORDINATES.length)]
+setWorldGenerationConfig(_initialSeed, _initialBiome, _initialStartZ)
+const _initialDest = getDestinationById(_initialBiome)
+
 export const useGameStore = create<GameState>((set, get) => ({
   // Antigravity & Physics
   isHoverMode: false,
   toggleHoverMode: () => set((s) => ({ isHoverMode: !s.isHoverMode })),
   setHoverMode: (isHoverMode) => set({ isHoverMode }),
 
-  // Biomes & Seeded Travel
-  biome: 'dynamic',
+  // Biomes, Seeded Travel & Session Lifecycle
+  sessionId: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+  generationId: 1,
+  startZ: _initialStartZ,
+  isWorldReady: true,
+  setIsWorldReady: (isWorldReady) => set({ isWorldReady }),
+
+  biome: _initialBiome,
   setBiome: (biome) => {
     set({ biome })
-    setWorldGenerationConfig(get().worldSeed, biome)
+    setWorldGenerationConfig(get().worldSeed, biome, get().startZ)
   },
-  currentResolvedBiome: 'forest',
+  currentResolvedBiome: _initialBiome,
   setCurrentResolvedBiome: (currentResolvedBiome) => set({ currentResolvedBiome }),
 
-  worldSeed: 1337,
+  worldSeed: _initialSeed,
   setWorldSeed: (worldSeed) => {
     set({ worldSeed })
-    setWorldGenerationConfig(worldSeed, get().biome)
+    setWorldGenerationConfig(worldSeed, get().biome, get().startZ)
   },
   randomizeWorldSeed: () => {
     const newSeed = Math.floor(Math.random() * 900000) + 100000
     set({ worldSeed: newSeed })
-    setWorldGenerationConfig(newSeed, get().biome)
+    setWorldGenerationConfig(newSeed, get().biome, get().startZ)
     return newSeed
   },
   travelCounter: 0,
   isTraveling: false,
-  destinationBanner: null,
+  destinationBanner: {
+    name: _initialDest.name,
+    subtitle: _initialDest.subtitle,
+    roadType: _initialDest.roadPersonality,
+    visible: true,
+  },
   setDestinationBanner: (destinationBanner) => set({ destinationBanner }),
-  travelToBiome: (destId: DestinationId, customSeed?: number) => {
+
+  // Initialize a fresh new game session with a random balanced biome and unique seed
+  initNewGameSession: (customSeed?: number, customBiome?: BiomeSelection, customStartZ?: number) => {
     const s = get()
-    let chosenId = destId
-    if (chosenId === 'random') {
-      const candidates: BiomeType[] = [
-        'plains',
-        'rolling_hills',
-        'twisted_mountains',
-        'desert',
-        'coastal',
-        'forest',
-        'autumn',
-        'alpine',
-        'tundra',
-        'enchanted_forest',
-      ]
-      chosenId = candidates[Math.floor(Math.random() * candidates.length)]
-    }
+    const chosenBiome = customBiome !== undefined
+      ? customBiome
+      : SUPPORTED_STARTING_BIOMES[Math.floor(Math.random() * SUPPORTED_STARTING_BIOMES.length)]
+    const chosenSeed = customSeed !== undefined
+      ? customSeed
+      : Math.floor(Math.random() * 900000) + 100000
+    const chosenStartZ = customStartZ !== undefined
+      ? customStartZ
+      : START_Z_COORDINATES[Math.floor(Math.random() * START_Z_COORDINATES.length)]
 
-    const targetSeed = customSeed !== undefined ? customSeed : (destId === 'random' ? Math.floor(Math.random() * 900000) + 100000 : s.worldSeed)
-    const effectiveBiome: BiomeSelection = chosenId === 'dynamic' ? 'dynamic' : (chosenId as BiomeType)
+    const newGenId = (s.generationId || 0) + 1
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
 
-    // 1. Authoritatively reconfigure procedural world generation noise and parameters
-    setWorldGenerationConfig(targetSeed, effectiveBiome)
+    setWorldGenerationConfig(chosenSeed, chosenBiome, chosenStartZ)
+    const destInfo = getDestinationById(chosenBiome)
 
-    const destInfo = getDestinationById(chosenId)
-
-    // 2. Clear lingering timers
     if (_bannerTimer) clearTimeout(_bannerTimer)
     if (_travelTimer) clearTimeout(_travelTimer)
 
-    // 3. Update store state
     set({
-      biome: effectiveBiome,
-      worldSeed: targetSeed,
+      sessionId: newSessionId,
+      generationId: newGenId,
+      biome: chosenBiome,
+      worldSeed: chosenSeed,
+      startZ: chosenStartZ,
       travelCounter: s.travelCounter + 1,
       isTraveling: true,
+      isWorldReady: false,
       activePanel: 'none',
       destinationBanner: {
         name: destInfo.name,
@@ -274,16 +325,85 @@ export const useGameStore = create<GameState>((set, get) => ({
       },
     })
 
-    // 4. Smooth transition timers
     _travelTimer = setTimeout(() => {
-      set({ isTraveling: false })
+      if (get().generationId === newGenId) {
+        set({ isTraveling: false, isWorldReady: true })
+      }
     }, 600)
 
     _bannerTimer = setTimeout(() => {
-      set((curr) => ({
-        destinationBanner: curr.destinationBanner ? { ...curr.destinationBanner, visible: false } : null,
-      }))
+      if (get().generationId === newGenId) {
+        set((curr) => ({
+          destinationBanner: curr.destinationBanner ? { ...curr.destinationBanner, visible: false } : null,
+        }))
+      }
     }, 4500)
+  },
+
+  // Authoritatively replace active biome with a new biome, generating a unique road layout and clearing obsolete jobs
+  replaceActiveBiome: (destId: DestinationId, customSeed?: number, customStartZ?: number) => {
+    const s = get()
+    let chosenId = destId
+    if (chosenId === 'random') {
+      chosenId = SUPPORTED_STARTING_BIOMES[Math.floor(Math.random() * SUPPORTED_STARTING_BIOMES.length)]
+    }
+
+    // When traveling to another biome, generate a fresh new seed by default so road and terrain layout are completely new
+    const targetSeed = customSeed !== undefined
+      ? customSeed
+      : (chosenId === s.biome && destId !== 'random'
+          ? s.worldSeed
+          : Math.floor(Math.random() * 900000) + 100000)
+
+    const effectiveBiome: BiomeSelection = chosenId === 'dynamic' ? 'dynamic' : (chosenId as BiomeType)
+    const targetStartZ = customStartZ !== undefined ? customStartZ : 0
+    const nextGenId = (s.generationId || 0) + 1
+
+    // 1. Authoritatively reconfigure procedural world generation noise and parameters
+    setWorldGenerationConfig(targetSeed, effectiveBiome, targetStartZ)
+
+    const destInfo = getDestinationById(chosenId)
+
+    // 2. Clear lingering timers
+    if (_bannerTimer) clearTimeout(_bannerTimer)
+    if (_travelTimer) clearTimeout(_travelTimer)
+
+    // 3. Freeze inputs and trigger destination banner
+    set({
+      biome: effectiveBiome,
+      worldSeed: targetSeed,
+      startZ: targetStartZ,
+      generationId: nextGenId,
+      travelCounter: s.travelCounter + 1,
+      isTraveling: true,
+      isWorldReady: false,
+      activePanel: 'none',
+      destinationBanner: {
+        name: destInfo.name,
+        subtitle: destInfo.subtitle,
+        roadType: destInfo.roadPersonality,
+        visible: true,
+      },
+    })
+
+    // 4. Safe handover after geometry & shaders bind (guarantees cancellation of obsolete async requests)
+    _travelTimer = setTimeout(() => {
+      if (get().generationId === nextGenId) {
+        set({ isTraveling: false, isWorldReady: true })
+      }
+    }, 600)
+
+    _bannerTimer = setTimeout(() => {
+      if (get().generationId === nextGenId) {
+        set((curr) => ({
+          destinationBanner: curr.destinationBanner ? { ...curr.destinationBanner, visible: false } : null,
+        }))
+      }
+    }, 4500)
+  },
+
+  travelToBiome: (destId: DestinationId, customSeed?: number, customStartZ?: number) => {
+    get().replaceActiveBiome(destId, customSeed, customStartZ)
   },
 
   // Macro Terrain System

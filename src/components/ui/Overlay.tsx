@@ -568,7 +568,9 @@ function MasterMenuModal({
                         onClick={(e) => {
                           e.stopPropagation()
                           setSelectedDestId(dest.id)
-                          travelToBiome(dest.id, parseInt(customSeedInput, 10) || worldSeed)
+                          const parsed = parseInt(customSeedInput, 10)
+                          const targetSeed = !isNaN(parsed) && customSeedInput.trim() !== '' ? parsed : undefined
+                          travelToBiome(dest.id, targetSeed)
                         }}
                         className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md ${
                           isCurrent

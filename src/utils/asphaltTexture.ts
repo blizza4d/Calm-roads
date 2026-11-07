@@ -10,6 +10,9 @@ let cachedRockStrataTexture: THREE.CanvasTexture | null = null
 let cachedGrassSodTexture: THREE.CanvasTexture | null = null
 let cachedGalvanizedMetalTexture: THREE.CanvasTexture | null = null
 let cachedTreeBarkTexture: THREE.CanvasTexture | null = null
+let cachedSoilBumpTexture: THREE.CanvasTexture | null = null
+let cachedSnowNormalTexture: THREE.CanvasTexture | null = null
+let cachedSandstoneStrataTexture: THREE.CanvasTexture | null = null
 
 /**
  * High-fidelity procedural PBR asphalt texture generator.
@@ -602,5 +605,185 @@ export function getTreeBarkTexture(): THREE.CanvasTexture {
   texture.needsUpdate = true
 
   cachedTreeBarkTexture = texture
+  return texture
+}
+
+/**
+ * Procedural bump map for rich organic soil and loam ground surfaces.
+ * Features organic soil crumb aggregate, fine rootlets, and micro-pebbles.
+ */
+export function getSoilBumpTexture(): THREE.CanvasTexture {
+  if (cachedSoilBumpTexture) return cachedSoilBumpTexture
+  if (typeof document === 'undefined') {
+    const fallback = new THREE.CanvasTexture({} as HTMLCanvasElement)
+    cachedSoilBumpTexture = fallback
+    return fallback
+  }
+
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    const fallback = new THREE.CanvasTexture(canvas)
+    cachedSoilBumpTexture = fallback
+    return fallback
+  }
+
+  ctx.fillStyle = '#808080'
+  ctx.fillRect(0, 0, size, size)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4
+      // Granular soil crumb structure
+      const n1 = (Math.random() - 0.5) * 45
+      const n2 = Math.sin(x * 0.12) * Math.cos(y * 0.12) * 20
+      const n3 = Math.sin(x * 0.04 + y * 0.04) * 15
+      const val = Math.max(0, Math.min(255, 128 + n1 + n2 + n3))
+      data[idx] = val
+      data[idx + 1] = val
+      data[idx + 2] = val
+      data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(16, 16)
+  texture.anisotropy = 8
+  texture.generateMipmaps = true
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  cachedSoilBumpTexture = texture
+  return texture
+}
+
+/**
+ * Procedural normal / bump map for crystalline sub-zero snow and permafrost surfaces.
+ * Features sparkling ice crystals, firn compaction, and subtle wind drift ripples.
+ */
+export function getSnowNormalTexture(): THREE.CanvasTexture {
+  if (cachedSnowNormalTexture) return cachedSnowNormalTexture
+  if (typeof document === 'undefined') {
+    const fallback = new THREE.CanvasTexture({} as HTMLCanvasElement)
+    cachedSnowNormalTexture = fallback
+    return fallback
+  }
+
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    const fallback = new THREE.CanvasTexture(canvas)
+    cachedSnowNormalTexture = fallback
+    return fallback
+  }
+
+  ctx.fillStyle = '#808080'
+  ctx.fillRect(0, 0, size, size)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4
+      // Gentle wind sastrugi ripples
+      const ripple = Math.sin(x * 0.06 + y * 0.02) * 18
+      // Sparkling micro-crystals
+      const crystal = (Math.random() - 0.5) * 35
+      const val = Math.max(0, Math.min(255, 128 + ripple + crystal))
+      data[idx] = val
+      data[idx + 1] = val
+      data[idx + 2] = val
+      data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(24, 24)
+  texture.anisotropy = 8
+  texture.generateMipmaps = true
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  cachedSnowNormalTexture = texture
+  return texture
+}
+
+/**
+ * Procedural strata bump map for layered sandstone cliffs and desert canyon walls.
+ * Features prominent horizontal sedimentary strata bedding planes and erosion channels.
+ */
+export function getSandstoneStrataTexture(): THREE.CanvasTexture {
+  if (cachedSandstoneStrataTexture) return cachedSandstoneStrataTexture
+  if (typeof document === 'undefined') {
+    const fallback = new THREE.CanvasTexture({} as HTMLCanvasElement)
+    cachedSandstoneStrataTexture = fallback
+    return fallback
+  }
+
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    const fallback = new THREE.CanvasTexture(canvas)
+    cachedSandstoneStrataTexture = fallback
+    return fallback
+  }
+
+  ctx.fillStyle = '#808080'
+  ctx.fillRect(0, 0, size, size)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4
+      // Sedimentary horizontal bedding strata
+      const strata = Math.sin(y * 0.22 + Math.sin(x * 0.03) * 4.0) * 42
+      const microBed = Math.sin(y * 0.8) * 12
+      const grain = (Math.random() - 0.5) * 22
+      const val = Math.max(0, Math.min(255, 128 + strata + microBed + grain))
+      data[idx] = val
+      data[idx + 1] = val
+      data[idx + 2] = val
+      data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(6, 12)
+  texture.anisotropy = 8
+  texture.generateMipmaps = true
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+
+  cachedSandstoneStrataTexture = texture
   return texture
 }

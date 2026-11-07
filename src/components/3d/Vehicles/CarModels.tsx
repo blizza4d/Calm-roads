@@ -31,11 +31,12 @@ function HeadlightBeams({
   color?: string
   intensity?: number
 }) {
-  const timeOfDay = useGameStore((s) => s.timeOfDay)
+  // Discrete boolean selector: Only re-render when day/night boundary transitions (hours < 6.5 or > 18.5),
+  // completely eliminating redundant React re-renders every 2 seconds during normal driving
+  const isDark = useGameStore((s) => s.timeOfDay < 6.5 || s.timeOfDay > 18.5)
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
-  // Dynamic shadow casting: Only cast headlight spotlight shadows at night/sunset (hours < 6.5 or > 18.5)
+  // Dynamic shadow casting: Only cast headlight spotlight shadows at night/sunset
   // when graphics is High, completely eliminating 2 redundant 512x512 shadow passes during daytime and on medium/low presets.
-  const isDark = timeOfDay < 6.5 || timeOfDay > 18.5
   const shouldCastShadow = graphicsQuality === 'high' && isDark
 
   // Low-beam targets (spread outward to illuminate shoulders and pavement)
