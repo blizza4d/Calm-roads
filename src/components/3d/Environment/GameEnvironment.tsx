@@ -4,7 +4,7 @@ import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
-import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
+import { BIOMES, getRoadCenter, BiomeType } from '../../../utils/roadMath'
 
 // ------------------------------------------------------------------------
 // Cosmic Night Sky Shaders: 3,500+ Twinkling Stars & Galactic Milky Way
@@ -305,10 +305,12 @@ function PanoramicMountainHorizon({
   fogColor,
   rockColor,
   isNight,
+  biomeId = 'forest',
 }: {
   fogColor: string
   rockColor: string
   isNight: boolean
+  biomeId?: BiomeType
 }) {
   const { camera } = useThree()
   const ringGroupRef = useRef<THREE.Group>(null)
@@ -331,6 +333,26 @@ function PanoramicMountainHorizon({
     // Deep anchor base (y = -800m) to completely eliminate floating gaps
     const baseY = -800
 
+    const isPlains = biomeId === 'plains'
+    const isDesert = biomeId === 'desert'
+    const isCoastal = biomeId === 'coastal'
+    const isRollingHills = biomeId === 'rolling_hills'
+    const isSnowyAlpine = biomeId === 'twisted_mountains' || biomeId === 'alpine' || biomeId === 'tundra'
+
+    // Dedicated biome-specific summit colors
+    const prairieSummit = isNight
+      ? new THREE.Color('#0d1810').lerp(fogCol, 0.65)
+      : new THREE.Color('#4a6b2f').lerp(fogCol, 0.68)
+    const desertSummit = isNight
+      ? new THREE.Color('#1f1510').lerp(fogCol, 0.65)
+      : new THREE.Color('#a15c15').lerp(fogCol, 0.68)
+    const coastalSummit = isNight
+      ? new THREE.Color('#0b1320').lerp(fogCol, 0.65)
+      : new THREE.Color('#3b754a').lerp(fogCol, 0.70)
+    const hillsSummit = isNight
+      ? new THREE.Color('#0f1b13').lerp(fogCol, 0.65)
+      : new THREE.Color('#386641').lerp(fogCol, 0.70)
+
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2
       const cosT = Math.cos(theta)
@@ -339,22 +361,66 @@ function PanoramicMountainHorizon({
       const x = radius * sinT
       const z = radius * cosT
 
-      // Multi-octave natural mountain peak silhouettes with rich stratified ridges
-      const peakH =
-        170 +
-        Math.sin(theta * 3.0) * 70 +
-        Math.cos(theta * 7.0 + 0.8) * 42 +
-        Math.sin(theta * 13.0) * 25 +
-        Math.cos(theta * 29.0) * 14 +
-        Math.sin(theta * 53.0) * 6
+      let peakH = 140
+      let col = summitCol
+
+      if (isPlains) {
+        // Expansive low rolling prairie knolls and distant grassland rises (NO alpine peaks or snow)
+        peakH =
+          52 +
+          Math.sin(theta * 2.0) * 24 +
+          Math.cos(theta * 5.0 + 0.4) * 14 +
+          Math.sin(theta * 9.0) * 8 +
+          Math.cos(theta * 19.0) * 4
+        col = prairieSummit
+      } else if (isDesert) {
+        // Flat-topped sandstone mesas and terraced canyon bluffs
+        const rawMesa = Math.sin(theta * 4.0)
+        const mesa = Math.tanh(rawMesa * 3.5) * 60 + Math.cos(theta * 8.0) * 22 + Math.sin(theta * 16.0) * 10
+        peakH = 125 + mesa
+        col = desertSummit
+      } else if (isCoastal) {
+        // Gentle coastal headlands and ocean dunes
+        peakH =
+          68 +
+          Math.sin(theta * 2.5) * 26 +
+          Math.cos(theta * 6.0) * 14 +
+          Math.sin(theta * 11.0) * 8
+        col = coastalSummit
+      } else if (isRollingHills) {
+        // Soft rounded undulating hills
+        peakH =
+          90 +
+          Math.sin(theta * 3.0) * 38 +
+          Math.cos(theta * 7.0) * 18 +
+          Math.sin(theta * 14.0) * 10
+        col = hillsSummit
+      } else if (isSnowyAlpine) {
+        // Dramatic alpine peaks with snow caps
+        peakH =
+          185 +
+          Math.sin(theta * 3.0) * 75 +
+          Math.cos(theta * 7.0 + 0.8) * 45 +
+          Math.sin(theta * 13.0) * 25 +
+          Math.cos(theta * 29.0) * 14 +
+          Math.sin(theta * 53.0) * 6
+        col = peakH > 210 ? snowCol : summitCol
+      } else {
+        // Forest / Autumn / Enchanted: layered forested foothills
+        peakH =
+          135 +
+          Math.sin(theta * 3.0) * 48 +
+          Math.cos(theta * 6.5) * 28 +
+          Math.sin(theta * 12.0) * 15
+        col = summitCol
+      }
 
       // Bottom vertex (deep horizon base)
       positions.push(x, baseY, z)
       colors.push(fogCol.r, fogCol.g, fogCol.b)
 
-      // Top vertex (mountain summit)
+      // Top vertex (mountain / hill summit)
       positions.push(x, peakH, z)
-      const col = peakH > 220 ? snowCol : summitCol
       colors.push(col.r, col.g, col.b)
     }
 
@@ -376,7 +442,7 @@ function PanoramicMountainHorizon({
     geo.setIndex(indices)
     geo.computeVertexNormals()
     return geo
-  }, [fogColor, rockColor, isNight])
+  }, [fogColor, rockColor, isNight, biomeId])
 
   // Track camera in X, Z and damped Y so mountains stay anchored to visual horizon
   useFrame(() => {
@@ -625,12 +691,15 @@ export default function GameEnvironment() {
     switch (currentResolvedBiome) {
       case 'twisted_mountains':
       case 'tundra':
+      case 'alpine':
         return 'dawn' // Crisp cool alpine snow reflection
       case 'desert':
       case 'coastal':
-        return 'sunset' // Warm golden open-horizon reflection
+      case 'plains':
+        return 'sunset' // Warm golden open-horizon reflection (prevents forest reflection in Plains & Desert!)
       case 'autumn':
-        return 'park' // Golden foliage reflection
+      case 'rolling_hills':
+        return 'park' // Golden / rolling pasture foliage reflection
       case 'forest':
       case 'enchanted_forest':
       default:
@@ -856,6 +925,7 @@ export default function GameEnvironment() {
         fogColor={skyColor}
         rockColor={biomeConfig.rockColor}
         isNight={celestialData.isNight}
+        biomeId={currentResolvedBiome}
       />
 
       {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Biome-Adaptive) */}

@@ -35,7 +35,7 @@ function assert(condition, message) {
 console.log('--- Test 1: Macro-Noise Normalization & Dynamic Range ---')
 let minMacro = Infinity
 let maxMacro = -Infinity
-const macroCounts = { plains: 0, rolling_hills: 0, twisted_climb: 0 }
+const macroCounts = { plains: 0, rolling_hills: 0, twisted_climb: 0, coastal: 0, desert_canyon: 0, forest_valleys: 0 }
 
 for (let z = 0; z >= -15000; z -= 10) {
   const m = getMacroNoise(z)
@@ -43,7 +43,7 @@ for (let z = 0; z >= -15000; z -= 10) {
   if (m > maxMacro) maxMacro = m
 
   const dom = getDominantMacroType(z)
-  macroCounts[dom]++
+  macroCounts[dom] = (macroCounts[dom] || 0) + 1
 }
 
 console.log(`Macro noise range over 15km: [${minMacro.toFixed(3)}, ${maxMacro.toFixed(3)}]`)
@@ -63,12 +63,12 @@ console.log('\n--- Test 2: Normalized Weights Sum Invariant ---')
 let maxWeightSumError = 0
 for (let z = 0; z >= -10000; z -= 25) {
   const w = getMacroTerrainWeights(z)
-  const sum = w.plains + w.rollingHills + w.twistedClimb
+  const sum = (w.plains || 0) + (w.rolling_hills || 0) + (w.twisted_climb || 0) + (w.coastal || 0) + (w.desert_canyon || 0) + (w.forest_valleys || 0)
   const err = Math.abs(sum - 1.0)
   if (err > maxWeightSumError) maxWeightSumError = err
 }
 console.log(`Max weight sum error: ${maxWeightSumError.toExponential(3)}`)
-assert(maxWeightSumError < 1e-6, 'Normalized weights (Plains + Hills + Twisted) sum to exactly 1.0 everywhere')
+assert(maxWeightSumError < 1e-6, 'Normalized weights sum to exactly 1.0 everywhere')
 
 // ------------------------------------------------------------------------
 // Test 3: Road Curvature & Elevation Modulation by Macro-Biome

@@ -194,8 +194,8 @@ assert(
   'Plains road personality strictly suppresses hairpins in favor of wide open valley sweeps'
 )
 assert(
-  plainsBiome.id === 'plains' && plainsBiome.hillHeightMultiplier <= 0.35,
-  'Plains generates gentle flat/prairie terrain with low hill height multiplier (0.25)'
+  plainsBiome.id === 'plains' && plainsBiome.hillHeightMultiplier >= 0.80,
+  'Plains generates realistic rolling prairie terrain with natural hill height multiplier (0.90)'
 )
 
 // 3.2 Rolling Hills Destination

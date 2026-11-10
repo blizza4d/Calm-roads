@@ -157,7 +157,7 @@ for (const type of MACRO_CYCLE_ORDER) {
   }
 }
 
-assert(MACRO_PROFILES.plains.terrainAmplitude < 4.0 && MACRO_PROFILES.plains.mountainAmplitude === 0, 'Plains profile generates low-amplitude flat terrain (amp: ' + MACRO_PROFILES.plains.terrainAmplitude + 'm)')
+assert(MACRO_PROFILES.plains.terrainAmplitude >= 12.0 && MACRO_PROFILES.plains.mountainAmplitude >= 10.0, 'Plains profile generates natural rolling prairie terrain (amp: ' + MACRO_PROFILES.plains.terrainAmplitude + 'm)')
 assert(MACRO_PROFILES.twisted_climb.mountainAmplitude >= 60.0, 'Twisted Mountains profile generates towering peaks (mountain amp: ' + MACRO_PROFILES.twisted_climb.mountainAmplitude + 'm)')
 assert(MACRO_PROFILES.desert_canyon.mountainAmplitude >= 40.0, 'Desert Canyon profile generates canyon walls and plateaus (mountain amp: ' + MACRO_PROFILES.desert_canyon.mountainAmplitude + 'm)')
 assert(MACRO_PROFILES.rolling_hills.terrainAmplitude >= 12.0 && MACRO_PROFILES.rolling_hills.terrainAmplitude <= 20.0, 'Rolling Hills profile generates gentle rounded hills (amp: ' + MACRO_PROFILES.rolling_hills.terrainAmplitude + 'm)')

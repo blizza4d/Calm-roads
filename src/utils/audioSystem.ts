@@ -870,12 +870,13 @@ export class RealisticVehicleAudioEngine {
 
     // Detect rapid throttle lift for overrun crackles & turbo compressor surge / BOV flutter
     const throttleDelta = this.prevThrottle - throttleVal
-    if (throttleDelta > 0.30 && curRpm > profile.baseRpm.low * 1.25) {
+    if (throttleDelta > 0.20 && curRpm > profile.baseRpm.low * 1.15) {
       if (profile.hasTurbo) {
         this.triggerTurboBlowOffValve(Math.min(1.0, 0.65 + (curRpm - profile.baseRpm.low) / (profile.redlineRpm * 0.5)))
       }
-      if (curRpm > profile.baseRpm.mid * 0.85) {
-        this.triggerExhaustPop(Math.min(1.0, 0.6 + (curRpm - profile.baseRpm.mid) / 3500))
+      if (curRpm > profile.baseRpm.mid * 0.75) {
+        const crackleCount = curRpm > 5500 ? 4 : 2
+        this.triggerOverrunCrackles(crackleCount, Math.min(1.0, 0.6 + (curRpm - profile.baseRpm.mid) / 3500))
       }
     }
     this.prevThrottle = throttleVal
@@ -993,13 +994,14 @@ export class RealisticVehicleAudioEngine {
     // Hewland Straight-Cut Spur Transmission Whine for BMW M3 GTR
     if (this.gearWhineGain && this.gearWhineOsc && this.gearWhineFilter) {
       if (profile.straightCutGearWhine && speedKmh > 3) {
-        const whineFreq = Math.min(6500, 220 + speedKmh * 18.2)
+        const whineFreq = Math.min(6800, 240 + speedKmh * 18.5)
         this.gearWhineOsc.frequency.setTargetAtTime(whineFreq, now, timeConstant)
         this.gearWhineFilter.frequency.setTargetAtTime(whineFreq, now, timeConstant)
 
-        const speedFactor = Math.min(1.0, speedKmh / 140)
-        const loadFactor = isPressed ? 0.14 + throttleVal * effectiveLoad * 0.14 : 0.075
-        const targetWhineGain = speedFactor * loadFactor * 0.45
+        const speedFactor = Math.min(1.0, speedKmh / 130)
+        // Authentic GT racecar straight-cut spur whine singing clearly on both acceleration and off-throttle overrun
+        const loadFactor = isPressed ? 0.18 + throttleVal * effectiveLoad * 0.20 : 0.12
+        const targetWhineGain = speedFactor * loadFactor * 0.55
         this.gearWhineGain.gain.setTargetAtTime(targetWhineGain, now, timeConstant)
       } else {
         this.gearWhineGain.gain.setTargetAtTime(0.0001, now, timeConstant)
@@ -1017,19 +1019,25 @@ export class RealisticVehicleAudioEngine {
         // Immediately cut off-throttle / engine braking bus
         this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.02)
       } else {
-        // Immediate crossfade away from acceleration load to off-throttle
-        this.onLoadBus.gain.setTargetAtTime(0.0001, now, 0.035)
+        // Natural closed-throttle combustion tone:
+        // When throttle is released, the engine cylinders continue reciprocating at curRpm.
+        // Instead of muting to 0.0001 (digital silence), smoothly transition to closed-manifold trailing tone
+        const rpmRatio = (curRpm - profile.baseRpm.idle) / Math.max(1, profile.redlineRpm - profile.baseRpm.idle)
+        const trailingCombustion = Math.max(0.16, Math.min(0.38, 0.16 + rpmRatio * 0.22))
+        this.onLoadBus.gain.setTargetAtTime(trailingCombustion, now, 0.045)
 
-        // Engage off-throttle engine braking when coasting at speed
-        if (speedKmh > 3 && curRpm > profile.baseRpm.idle * 1.25) {
+        // Engage off-throttle engine braking / overrun burble whenever RPM is elevated above idle
+        if (curRpm > profile.baseRpm.idle * 1.15) {
+          const rpmSpread = Math.max(500, profile.baseRpm.mid - profile.baseRpm.idle)
           const offThrottleIntensity = Math.min(
             1.0,
-            ((curRpm - profile.baseRpm.idle * 1.25) / (profile.baseRpm.mid - profile.baseRpm.idle)) * Math.min(1.0, speedKmh / 15)
+            (curRpm - profile.baseRpm.idle * 1.15) / rpmSpread
           )
-          this.offLoadBus.gain.setTargetAtTime(Math.max(0.25, offThrottleIntensity * 0.95), now, 0.03)
-          this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, 0.03)
+          const coastDrag = Math.max(0.28, offThrottleIntensity * 0.90)
+          this.offLoadBus.gain.setTargetAtTime(coastDrag, now, 0.035)
+          this.loops.off_throttle.gain?.gain.setTargetAtTime(1.0, now, 0.035)
         } else {
-          this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.04)
+          this.offLoadBus.gain.setTargetAtTime(0.0001, now, 0.05)
         }
       }
     }
@@ -1311,6 +1319,56 @@ export class RealisticVehicleAudioEngine {
   }
 
   /**
+   * Procedural synthesized exhaust overrun pop and burble fallback
+   */
+  private synthesizeExhaustPop(intensity: number, time: number): void {
+    if (!this.ctx || !this.sfxMaster) return
+    try {
+      // 1. Punchy low-end combustion transient
+      const osc = this.ctx.createOscillator()
+      osc.type = 'triangle'
+      const startFreq = 145 + Math.random() * 45
+      osc.frequency.setValueAtTime(startFreq, time)
+      osc.frequency.exponentialRampToValueAtTime(26, time + 0.065)
+
+      const oscGain = this.ctx.createGain()
+      oscGain.gain.setValueAtTime(0.85 * intensity, time)
+      oscGain.gain.exponentialRampToValueAtTime(0.001, time + 0.075)
+
+      osc.connect(oscGain)
+      oscGain.connect(this.sfxMaster)
+      osc.start(time)
+      osc.stop(time + 0.08)
+
+      // 2. High-frequency manifold crackle burst
+      const length = Math.floor(this.ctx.sampleRate * 0.05)
+      const noiseBuffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate)
+      const data = noiseBuffer.getChannelData(0)
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.01))
+      }
+      const noiseSource = this.ctx.createBufferSource()
+      noiseSource.buffer = noiseBuffer
+
+      const noiseFilter = this.ctx.createBiquadFilter()
+      noiseFilter.type = 'bandpass'
+      noiseFilter.frequency.setValueAtTime(1600 + Math.random() * 1000, time)
+      noiseFilter.Q.setValueAtTime(2.2, time)
+
+      const noiseGain = this.ctx.createGain()
+      noiseGain.gain.setValueAtTime(0.60 * intensity, time)
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.055)
+
+      noiseSource.connect(noiseFilter)
+      noiseFilter.connect(noiseGain)
+      noiseGain.connect(this.sfxMaster)
+      noiseSource.start(time)
+    } catch {
+      // Audio fallback safe
+    }
+  }
+
+  /**
    * Triggers vehicle-specific exhaust overrun / pop / crackle
    */
   public triggerExhaustPop(intensity = 1.0): void {
@@ -1337,6 +1395,8 @@ export class RealisticVehicleAudioEngine {
       source.connect(gain)
       gain.connect(this.sfxMaster)
       source.start(now)
+    } else {
+      this.synthesizeExhaustPop(intensity, now)
     }
   }
 

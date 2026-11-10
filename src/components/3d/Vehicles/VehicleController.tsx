@@ -1671,11 +1671,11 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 8. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
     // ------------------------------------------------------------------------
-    // Dynamic FOV: expands smoothly from 60° baseline up to 82° at high speeds
+    // Dynamic FOV: calibrated 54° baseline to 65° top speed (eliminates wide-angle perspective distortion and road flaring)
     const persCam = state.camera as THREE.PerspectiveCamera
     if (persCam.isPerspectiveCamera) {
       const speedRatio = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
-      const targetFov = 60 + Math.pow(speedRatio, 1.4) * 22.0 // 60° to 82°
+      const targetFov = 54 + Math.pow(speedRatio, 1.3) * 11.0 // 54° to 65°
       if (Math.abs(persCam.fov - targetFov) > 0.05) {
         persCam.fov = THREE.MathUtils.lerp(persCam.fov, targetFov, frameDelta * 3.5)
         persCam.updateProjectionMatrix()

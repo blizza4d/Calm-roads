@@ -38,6 +38,7 @@ export function setWorldGenerationConfig(
   detailNoise = createNoise2D(mulberry32((seed * 31 + 4242) >>> 0))
   microNoise = createNoise2D(mulberry32((seed * 53 + 9999) >>> 0))
   macroNoise2D = createNoise2D(mulberry32((seed * 79 + 7777) >>> 0))
+  initArcTable()
 }
 
 export function getWorldSeed(): number {
@@ -107,15 +108,15 @@ export const MACRO_PROFILES: Record<MacroTerrainType, MacroTerrainProfile> = {
   plains: {
     id: 'plains',
     name: 'Plains',
-    terrainAmplitude: 2.8,
-    terrainFrequency: 0.0016,
-    mountainAmplitude: 0.0,
-    mountainFrequency: 0.0008,
-    roadCurvature: 0.10,
-    roadElevationVariation: 0.08,
+    terrainAmplitude: 18.0,
+    terrainFrequency: 0.0024,
+    mountainAmplitude: 14.0,
+    mountainFrequency: 0.0009,
+    roadCurvature: 0.16,
+    roadElevationVariation: 0.24,
     roadWavelength: 1.45,
-    vegetationDensity: 0.50,
-    rockDensity: 0.25,
+    vegetationDensity: 0.85,
+    rockDensity: 0.45,
   },
   rolling_hills: {
     id: 'rolling_hills',
@@ -319,7 +320,7 @@ export function getDominantMacroType(z: number): MacroTerrainType {
 // ------------------------------------------------------------------------
 // Bulldozer Road Mask Constants
 // ------------------------------------------------------------------------
-export const ROAD_PROTECTED_RADIUS = 14.5 // Half-width (5.75m) + Flat Shoulder (3.25m) + Safety Drainage Margin (5.5m)
+export const ROAD_PROTECTED_RADIUS = 15.0 // Half-width (5.75m) + Shoulder (2.2m) + Safety Drainage Margin (7.05m)
 export const ROAD_TRANSITION_RADIUS = 75.0 // Smooth C2 quintic transition zone into natural terrain
 export const ROAD_CLEARANCE_BASE = 0.28   // Depressed sub-asphalt corridor floor (m)
 
@@ -540,13 +541,13 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     rockColor: '#5c677d',
     roadColor: '#2b3038',
     shoulderColor: '#7f5539', // Natural soil shoulder
-    treeFoliageColor: '#31572c',
-    treeTrunkColor: '#3d2817',
-    skyHemiSky: '#70d6ff', // Bright open prairie sky
-    skyHemiGround: '#4f772d',
-    fogColor: '#bde0fe',
-    fogDensity: 0.00035,
-    hillHeightMultiplier: 0.25,
+    treeFoliageColor: '#2d6a4f', // Prairie oak green
+    treeTrunkColor: '#4a3525',
+    skyHemiSky: '#bae6fd', // Soft atmospheric sky blue
+    skyHemiGround: '#365314', // Prairie grass bounce
+    fogColor: '#dbeafe', // Subtle atmospheric depth haze
+    fogDensity: 0.00018, // Clean horizon depth without milky washout
+    hillHeightMultiplier: 0.90, // Natural rolling prairie swell
     roughness: 0.82,
     friction: 1.0,
     weatherPreset: 'clear',
@@ -778,29 +779,29 @@ export function getBiomeElevationMultiplier(z: number): number {
 
 // 2. Procedural Road Centerline (Realistic Alpine Passes, Hairpin Switchbacks, Flowing S-Curves & Open Plains)
 // Influenced by continuous macro terrain profile (Plains = mostly straight, Hills = sweeping curves, Twisted = hairpins)
-// Guaranteed C2 continuous: derivative and curvature are smooth with zero chunk boundary seams
+// Guaranteed C2 continuous: derivative and curvature are smooth with zero chunk boundary seams, with minimum radius R >= 43.4m
 export function getRoadCenter(z: number): number {
   const char = getInterpolatedBiomeCharacter(z)
   const macro = getInterpolatedMacroProfile(z)
   const seedCfg = getSeedOffsets(_activeWorldSeed)
   const f = seedCfg.freqScale
 
-  // 1. Mountain pass switchbacks & hairpins (wavelength 160m - 240m)
+  // 1. Mountain pass switchbacks & hairpins (wavelength 220m - 320m)
   // Strictly suppressed in Plains (roadCurvature < 0.25), moderate in Hills, full in Twisted Climb:
   const hairpinGate = Math.max(0.0, Math.min(1.0, (macro.roadCurvature - 0.25) / 0.55))
-  const hairpin = Math.tanh(Math.sin(z * 0.0322 * f + seedCfg.phase1) * 1.85) * (char.hairpinAmplitude * 0.65)
-  const technicalChicane = Math.sin(z * 0.048 * f + seedCfg.phase2) * (char.hairpinAmplitude * 0.22)
+  const hairpin = Math.sin(z * 0.022 * f + seedCfg.phase1) * (char.hairpinAmplitude * 0.55)
+  const technicalChicane = Math.sin(z * 0.031 * f + seedCfg.phase2) * (char.hairpinAmplitude * 0.18)
   const switchbacks = (hairpin + technicalChicane) * char.switchbackWeight * hairpinGate
 
-  // 2. Dynamic flowing S-curves (wavelength 280m - 440m)
+  // 2. Dynamic flowing S-curves (wavelength 320m - 520m)
   // Gentle in Plains, flowing in Hills, strong in Twisted Climb:
   const sCurveMultiplier = macro.roadCurvature * 0.95
-  const sCurves = (Math.sin(z * 0.0175 * f + seedCfg.phase3) * 19.0 + Math.cos(z * 0.0131 * f + seedCfg.phase4) * 14.0) * char.sCurveWeight * sCurveMultiplier
+  const sCurves = (Math.sin(z * 0.0125 * f + seedCfg.phase3) * 16.0 + Math.cos(z * 0.0095 * f + seedCfg.phase4) * 12.0) * char.sCurveWeight * sCurveMultiplier
 
-  // 3. Regional valley / open highway sweep (wavelength 750m - 1400m)
+  // 3. Regional valley / open highway sweep (wavelength 900m - 1600m)
   // Provides gentle open bends across Plains and massive panoramic sweeps in Mountains:
   const sweepMultiplier = 0.35 + 0.65 * macro.roadCurvature
-  const valleySweeps = (Math.sin(z * 0.0057 * f + seedCfg.phase5) * 28.0 + Math.sin(z * 0.0028 * f + seedCfg.phase6) * 18.0) * char.valleySweepWeight * sweepMultiplier
+  const valleySweeps = (Math.sin(z * 0.0042 * f + seedCfg.phase5) * 24.0 + Math.sin(z * 0.0022 * f + seedCfg.phase6) * 15.0) * char.valleySweepWeight * sweepMultiplier
 
   return switchbacks + sCurves + valleySweeps
 }
@@ -856,12 +857,16 @@ export interface RoadSplineSample {
   nx: number
   ny: number
   nz: number
-  // Longitudinal Grade (dy / ds, negative = downhill descent, positive = uphill climb)
+  // Heading angle in radians: atan2(tx, -tz) where 0 rad is along -Z
+  heading: number
+  // Longitudinal Grade (dy / horizDist, negative = downhill descent, positive = uphill climb)
   grade: number
   // Horizontal Curvature (1 / R)
   curvature: number
   // Superelevation banking in radians
   banking: number
+  // Cumulative arc-length distance along road spline (m)
+  cumulativeDistance: number
   // Full road asphalt width (m)
   width: number
 }
@@ -912,6 +917,7 @@ export function getRoadSplineSample(z: number): RoadSplineSample {
   const nz = -sinB * r0z + cosB * n0z
 
   const grade = horizDist > 0.0001 ? dy / horizDist : 0.0
+  const heading = Math.atan2(tx, -tz)
 
   // Curvature from second derivative
   const c1 = getRoadCenter(z + 2.0)
@@ -932,11 +938,45 @@ export function getRoadSplineSample(z: number): RoadSplineSample {
     nx,
     ny,
     nz,
+    heading,
     grade,
     curvature,
     banking,
+    cumulativeDistance: getRoadArcLength(z),
     width: ROAD_WIDTH,
   }
+}
+
+// Road Spline Sanity & Engineering Range Validator
+export function validateRoadSplineSample(sample: RoadSplineSample): RoadSplineSample {
+  if (
+    !Number.isFinite(sample.x) ||
+    !Number.isFinite(sample.y) ||
+    !Number.isFinite(sample.z) ||
+    !Number.isFinite(sample.tx) ||
+    !Number.isFinite(sample.ty) ||
+    !Number.isFinite(sample.tz) ||
+    !Number.isFinite(sample.rx) ||
+    !Number.isFinite(sample.ry) ||
+    !Number.isFinite(sample.rz) ||
+    !Number.isFinite(sample.nx) ||
+    !Number.isFinite(sample.ny) ||
+    !Number.isFinite(sample.nz)
+  ) {
+    console.warn(`[RoadMath] Invalid non-finite RoadSplineSample at z=${sample.z}`)
+  }
+
+  // Road civil engineering grade limit (+/-16%)
+  if (Math.abs(sample.grade) > 0.16) {
+    sample.grade = Math.max(-0.16, Math.min(0.16, sample.grade))
+  }
+
+  // Road curvature radius >= 40m (curvature <= 0.025 1/m)
+  if (Math.abs(sample.curvature) > 0.025) {
+    sample.curvature = Math.sign(sample.curvature) * 0.025
+  }
+
+  return sample
 }
 
 // 4. Road Tangent & Perpendicular Normal vectors (backward-compatible wrapper + full 3D components)
@@ -975,6 +1015,144 @@ export function getRoadBanking(z: number): number {
   return Math.max(-0.11, Math.min(0.11, targetBanking))
 }
 
+// ------------------------------------------------------------------------
+// Authoritative 3D Road Cross-Section Generator
+// ------------------------------------------------------------------------
+export interface RoadCrossSectionPoint {
+  wx: number // World X
+  wy: number // World Y
+  wz: number // World Z
+  lx: number // Chunk-local X
+  ly: number // Chunk-local Y
+  lz: number // Chunk-local Z
+}
+
+export interface RoadCrossSection {
+  roadLeft: RoadCrossSectionPoint
+  roadCenter: RoadCrossSectionPoint
+  roadRight: RoadCrossSectionPoint
+
+  shoulderOuterLeft: RoadCrossSectionPoint
+  shoulderInnerLeft: RoadCrossSectionPoint
+  shoulderInnerRight: RoadCrossSectionPoint
+  shoulderOuterRight: RoadCrossSectionPoint
+
+  edgeLeftInner: RoadCrossSectionPoint
+  edgeLeftOuter: RoadCrossSectionPoint
+  edgeRightInner: RoadCrossSectionPoint
+  edgeRightOuter: RoadCrossSectionPoint
+
+  centerDashLeft: RoadCrossSectionPoint
+  centerDashRight: RoadCrossSectionPoint
+
+  spline: RoadSplineSample
+}
+
+export function getRoadCrossSection(worldZ: number, chunkZ: number): RoadCrossSection {
+  const s = getRoadSplineSample(worldZ)
+  const halfW = ROAD_WIDTH / 2 // 5.75m
+  const shoulderW = 2.2 // 2.2m shoulder
+  const edgeLineOffset = halfW - 0.45 // 5.30m
+  const edgeLineHalfW = 0.06 // 0.12m line width
+  const centerLineHalfW = 0.075 // 0.15m dash width
+
+  const crownH = 0.025
+  const asphaltBaseY = 0.085
+  const lineLift = 0.010
+
+  const cx = s.x
+  const cy = s.y + asphaltBaseY
+  const cz = worldZ
+
+  const pt = (w: number, liftY: number, liftN: number): RoadCrossSectionPoint => {
+    const wx = cx + s.rx * w + s.nx * liftN
+    const wy = cy + s.ry * w + s.ny * liftN + liftY
+    const wz = cz + s.rz * w + s.nz * liftN
+    const lx = wx
+    const ly = wy
+    const lz = wz - chunkZ
+    return { wx, wy, wz, lx, ly, lz }
+  }
+
+  return {
+    roadLeft: pt(-halfW, 0, 0),
+    roadCenter: pt(0, 0, crownH),
+    roadRight: pt(halfW, 0, 0),
+
+    shoulderOuterLeft: pt(-halfW - shoulderW, -0.070, 0),
+    shoulderInnerLeft: pt(-halfW, 0, 0),
+    shoulderInnerRight: pt(halfW, 0, 0),
+    shoulderOuterRight: pt(halfW + shoulderW, -0.070, 0),
+
+    edgeLeftInner: pt(-edgeLineOffset + edgeLineHalfW, 0, lineLift),
+    edgeLeftOuter: pt(-edgeLineOffset - edgeLineHalfW, 0, lineLift),
+    edgeRightInner: pt(edgeLineOffset - edgeLineHalfW, 0, lineLift),
+    edgeRightOuter: pt(edgeLineOffset + edgeLineHalfW, 0, lineLift),
+
+    centerDashLeft: pt(-centerLineHalfW, 0, crownH + lineLift),
+    centerDashRight: pt(centerLineHalfW, 0, crownH + lineLift),
+
+    spline: s,
+  }
+}
+
+// ------------------------------------------------------------------------
+// Continuous Road Arc-Length & Distance Engine
+// ------------------------------------------------------------------------
+const ARC_STEP = 4.0
+const Z_MIN = -8000
+const Z_MAX = 2000
+const TABLE_SIZE = Math.floor((Z_MAX - Z_MIN) / ARC_STEP) + 1
+const arcTable = new Float64Array(TABLE_SIZE)
+let _arcTableInitialized = false
+
+export function initArcTable(): void {
+  let cumDist = 0
+  arcTable[TABLE_SIZE - 1] = 0 // Anchor at Z_MAX
+  for (let i = TABLE_SIZE - 2; i >= 0; i--) {
+    const z = Z_MIN + i * ARC_STEP
+    const nextZ = z + ARC_STEP
+    const nextX = getRoadCenter(nextZ)
+    const nextY = getRoadElevation(nextZ)
+    const curX = getRoadCenter(z)
+    const curY = getRoadElevation(z)
+    const ds = Math.hypot(nextX - curX, nextY - curY, ARC_STEP)
+    cumDist += ds
+    arcTable[i] = cumDist
+  }
+  _arcTableInitialized = true
+}
+
+export function getRoadArcLength(z: number): number {
+  if (!_arcTableInitialized) initArcTable()
+  const normZ = Math.max(Z_MIN, Math.min(Z_MAX, z))
+  const idx = (normZ - Z_MIN) / ARC_STEP
+  const i0 = Math.floor(idx)
+  const frac = idx - i0
+  if (i0 >= TABLE_SIZE - 1) return arcTable[TABLE_SIZE - 1]
+  return arcTable[i0] * (1 - frac) + arcTable[i0 + 1] * frac
+}
+
+export function getZFromArcLength(targetS: number): number {
+  if (!_arcTableInitialized) initArcTable()
+  let low = 0
+  let high = TABLE_SIZE - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (arcTable[mid] < targetS) {
+      high = mid - 1
+    } else {
+      low = mid + 1
+    }
+  }
+  const i = Math.max(0, Math.min(TABLE_SIZE - 2, high))
+  const s0 = arcTable[i]
+  const s1 = arcTable[i + 1]
+  const denom = s1 - s0
+  const frac = Math.abs(denom) > 1e-6 ? (targetS - s0) / denom : 0
+  return (Z_MIN + i * ARC_STEP) + frac * ARC_STEP
+}
+
 export interface ClosestRoadPoint {
   u: number
   roadX: number
@@ -992,11 +1170,11 @@ export interface ClosestRoadPoint {
 // Finds the exact closest point on the road curve to any world (x, z) coordinate,
 // returning Euclidean distance, road elevation, normal vector and signed lateral offset.
 export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
-  // Coarse scan: road curvature is smooth with radius > 70m, so optimal u is guaranteed within +-36m
+  // Coarse scan: scan within +-64m in steps of 8m
   let bestU = z
   let bestDistSq = (x - getRoadCenter(z)) ** 2
 
-  for (let offset = -36; offset <= 36; offset += 9) {
+  for (let offset = -64; offset <= 64; offset += 8) {
     if (offset === 0) continue
     const u = z + offset
     const rx = getRoadCenter(u)
@@ -1007,9 +1185,9 @@ export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
     }
   }
 
-  // Refine with Golden Section search within [bestU - 9, bestU + 9]
-  let a = bestU - 9
-  let b = bestU + 9
+  // Refine with Golden Section search within [bestU - 8, bestU + 8]
+  let a = bestU - 8
+  let b = bestU + 8
   const gr = 0.618033988749895
   let c = b - gr * (b - a)
   let d = a + gr * (b - a)
@@ -1080,8 +1258,10 @@ export function getRawMacroTerrainElevation(
   // 1. Base rolling ground wave tailored to terrain profile
   let baseWave = 0
   if (macro.id === 'plains') {
-    // Broad, flat low-amplitude plains
-    baseWave = (terrainNoise(x * tFreq, z * tFreq) * 0.5 + 0.5) * tAmp
+    // Expansive rolling prairie swells and natural meadow basins
+    const swell1 = terrainNoise(x * tFreq, z * tFreq) * 0.5 + 0.5
+    const swell2 = detailNoise(x * tFreq * 1.5 + 1.2, z * tFreq * 1.5 + 2.4) * 0.5 + 0.5
+    baseWave = (swell1 * 0.65 + swell2 * 0.35) * tAmp
   } else if (macro.id === 'rolling_hills') {
     // Rounded organic continuous hills
     const h1 = terrainNoise(x * tFreq, z * tFreq) * 0.5 + 0.5
@@ -1124,6 +1304,11 @@ export function getRawMacroTerrainElevation(
       // Layered valley foothills and rolling mountain backdrops
       const foothills = Math.max(0, smoothRidge(terrainNoise(x * mFreq, z * mFreq))) * (mAmp * 0.65)
       mountainContribution = foothills
+    } else if (macro.id === 'plains' || bId === 'plains') {
+      // Expansive prairie knolls and rolling horizon rises (no sharp peaks)
+      const prairieRises = Math.pow(Math.max(0, terrainNoise(x * mFreq, z * mFreq) * 0.5 + 0.5), 1.5) * (mAmp * 0.85)
+      const knollFormations = Math.max(0, smoothRidge(detailNoise(x * mFreq * 1.8, z * mFreq * 1.8))) * (mAmp * 0.25)
+      mountainContribution = prairieRises + knollFormations
     } else {
       const massif = Math.max(0, smoothRidge(terrainNoise(x * mFreq, z * mFreq))) * (mAmp * 0.70)
       const ridges = Math.max(0, smoothRidge(detailNoise(x * mFreq * 2.2, z * mFreq * 2.2))) * (mAmp * 0.25)
@@ -1301,8 +1486,6 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
 export function getSurfaceHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
   const closest = getClosestRoadPoint(x, z)
   const dist = closest.dist
-  const roadY = closest.roadY
-  const banking = closest.banking
   const lateralOffset = closest.lateralOffset
   const halfRoad = ROAD_WIDTH / 2 // 5.75m
   const shoulderEnd = halfRoad + 2.2 // 7.95m
@@ -1310,17 +1493,20 @@ export function getSurfaceHeight(x: number, z: number, biomeId: BiomeType = 'for
   const EPS = 0.02
 
   if (dist <= halfRoad + EPS) {
-    // Road asphalt surface with crown camber and banked superelevation
-    const clampedDist = Math.min(halfRoad, dist)
-    const crown = 0.085 + 0.025 * (1 - clampedDist / halfRoad)
-    const bankElevation = Math.tan(banking) * lateralOffset
-    return roadY + crown + bankElevation
+    // Road asphalt surface with parabolic crown camber and banked superelevation
+    const sample = getRoadSplineSample(closest.u)
+    const clampedOffset = Math.max(-halfRoad, Math.min(halfRoad, lateralOffset))
+    const crownOffset = (1 - (clampedOffset / halfRoad) ** 2) * 0.05
+    return sample.y + sample.ry * clampedOffset + sample.ny * (0.085 + crownOffset)
   } else if (dist <= shoulderEnd + EPS) {
     // Roadside shoulder strip sloping gently down and tracking banking
+    const sample = getRoadSplineSample(closest.u)
     const shoulderT = Math.max(0, Math.min(1, (dist - halfRoad) / 2.2))
-    const edgeBank = Math.tan(banking) * Math.sign(lateralOffset) * halfRoad
-    const shoulderExtra = Math.tan(banking) * (lateralOffset - Math.sign(lateralOffset) * halfRoad) * 0.75
-    return roadY + 0.085 * (1 - shoulderT) + 0.015 * shoulderT + edgeBank + shoulderExtra
+    const sideSign = lateralOffset >= 0 ? 1 : -1
+    const edgeOffset = sideSign * halfRoad
+    const edgeY = sample.y + sample.ry * edgeOffset + sample.ny * 0.085
+    const shoulderExtra = sample.ry * (lateralOffset - edgeOffset) * 0.75 - shoulderT * 0.070
+    return edgeY + shoulderExtra
   } else {
     // Offroad terrain
     return getTerrainHeight(x, z, biomeId)

@@ -8,9 +8,14 @@ import {
   getRoadTangent,
   getRoadBanking,
   getRoadSplineSample,
+  getRoadCrossSection,
+  getRoadArcLength,
+  getZFromArcLength,
+  RoadCrossSectionPoint,
   getTerrainHeight,
   getClosestRoadPoint,
   ROAD_WIDTH,
+  ROAD_CLEARANCE_BASE,
   getActiveBiomeAt,
   BiomeConfig,
   getInterpolatedMacroProfile,
@@ -294,13 +299,15 @@ const sharedGuardrailMat = new THREE.MeshStandardMaterial({
 
 const sharedMarkingsMat = new THREE.MeshStandardMaterial({
   vertexColors: true,
-  roughness: 0.65,
+  roughness: 0.42,
+  metalness: 0.08,
+  envMapIntensity: 0.85,
   polygonOffset: true,
   polygonOffsetFactor: -4,
   polygonOffsetUnits: -4,
   depthTest: true,
   depthWrite: false,
-  side: THREE.DoubleSide,
+  side: THREE.FrontSide,
 })
 
 const sharedDelineatorPostMat = new THREE.MeshStandardMaterial({
@@ -351,7 +358,8 @@ const _zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
 // Module-level Shared Triplanar Shader & Biome Materials Cache
 // Eliminates 240+ redundant WebGL materials and maximizes Three.js state sorting
 // ------------------------------------------------------------------------
-function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
+function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms, hasAlpineSnow = false) {
+  shader.uniforms.uSnowAllowed = { value: hasAlpineSnow ? 1.0 : 0.0 }
   shader.vertexShader = shader.vertexShader.replace(
     '#include <common>',
     `#include <common>
@@ -367,6 +375,7 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
   shader.fragmentShader = shader.fragmentShader.replace(
     '#include <common>',
     `#include <common>
+     uniform float uSnowAllowed;
      varying vec3 vCustomWorldPos;
      varying vec3 vCustomWorldNorm;`
   )
@@ -386,11 +395,11 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
 
      // Steep cliff faces (low Normal Y) shed snow and expose dark, rugged rocky crags
      float slopeHold = smoothstep(0.48, 0.78, vCustomWorldNorm.y);
-     float finalSnow = snowCoverage * slopeHold;
+     float finalSnow = snowCoverage * slopeHold * uSnowAllowed;
 
-     // Dark exposed rock on steep high-altitude faces
+     // Dark exposed rock on steep high-altitude faces (only active in alpine environments)
      vec3 exposedRock = vec3(0.18, 0.17, 0.16);
-     float rockExpose = altT * (1.0 - slopeHold) * 0.75;
+     float rockExpose = altT * (1.0 - slopeHold) * 0.75 * uSnowAllowed;
      diffuseColor.rgb = mix(diffuseColor.rgb, exposedRock, rockExpose);
      roughnessFactor = mix(roughnessFactor, 0.94, rockExpose);
 
@@ -470,7 +479,8 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
     roughness: biomeConfig.roughness,
     metalness: 0.04,
   })
-  terrainMat.onBeforeCompile = onTerrainMaterialCompile
+  const hasAlpineSnow = biomeConfig.id === 'twisted_mountains' || biomeConfig.id === 'tundra' || biomeConfig.id === 'alpine'
+  terrainMat.onBeforeCompile = (shader) => onTerrainMaterialCompile(shader, hasAlpineSnow)
 
   // Balanced PBR asphalt: authentic dark tarmac with aggregate roughness, never a plastic mirror in rain
   const roadMat = new THREE.MeshStandardMaterial({
@@ -620,8 +630,17 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         const localX = (ix / GRID_X - 0.5) * TERRAIN_W
         const roadY = getRoadElevation(worldZ)
         const rawY = getTerrainHeight(localX, worldZ, biomeConfig.id)
-        // Enforce strictly positive Y and height ceiling to guarantee terrain never generates in sky
-        const y = Math.max(0.0, Math.min(roadY + 105.0, rawY))
+        let y = Math.max(0.0, Math.min(roadY + 105.0, rawY))
+
+        // Airtight Corridor Bulldozer Clamp:
+        // Guarantee that within the road asphalt and shoulder corridor,
+        // terrain Y NEVER pierces or exceeds the depressed sub-asphalt floor.
+        const cl = getClosestRoadPoint(localX, worldZ)
+        if (cl.dist <= ROAD_WIDTH / 2 + 3.2) {
+          const corridorFloor = cl.roadY - ROAD_CLEARANCE_BASE
+          y = Math.min(y, corridorFloor)
+        }
+
         pos.setXYZ(idx, localX, y, localZ)
       }
     }
@@ -685,6 +704,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const isAutumn = vertexBiome.id === 'autumn'
       const isCoastal = vertexBiome.id === 'coastal'
       const isTwisted = vertexBiome.id === 'twisted_mountains'
+      const isPlains = vertexBiome.id === 'plains'
+      const isRollingHills = vertexBiome.id === 'rolling_hills'
+      const isAlpine = vertexBiome.id === 'alpine'
+      const isSnowyBiome = isTundra || isTwisted || isAlpine
 
       let cr = 0.18 * slope + 0.17 * (1 - slope)
       let cg = 0.24 * slope + 0.32 * (1 - slope)
@@ -694,6 +717,16 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         cr = 0.62 * slope + 0.74 * (1 - slope)
         cg = 0.44 * slope + 0.52 * (1 - slope)
         cb = 0.25 * slope + 0.30 * (1 - slope)
+      } else if (isPlains) {
+        // Natural Prairie: Warm prairie grass flats vs sun-cured loam/sandy knoll slopes
+        cr = 0.44 * slope + 0.31 * (1 - slope)
+        cg = 0.38 * slope + 0.47 * (1 - slope)
+        cb = 0.24 * slope + 0.18 * (1 - slope)
+      } else if (isRollingHills) {
+        // Rolling Hills: Deep lush green hollows vs sunlit pasture knolls
+        cr = 0.28 * slope + 0.22 * (1 - slope)
+        cg = 0.44 * slope + 0.40 * (1 - slope)
+        cb = 0.22 * slope + 0.25 * (1 - slope)
       } else if (isAutumn) {
         cr = 0.42 * slope + 0.48 * (1 - slope)
         cg = 0.26 * slope + 0.32 * (1 - slope)
@@ -707,6 +740,11 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         cr = 0.28 * slope + 0.86 * (1 - slope)
         cg = 0.32 * slope + 0.90 * (1 - slope)
         cb = 0.40 * slope + 0.94 * (1 - slope)
+      } else if (isAlpine) {
+        // Alpine Highlands: High-altitude meadow green with exposed dark slate crags
+        cr = 0.36 * slope + 0.23 * (1 - slope)
+        cg = 0.38 * slope + 0.35 * (1 - slope)
+        cb = 0.42 * slope + 0.25 * (1 - slope)
       } else if (isCoastal) {
         // Coastal Beach: Warm golden sand dunes along seaward side vs ocean-spray turf
         const isBeachSide = px < roadCx - 14
@@ -721,13 +759,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         }
       }
 
-      // Smooth summit snow
+      // Smooth summit snow (strictly gated to snowy alpine biomes)
       if ((isTundra || isTwisted) && py > 22) {
         const snowT = Math.min(1.0, (py - 22) / 20.0)
         cr = cr * (1 - snowT) + 0.95 * snowT
         cg = cg * (1 - snowT) + 0.97 * snowT
         cb = cb * (1 - snowT) + 0.99 * snowT
-      } else if (py > 62) {
+      } else if (isSnowyBiome && py > 62) {
         const snowT = Math.min(1.0, (py - 62) / 36.0)
         cr = cr * (1 - snowT) + 0.95 * snowT
         cg = cg * (1 - snowT) + 0.97 * snowT
@@ -737,9 +775,9 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       const distFromCenter = Math.abs(px - roadCx)
       if (distFromCenter < ROAD_WIDTH / 2 + 5.5) {
         const blendToSoil = Math.max(0, 1 - (distFromCenter - (ROAD_WIDTH / 2 + 2.0)) / 3.5)
-        const soilR = isCoastal ? 0.78 : 0.36
-        const soilG = isCoastal ? 0.70 : 0.32
-        const soilB = isCoastal ? 0.54 : 0.28
+        const soilR = isCoastal ? 0.78 : isPlains ? 0.50 : 0.36
+        const soilG = isCoastal ? 0.70 : isPlains ? 0.38 : 0.32
+        const soilB = isCoastal ? 0.54 : isPlains ? 0.24 : 0.28
         cr = cr * (1 - blendToSoil * 0.45) + soilR * (blendToSoil * 0.45)
         cg = cg * (1 - blendToSoil * 0.45) + soilG * (blendToSoil * 0.45)
         cb = cb * (1 - blendToSoil * 0.45) + soilB * (blendToSoil * 0.45)
@@ -795,38 +833,34 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const pos = roadGeo.attributes.position.array as Float32Array
     const norm = roadGeo.attributes.normal.array as Float32Array
     const uv = roadGeo.attributes.uv.array as Float32Array
-    const halfW = ROAD_WIDTH / 2
 
     for (let i = 0; i <= segments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const spline = getRoadSplineSample(worldZ)
+      const cs = getRoadCrossSection(worldZ, chunkZ)
       const v = worldZ / 24.0
 
       const baseIdx = i * 9
-      // Left edge (strictly follows 3D orthonormal frame & matches getSurfaceHeight)
-      pos[baseIdx] = spline.x - spline.rx * halfW
-      pos[baseIdx + 1] = spline.y + 0.085 - spline.ry * halfW
-      pos[baseIdx + 2] = localZ - spline.rz * halfW
-      norm[baseIdx] = spline.nx - spline.rx * 0.06
-      norm[baseIdx + 1] = spline.ny
-      norm[baseIdx + 2] = spline.nz - spline.rz * 0.06
+      pos[baseIdx] = cs.roadLeft.lx
+      pos[baseIdx + 1] = cs.roadLeft.ly
+      pos[baseIdx + 2] = cs.roadLeft.lz
+      norm[baseIdx] = cs.spline.nx - cs.spline.rx * 0.06
+      norm[baseIdx + 1] = cs.spline.ny
+      norm[baseIdx + 2] = cs.spline.nz - cs.spline.rz * 0.06
 
-      // Center crown
-      pos[baseIdx + 3] = spline.x + spline.nx * 0.025
-      pos[baseIdx + 4] = spline.y + 0.085 + spline.ny * 0.025
-      pos[baseIdx + 5] = localZ + spline.nz * 0.025
-      norm[baseIdx + 3] = spline.nx
-      norm[baseIdx + 4] = spline.ny
-      norm[baseIdx + 5] = spline.nz
+      pos[baseIdx + 3] = cs.roadCenter.lx
+      pos[baseIdx + 4] = cs.roadCenter.ly
+      pos[baseIdx + 5] = cs.roadCenter.lz
+      norm[baseIdx + 3] = cs.spline.nx
+      norm[baseIdx + 4] = cs.spline.ny
+      norm[baseIdx + 5] = cs.spline.nz
 
-      // Right edge (strictly follows 3D orthonormal frame & matches getSurfaceHeight)
-      pos[baseIdx + 6] = spline.x + spline.rx * halfW
-      pos[baseIdx + 7] = spline.y + 0.085 + spline.ry * halfW
-      pos[baseIdx + 8] = localZ + spline.rz * halfW
-      norm[baseIdx + 6] = spline.nx + spline.rx * 0.06
-      norm[baseIdx + 7] = spline.ny
-      norm[baseIdx + 8] = spline.nz + spline.rz * 0.06
+      pos[baseIdx + 6] = cs.roadRight.lx
+      pos[baseIdx + 7] = cs.roadRight.ly
+      pos[baseIdx + 8] = cs.roadRight.lz
+      norm[baseIdx + 6] = cs.spline.nx + cs.spline.rx * 0.06
+      norm[baseIdx + 7] = cs.spline.ny
+      norm[baseIdx + 8] = cs.spline.nz + cs.spline.rz * 0.06
 
       const uvIdx = i * 6
       uv[uvIdx] = 0
@@ -846,7 +880,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   // 3. Roadside Gravel / Dirt Shoulder Strips (Pooled)
   const shoulderGeo = useMemo(() => {
-    const segments = 32
+    const segments = 50
     const geo = new THREE.BufferGeometry()
     const posArr = new Float32Array((segments + 1) * 4 * 3)
     const normArr = new Float32Array((segments + 1) * 4 * 3)
@@ -875,54 +909,52 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   }, [])
 
   useMemo(() => {
-    const segments = 32
+    const segments = 50
     const pos = shoulderGeo.attributes.position.array as Float32Array
     const norm = shoulderGeo.attributes.normal.array as Float32Array
-    const innerW = ROAD_WIDTH / 2
-    const outerW = ROAD_WIDTH / 2 + 2.2
 
     for (let i = 0; i <= segments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / segments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const spline = getRoadSplineSample(worldZ)
+      const cs = getRoadCrossSection(worldZ, chunkZ)
 
       const baseIdx = i * 12
       // Outer left shoulder (slopes down from road edge to meet terrain floor)
-      pos[baseIdx] = spline.x - spline.rx * outerW
-      pos[baseIdx + 1] = spline.y + 0.015 - spline.ry * outerW
-      pos[baseIdx + 2] = localZ - spline.rz * outerW
+      pos[baseIdx] = cs.shoulderOuterLeft.lx
+      pos[baseIdx + 1] = cs.shoulderOuterLeft.ly
+      pos[baseIdx + 2] = cs.shoulderOuterLeft.lz
 
       // Inner left shoulder (seamless match with left road edge)
-      pos[baseIdx + 3] = spline.x - spline.rx * innerW
-      pos[baseIdx + 4] = spline.y + 0.085 - spline.ry * innerW
-      pos[baseIdx + 5] = localZ - spline.rz * innerW
+      pos[baseIdx + 3] = cs.shoulderInnerLeft.lx
+      pos[baseIdx + 4] = cs.shoulderInnerLeft.ly
+      pos[baseIdx + 5] = cs.shoulderInnerLeft.lz
 
       // Inner right shoulder (seamless match with right road edge)
-      pos[baseIdx + 6] = spline.x + spline.rx * innerW
-      pos[baseIdx + 7] = spline.y + 0.085 + spline.ry * innerW
-      pos[baseIdx + 8] = localZ + spline.rz * innerW
+      pos[baseIdx + 6] = cs.shoulderInnerRight.lx
+      pos[baseIdx + 7] = cs.shoulderInnerRight.ly
+      pos[baseIdx + 8] = cs.shoulderInnerRight.lz
 
       // Outer right shoulder (slopes down from road edge to meet terrain floor)
-      pos[baseIdx + 9] = spline.x + spline.rx * outerW
-      pos[baseIdx + 10] = spline.y + 0.015 + spline.ry * outerW
-      pos[baseIdx + 11] = localZ + spline.rz * outerW
+      pos[baseIdx + 9] = cs.shoulderOuterRight.lx
+      pos[baseIdx + 10] = cs.shoulderOuterRight.ly
+      pos[baseIdx + 11] = cs.shoulderOuterRight.lz
 
       // Sloped shoulder normals tilting outward from roadbed
-      norm[baseIdx] = spline.nx - spline.rx * 0.28
-      norm[baseIdx + 1] = spline.ny * 0.96
-      norm[baseIdx + 2] = spline.nz - spline.rz * 0.28
+      norm[baseIdx] = cs.spline.nx - cs.spline.rx * 0.28
+      norm[baseIdx + 1] = cs.spline.ny * 0.96
+      norm[baseIdx + 2] = cs.spline.nz - cs.spline.rz * 0.28
 
-      norm[baseIdx + 3] = spline.nx - spline.rx * 0.12
-      norm[baseIdx + 4] = spline.ny
-      norm[baseIdx + 5] = spline.nz - spline.rz * 0.12
+      norm[baseIdx + 3] = cs.spline.nx - cs.spline.rx * 0.12
+      norm[baseIdx + 4] = cs.spline.ny
+      norm[baseIdx + 5] = cs.spline.nz - cs.spline.rz * 0.12
 
-      norm[baseIdx + 6] = spline.nx + spline.rx * 0.12
-      norm[baseIdx + 7] = spline.ny
-      norm[baseIdx + 8] = spline.nz + spline.rz * 0.12
+      norm[baseIdx + 6] = cs.spline.nx + cs.spline.rx * 0.12
+      norm[baseIdx + 7] = cs.spline.ny
+      norm[baseIdx + 8] = cs.spline.nz + cs.spline.rz * 0.12
 
-      norm[baseIdx + 9] = spline.nx + spline.rx * 0.28
-      norm[baseIdx + 10] = spline.ny * 0.96
-      norm[baseIdx + 11] = spline.nz + spline.rz * 0.28
+      norm[baseIdx + 9] = cs.spline.nx + cs.spline.rx * 0.28
+      norm[baseIdx + 10] = cs.spline.ny * 0.96
+      norm[baseIdx + 11] = cs.spline.nz + cs.spline.rz * 0.28
     }
     shoulderGeo.attributes.position.needsUpdate = true
     shoulderGeo.attributes.normal.needsUpdate = true
@@ -931,45 +963,55 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   }, [chunkZ, shoulderGeo, worldSeed, travelCounter, generationId])
 
   // 4. Highway Markings: Yellow Dashed Centerline + White Solid Outer Edge Lines (Pooled)
+  const DASH_LEN = 7.0
+  const DASH_GAP = 7.0
+  const DASH_CYCLE = DASH_LEN + DASH_GAP
+  const maxDashes = 18
+  const edgeSegments = 50
+
   const markingsGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry()
-    const numDashes = 16
-    const edgeSegments = 36
-    const totalVerts = numDashes * 4 + (edgeSegments + 1) * 4
+    const dashVerts = maxDashes * 6
+    const edgeVerts = (edgeSegments + 1) * 4
+    const totalVerts = dashVerts + edgeVerts
     const posArr = new Float32Array(totalVerts * 3)
     const normArr = new Float32Array(totalVerts * 3)
     const colArr = new Float32Array(totalVerts * 3)
     const indices: number[] = []
 
-    let vIdx = 0
     // Centerline indices & colors (traffic amber)
-    for (let i = 0; i < numDashes; i++) {
-      for (let j = 0; j < 4; j++) {
-        normArr[(vIdx + j) * 3 + 1] = 1.0
-        colArr[(vIdx + j) * 3] = 0.92
-        colArr[(vIdx + j) * 3 + 1] = 0.64
-        colArr[(vIdx + j) * 3 + 2] = 0.08
+    for (let d = 0; d < maxDashes; d++) {
+      const base = d * 6
+      for (let j = 0; j < 6; j++) {
+        normArr[(base + j) * 3 + 1] = 1.0
+        colArr[(base + j) * 3] = 0.92
+        colArr[(base + j) * 3 + 1] = 0.64
+        colArr[(base + j) * 3 + 2] = 0.08
       }
-      indices.push(vIdx, vIdx + 1, vIdx + 2)
-      indices.push(vIdx + 1, vIdx + 3, vIdx + 2)
-      vIdx += 4
+      indices.push(base, base + 1, base + 2)
+      indices.push(base + 1, base + 3, base + 2)
+      indices.push(base + 2, base + 3, base + 4)
+      indices.push(base + 3, base + 5, base + 4)
     }
 
     // Outer edge boundary lines indices & colors (weathered highway white)
-    const edgeBaseVert = vIdx
+    const edgeBaseVert = dashVerts
+    const rightEdgeBaseVert = edgeBaseVert + (edgeSegments + 1) * 2
     for (let i = 0; i <= edgeSegments; i++) {
       for (let j = 0; j < 4; j++) {
-        normArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 1.0
-        colArr[(edgeBaseVert + i * 4 + j) * 3] = 0.82
-        colArr[(edgeBaseVert + i * 4 + j) * 3 + 1] = 0.84
-        colArr[(edgeBaseVert + i * 4 + j) * 3 + 2] = 0.86
+        const idx = edgeBaseVert + i * 2 + (j >= 2 ? (edgeSegments + 1) * 2 - 2 + (j - 2) : j)
+        normArr[idx * 3 + 1] = 1.0
+        colArr[idx * 3] = 0.85
+        colArr[idx * 3 + 1] = 0.86
+        colArr[idx * 3 + 2] = 0.88
       }
       if (i < edgeSegments) {
-        const base = edgeBaseVert + i * 4
-        indices.push(base, base + 1, base + 4)
-        indices.push(base + 1, base + 5, base + 4)
-        indices.push(base + 2, base + 3, base + 6)
-        indices.push(base + 3, base + 7, base + 6)
+        const lBase = edgeBaseVert + i * 2
+        indices.push(lBase, lBase + 2, lBase + 1)
+        indices.push(lBase + 1, lBase + 2, lBase + 3)
+        const rBase = rightEdgeBaseVert + i * 2
+        indices.push(rBase, rBase + 1, rBase + 2)
+        indices.push(rBase + 1, rBase + 3, rBase + 2)
       }
     }
 
@@ -982,103 +1024,99 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
   useMemo(() => {
     const pos = markingsGeo.attributes.position.array as Float32Array
-    const dashSpacing = 14
-    const dashLen = 7.0
-    const halfLineW = 0.075
-    const numDashes = 16
 
-    let vOffset = 0
+    // A. Yellow Dashed Centerline positions strictly governed by continuous road arc-length
+    const wzStart = chunkZ + CHUNK_LEN / 2
+    const wzEnd = chunkZ - CHUNK_LEN / 2
+    const sStart = getRoadArcLength(wzStart)
+    const sEnd = getRoadArcLength(wzEnd)
 
-    // A. Yellow Dashed Centerline positions strictly locked to global world Z grid
-    const startWorldZ = chunkZ + CHUNK_LEN / 2
-    const firstDashWz = Math.floor(startWorldZ / dashSpacing) * dashSpacing + dashSpacing * 0.5
+    const kMin = Math.floor(sStart / DASH_CYCLE)
+    const kMax = Math.ceil(sEnd / DASH_CYCLE)
 
-    for (let i = 0; i < numDashes; i++) {
-      const wzCenter = firstDashWz - i * dashSpacing
-      const localZCenter = wzCenter - chunkZ
-      const rawStart = localZCenter + dashLen / 2
-      const rawEnd = localZCenter - dashLen / 2
+    let activeDashes = 0
+    let lastValidPoint: RoadCrossSectionPoint | null = null
 
-      // Clamp to chunk boundary [-CHUNK_LEN / 2, CHUNK_LEN / 2]
-      const localZStart = Math.min(CHUNK_LEN / 2, Math.max(-CHUNK_LEN / 2, rawStart))
-      const localZEnd = Math.min(CHUNK_LEN / 2, Math.max(-CHUNK_LEN / 2, rawEnd))
+    for (let k = kMin; k <= kMax; k++) {
+      const cycleStart = k * DASH_CYCLE
+      const d1 = Math.max(sStart, cycleStart)
+      const d2 = Math.min(sEnd, cycleStart + DASH_LEN)
 
-      if (localZStart - localZEnd > 0.05) {
-        const wzStart = chunkZ + localZStart
-        const wzEnd = chunkZ + localZEnd
+      if (d2 - d1 > 0.05 && activeDashes < maxDashes) {
+        const dMid = (d1 + d2) * 0.5
+        const z1 = getZFromArcLength(d1)
+        const zMid = getZFromArcLength(dMid)
+        const z2 = getZFromArcLength(d2)
 
-        const sStart = getRoadSplineSample(wzStart)
-        const sEnd = getRoadSplineSample(wzEnd)
+        const cs1 = getRoadCrossSection(z1, chunkZ)
+        const csM = getRoadCrossSection(zMid, chunkZ)
+        const cs2 = getRoadCrossSection(z2, chunkZ)
 
-        // Centerline lifted slightly along 3D surface normal N to prevent z-fighting on slopes
-        const lift = 0.014
-        const crownLift = 0.025 + lift
+        const vBase = activeDashes * 6 * 3
+        // Row 0
+        pos[vBase + 0] = cs1.centerDashLeft.lx
+        pos[vBase + 1] = cs1.centerDashLeft.ly
+        pos[vBase + 2] = cs1.centerDashLeft.lz
+        pos[vBase + 3] = cs1.centerDashRight.lx
+        pos[vBase + 4] = cs1.centerDashRight.ly
+        pos[vBase + 5] = cs1.centerDashRight.lz
 
-        pos[vOffset] = sStart.x - sStart.rx * halfLineW + sStart.nx * crownLift
-        pos[vOffset + 1] = sStart.y + 0.085 + sStart.ny * crownLift
-        pos[vOffset + 2] = localZStart - sStart.rz * halfLineW + sStart.nz * crownLift
+        // Row 1
+        pos[vBase + 6] = csM.centerDashLeft.lx
+        pos[vBase + 7] = csM.centerDashLeft.ly
+        pos[vBase + 8] = csM.centerDashLeft.lz
+        pos[vBase + 9] = csM.centerDashRight.lx
+        pos[vBase + 10] = csM.centerDashRight.ly
+        pos[vBase + 11] = csM.centerDashRight.lz
 
-        pos[vOffset + 3] = sStart.x + sStart.rx * halfLineW + sStart.nx * crownLift
-        pos[vOffset + 4] = sStart.y + 0.085 + sStart.ny * crownLift
-        pos[vOffset + 5] = localZStart + sStart.rz * halfLineW + sStart.nz * crownLift
+        // Row 2
+        pos[vBase + 12] = cs2.centerDashLeft.lx
+        pos[vBase + 13] = cs2.centerDashLeft.ly
+        pos[vBase + 14] = cs2.centerDashLeft.lz
+        pos[vBase + 15] = cs2.centerDashRight.lx
+        pos[vBase + 16] = cs2.centerDashRight.ly
+        pos[vBase + 17] = cs2.centerDashRight.lz
 
-        pos[vOffset + 6] = sEnd.x - sEnd.rx * halfLineW + sEnd.nx * crownLift
-        pos[vOffset + 7] = sEnd.y + 0.085 + sEnd.ny * crownLift
-        pos[vOffset + 8] = localZEnd - sEnd.rz * halfLineW + sEnd.nz * crownLift
-
-        pos[vOffset + 9] = sEnd.x + sEnd.rx * halfLineW + sEnd.nx * crownLift
-        pos[vOffset + 10] = sEnd.y + 0.085 + sEnd.ny * crownLift
-        pos[vOffset + 11] = localZEnd + sEnd.rz * halfLineW + sEnd.nz * crownLift
-      } else {
-        // Degenerate dash outside chunk bounds: collapse safely below ground
-        for (let j = 0; j < 4; j++) {
-          pos[vOffset + j * 3] = 0
-          pos[vOffset + j * 3 + 1] = -9999
-          pos[vOffset + j * 3 + 2] = 0
-        }
+        lastValidPoint = cs2.centerDashLeft
+        activeDashes++
       }
-
-      vOffset += 12
     }
 
-    // B. Solid White Outer Edge Boundary positions
-    const edgeOffset = ROAD_WIDTH / 2 - 0.45
-    const edgeHalfW = 0.06
-    const edgeSegments = 36
+    // Fill remaining unused dash slots with flat 0-area point at lastValidPoint (tight bounds)
+    const defaultPt = lastValidPoint || getRoadCrossSection(chunkZ, chunkZ).centerDashLeft
+    for (let d = activeDashes; d < maxDashes; d++) {
+      const vBase = d * 6 * 3
+      for (let j = 0; j < 6; j++) {
+        pos[vBase + j * 3 + 0] = defaultPt.lx
+        pos[vBase + j * 3 + 1] = defaultPt.ly
+        pos[vBase + j * 3 + 2] = defaultPt.lz
+      }
+    }
+
+    // B. Solid White Outer Edge Boundary lines
+    const edgeBaseVert = maxDashes * 6
+    const rightEdgeBaseVert = edgeBaseVert + (edgeSegments + 1) * 2
 
     for (let i = 0; i <= edgeSegments; i++) {
       const localZ = CHUNK_LEN / 2 - (i / edgeSegments) * CHUNK_LEN
       const worldZ = chunkZ + localZ
-      const s = getRoadSplineSample(worldZ)
-      const edgeLift = 0.010
+      const cs = getRoadCrossSection(worldZ, chunkZ)
 
-      // Left edge line
-      const lx = s.x - s.rx * edgeOffset
-      const ly = s.y + 0.085 - s.ry * edgeOffset
-      const lz = localZ - s.rz * edgeOffset
+      const lIdx = (edgeBaseVert + i * 2) * 3
+      pos[lIdx + 0] = cs.edgeLeftInner.lx
+      pos[lIdx + 1] = cs.edgeLeftInner.ly
+      pos[lIdx + 2] = cs.edgeLeftInner.lz
+      pos[lIdx + 3] = cs.edgeLeftOuter.lx
+      pos[lIdx + 4] = cs.edgeLeftOuter.ly
+      pos[lIdx + 5] = cs.edgeLeftOuter.lz
 
-      pos[vOffset] = lx - s.rx * edgeHalfW + s.nx * edgeLift
-      pos[vOffset + 1] = ly - s.ry * edgeHalfW + s.ny * edgeLift
-      pos[vOffset + 2] = lz - s.rz * edgeHalfW + s.nz * edgeLift
-
-      pos[vOffset + 3] = lx + s.rx * edgeHalfW + s.nx * edgeLift
-      pos[vOffset + 4] = ly + s.ry * edgeHalfW + s.ny * edgeLift
-      pos[vOffset + 5] = lz + s.rz * edgeHalfW + s.nz * edgeLift
-
-      // Right edge line
-      const rx = s.x + s.rx * edgeOffset
-      const ry = s.y + 0.085 + s.ry * edgeOffset
-      const rz = localZ + s.rz * edgeOffset
-
-      pos[vOffset + 6] = rx - s.rx * edgeHalfW + s.nx * edgeLift
-      pos[vOffset + 7] = ry - s.ry * edgeHalfW + s.ny * edgeLift
-      pos[vOffset + 8] = rz - s.rz * edgeHalfW + s.nz * edgeLift
-
-      pos[vOffset + 9] = rx + s.rx * edgeHalfW + s.nx * edgeLift
-      pos[vOffset + 10] = ry + s.ry * edgeHalfW + s.ny * edgeLift
-      pos[vOffset + 11] = rz + s.rz * edgeHalfW + s.nz * edgeLift
-
-      vOffset += 12
+      const rIdx = (rightEdgeBaseVert + i * 2) * 3
+      pos[rIdx + 0] = cs.edgeRightInner.lx
+      pos[rIdx + 1] = cs.edgeRightInner.ly
+      pos[rIdx + 2] = cs.edgeRightInner.lz
+      pos[rIdx + 3] = cs.edgeRightOuter.lx
+      pos[rIdx + 4] = cs.edgeRightOuter.ly
+      pos[rIdx + 5] = cs.edgeRightOuter.lz
     }
 
     markingsGeo.attributes.position.needsUpdate = true
@@ -1335,7 +1373,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
                 const scale = 0.85 + ((hash1 + i * 0.3) % 0.6)
                 const isPine = (isTwisted || isAlpine || isSnowy)
                   ? true
-                  : isDesert
+                  : (isDesert || bid === 'plains')
                   ? false
                   : isEnchanted
                   ? (i % 2 === 0)
