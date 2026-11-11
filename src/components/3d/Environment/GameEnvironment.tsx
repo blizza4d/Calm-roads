@@ -1,6 +1,6 @@
-import { useMemo, useRef, useEffect, Suspense } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Sky, Environment } from '@react-three/drei'
+import { Sky } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
@@ -298,8 +298,8 @@ function CosmicCelestialSky({
 
 // ------------------------------------------------------------------------
 // Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt
-// 1. DistantMountainHorizon: 360-degree panoramic alpine mountain silhouette ring with smooth aerial perspective
-// 2. AtmosphericHorizonGround: Soft atmospheric ground skirt preventing Drei Sky black void
+// Mesh geometry topology is memoized by biomeId only.
+// Vertex colors are updated in-place without disposing or re-allocating GPU buffers.
 // ------------------------------------------------------------------------
 function PanoramicMountainHorizon({
   fogColor,
@@ -322,15 +322,6 @@ function PanoramicMountainHorizon({
     const colors: number[] = []
     const indices: number[] = []
 
-    const fogCol = new THREE.Color(fogColor)
-    const baseRock = new THREE.Color(rockColor)
-    // Mountain summit color: natural rock gently tinted with atmospheric aerial haze
-    const summitCol = isNight
-      ? new THREE.Color('#0f172a').lerp(fogCol, 0.65)
-      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.68)
-    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.55)
-
-    // Deep anchor base (y = -800m) to completely eliminate floating gaps
     const baseY = -800
 
     const isPlains = biomeId === 'plains'
@@ -338,20 +329,6 @@ function PanoramicMountainHorizon({
     const isCoastal = biomeId === 'coastal'
     const isRollingHills = biomeId === 'rolling_hills'
     const isSnowyAlpine = biomeId === 'twisted_mountains' || biomeId === 'alpine' || biomeId === 'tundra'
-
-    // Dedicated biome-specific summit colors
-    const prairieSummit = isNight
-      ? new THREE.Color('#0d1810').lerp(fogCol, 0.65)
-      : new THREE.Color('#4a6b2f').lerp(fogCol, 0.68)
-    const desertSummit = isNight
-      ? new THREE.Color('#1f1510').lerp(fogCol, 0.65)
-      : new THREE.Color('#a15c15').lerp(fogCol, 0.68)
-    const coastalSummit = isNight
-      ? new THREE.Color('#0b1320').lerp(fogCol, 0.65)
-      : new THREE.Color('#3b754a').lerp(fogCol, 0.70)
-    const hillsSummit = isNight
-      ? new THREE.Color('#0f1b13').lerp(fogCol, 0.65)
-      : new THREE.Color('#386641').lerp(fogCol, 0.70)
 
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2
@@ -362,7 +339,6 @@ function PanoramicMountainHorizon({
       const z = radius * cosT
 
       let peakH = 140
-      let col = summitCol
 
       if (isPlains) {
         // Expansive low rolling prairie knolls and distant grassland rises (NO alpine peaks or snow)
@@ -372,13 +348,11 @@ function PanoramicMountainHorizon({
           Math.cos(theta * 5.0 + 0.4) * 14 +
           Math.sin(theta * 9.0) * 8 +
           Math.cos(theta * 19.0) * 4
-        col = prairieSummit
       } else if (isDesert) {
         // Flat-topped sandstone mesas and terraced canyon bluffs
         const rawMesa = Math.sin(theta * 4.0)
         const mesa = Math.tanh(rawMesa * 3.5) * 60 + Math.cos(theta * 8.0) * 22 + Math.sin(theta * 16.0) * 10
         peakH = 125 + mesa
-        col = desertSummit
       } else if (isCoastal) {
         // Gentle coastal headlands and ocean dunes
         peakH =
@@ -386,7 +360,6 @@ function PanoramicMountainHorizon({
           Math.sin(theta * 2.5) * 26 +
           Math.cos(theta * 6.0) * 14 +
           Math.sin(theta * 11.0) * 8
-        col = coastalSummit
       } else if (isRollingHills) {
         // Soft rounded undulating hills
         peakH =
@@ -394,7 +367,6 @@ function PanoramicMountainHorizon({
           Math.sin(theta * 3.0) * 38 +
           Math.cos(theta * 7.0) * 18 +
           Math.sin(theta * 14.0) * 10
-        col = hillsSummit
       } else if (isSnowyAlpine) {
         // Dramatic alpine peaks with snow caps
         peakH =
@@ -404,7 +376,6 @@ function PanoramicMountainHorizon({
           Math.sin(theta * 13.0) * 25 +
           Math.cos(theta * 29.0) * 14 +
           Math.sin(theta * 53.0) * 6
-        col = peakH > 210 ? snowCol : summitCol
       } else {
         // Forest / Autumn / Enchanted: layered forested foothills
         peakH =
@@ -412,20 +383,18 @@ function PanoramicMountainHorizon({
           Math.sin(theta * 3.0) * 48 +
           Math.cos(theta * 6.5) * 28 +
           Math.sin(theta * 12.0) * 15
-        col = summitCol
       }
 
       // Bottom vertex (deep horizon base)
       positions.push(x, baseY, z)
-      colors.push(fogCol.r, fogCol.g, fogCol.b)
+      colors.push(0, 0, 0)
 
       // Top vertex (mountain / hill summit)
       positions.push(x, peakH, z)
-      colors.push(col.r, col.g, col.b)
+      colors.push(0, 0, 0)
     }
 
-    // Inward-facing winding: (b1, t1, b2) and (t1, t2, b2)
-    // Ensures all vertex normals point consistently INWARDS towards the camera
+    // Inward-facing winding: ensures all vertex normals point consistently INWARDS towards camera
     for (let i = 0; i < segments; i++) {
       const b1 = i * 2
       const t1 = b1 + 1
@@ -442,7 +411,69 @@ function PanoramicMountainHorizon({
     geo.setIndex(indices)
     geo.computeVertexNormals()
     return geo
-  }, [fogColor, rockColor, isNight, biomeId])
+  }, [biomeId])
+
+  // In-place vertex color updates without re-allocating or disposing GPU buffer
+  useEffect(() => {
+    const colorAttr = mountainGeo.attributes.color as THREE.BufferAttribute | undefined
+    const posAttr = mountainGeo.attributes.position as THREE.BufferAttribute | undefined
+    if (!colorAttr || !posAttr) return
+
+    const colors = colorAttr.array as Float32Array
+    const positions = posAttr.array as Float32Array
+
+    const fogCol = new THREE.Color(fogColor)
+    const baseRock = new THREE.Color(rockColor)
+    const summitCol = isNight
+      ? new THREE.Color('#0f172a').lerp(fogCol, 0.65)
+      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.68)
+    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.55)
+
+    const isPlains = biomeId === 'plains'
+    const isDesert = biomeId === 'desert'
+    const isCoastal = biomeId === 'coastal'
+    const isRollingHills = biomeId === 'rolling_hills'
+    const isSnowyAlpine = biomeId === 'twisted_mountains' || biomeId === 'alpine' || biomeId === 'tundra'
+
+    const prairieSummit = isNight
+      ? new THREE.Color('#0d1810').lerp(fogCol, 0.65)
+      : new THREE.Color('#4a6b2f').lerp(fogCol, 0.68)
+    const desertSummit = isNight
+      ? new THREE.Color('#1f1510').lerp(fogCol, 0.65)
+      : new THREE.Color('#a15c15').lerp(fogCol, 0.68)
+    const coastalSummit = isNight
+      ? new THREE.Color('#0b1320').lerp(fogCol, 0.65)
+      : new THREE.Color('#3b754a').lerp(fogCol, 0.70)
+    const hillsSummit = isNight
+      ? new THREE.Color('#0f1b13').lerp(fogCol, 0.65)
+      : new THREE.Color('#386641').lerp(fogCol, 0.70)
+
+    const segments = 256
+    for (let i = 0; i <= segments; i++) {
+      const bIdx = (i * 2) * 3
+      const tIdx = (i * 2 + 1) * 3
+      const peakH = positions[tIdx + 1]
+
+      let col = summitCol
+      if (isPlains) col = prairieSummit
+      else if (isDesert) col = desertSummit
+      else if (isCoastal) col = coastalSummit
+      else if (isRollingHills) col = hillsSummit
+      else if (isSnowyAlpine) col = peakH > 210 ? snowCol : summitCol
+
+      // Base vertex color = fogCol
+      colors[bIdx] = fogCol.r
+      colors[bIdx + 1] = fogCol.g
+      colors[bIdx + 2] = fogCol.b
+
+      // Summit vertex color = col
+      colors[tIdx] = col.r
+      colors[tIdx + 1] = col.g
+      colors[tIdx + 2] = col.b
+    }
+
+    colorAttr.needsUpdate = true
+  }, [mountainGeo, fogColor, rockColor, isNight, biomeId])
 
   // Track camera in X, Z and damped Y so mountains stay anchored to visual horizon
   useFrame(() => {
@@ -465,6 +496,109 @@ function PanoramicMountainHorizon({
       </mesh>
     </group>
   )
+}
+
+// ------------------------------------------------------------------------
+// Procedural PMREM Offline Environment Probe
+// Eliminates remote CDN network fetches, zero suspense, zero null-environment drops
+// Generates an atmospheric equirectangular gradient dynamically mapped to scene.environment
+// ------------------------------------------------------------------------
+function ProceduralEnvironmentProbe({
+  skyColor,
+  fogColor,
+  lightColor,
+  lightPos,
+  isNight,
+  groundColor,
+  graphicsQuality,
+}: {
+  skyColor: string
+  fogColor: string
+  lightColor: string
+  lightPos: [number, number, number]
+  isNight: boolean
+  groundColor: string
+  graphicsQuality: 'low' | 'medium' | 'high'
+}) {
+  const { gl, scene } = useThree()
+  const pmremRef = useRef<THREE.PMREMGenerator | null>(null)
+  const prevTargetRef = useRef<THREE.WebGLRenderTarget | null>(null)
+
+  useEffect(() => {
+    if (!pmremRef.current) {
+      pmremRef.current = new THREE.PMREMGenerator(gl)
+      pmremRef.current.compileEquirectangularShader()
+    }
+    const pmrem = pmremRef.current
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')
+
+    if (ctx) {
+      // 1. Sky-to-Horizon-to-Ground vertical gradient
+      const grad = ctx.createLinearGradient(0, 0, 0, 128)
+      grad.addColorStop(0, skyColor)
+      grad.addColorStop(0.48, fogColor)
+      grad.addColorStop(0.52, fogColor)
+      grad.addColorStop(1.0, isNight ? '#0a0d14' : groundColor)
+
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 256, 128)
+
+      // 2. Specular celestial body highlight (sun or moon)
+      const lightVec = new THREE.Vector3(...lightPos).normalize()
+      const u = (0.5 + Math.atan2(lightVec.x, -lightVec.z) / (Math.PI * 2) + 1.0) % 1.0
+      const v = Math.max(0.05, Math.min(0.95, 0.5 - Math.asin(Math.max(-0.99, Math.min(0.99, lightVec.y))) / Math.PI))
+      const sunPx = u * 256
+      const sunPy = v * 128
+
+      const sunRadius = isNight ? 12 : 24
+      const sunGlow = ctx.createRadialGradient(sunPx, sunPy, 0, sunPx, sunPy, sunRadius)
+      sunGlow.addColorStop(0, lightColor)
+      sunGlow.addColorStop(0.35, isNight ? 'rgba(147, 197, 253, 0.7)' : 'rgba(255, 235, 180, 0.7)')
+      sunGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)')
+
+      ctx.fillStyle = sunGlow
+      ctx.beginPath()
+      ctx.arc(sunPx, sunPy, sunRadius, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.mapping = THREE.EquirectangularReflectionMapping
+    tex.needsUpdate = true
+
+    const envTarget = pmrem.fromEquirectangular(tex)
+    scene.environment = envTarget.texture
+
+    const intensity = graphicsQuality === 'low' ? 0.45 : isNight ? 0.32 : 0.70
+    scene.environmentIntensity = intensity
+
+    tex.dispose()
+
+    if (prevTargetRef.current) {
+      prevTargetRef.current.dispose()
+    }
+    prevTargetRef.current = envTarget
+  }, [gl, scene, skyColor, fogColor, lightColor, lightPos[0], lightPos[1], lightPos[2], isNight, groundColor, graphicsQuality])
+
+  useEffect(() => {
+    return () => {
+      if (prevTargetRef.current) {
+        prevTargetRef.current.dispose()
+        prevTargetRef.current = null
+      }
+      if (pmremRef.current) {
+        pmremRef.current.dispose()
+        pmremRef.current = null
+      }
+      scene.environment = null
+    }
+  }, [scene])
+
+  return null
 }
 
 // ------------------------------------------------------------------------
@@ -768,19 +902,27 @@ export default function GameEnvironment() {
     scene.background = new THREE.Color(skyColor)
   }, [scene, skyColor])
 
-  // Player-following directional light with smooth target tracking
+  // Player-following directional light with shadow texel snapping to prevent shadow crawling/shimmering
   useFrame(() => {
     if (dirLightRef.current && lightTargetRef.current) {
       const cx = camera.position.x
       const cy = camera.position.y
       const cz = camera.position.z
 
+      // Shadow camera horizontal width is 110m (from -55 to +55).
+      // Snapping to discrete shadow map texel increments eliminates sub-pixel swimming on geometry edges.
+      const shadowMapRes = graphicsQuality === 'low' ? 1024 : 2048
+      const texelSize = 110.0 / shadowMapRes
+      const snapX = Math.round(cx / texelSize) * texelSize
+      const snapY = Math.round(cy / texelSize) * texelSize
+      const snapZ = Math.round(cz / texelSize) * texelSize
+
       dirLightRef.current.position.set(
-        cx + celestialData.lightPos[0],
-        cy + celestialData.lightPos[1],
-        cz + celestialData.lightPos[2]
+        snapX + celestialData.lightPos[0],
+        snapY + celestialData.lightPos[1],
+        snapZ + celestialData.lightPos[2]
       )
-      lightTargetRef.current.position.set(cx, cy, cz - 10)
+      lightTargetRef.current.position.set(snapX, snapY, snapZ - 10)
       dirLightRef.current.target = lightTargetRef.current
       dirLightRef.current.target.updateMatrixWorld()
     }
@@ -928,14 +1070,16 @@ export default function GameEnvironment() {
         biomeId={currentResolvedBiome}
       />
 
-      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Biome-Adaptive) */}
-      <Suspense fallback={null}>
-        <Environment
-          preset={envPreset}
-          background={false}
-          environmentIntensity={graphicsQuality === 'low' ? 0.45 : celestialData.isNight ? 0.32 : 0.70}
-        />
-      </Suspense>
+      {/* Dynamic Procedural Offline Environment Probe (Zero CDN downloads, Zero Suspense, Zero Black Flashing) */}
+      <ProceduralEnvironmentProbe
+        skyColor={skyColor}
+        fogColor={activeFogColor}
+        lightColor={celestialData.lightColor}
+        lightPos={celestialData.lightPos}
+        isNight={celestialData.isNight}
+        groundColor={biomeConfig.skyHemiGround || '#4a5568'}
+        graphicsQuality={graphicsQuality}
+      />
 
       {/* Directional Sun/Moon Light with Tight Player-Centered Shadow Frustum & Zero Surface Acne */}
       <directionalLight
@@ -988,22 +1132,25 @@ export default function GameEnvironment() {
 
       {/* Cinematic Post-Processing Pass with Clamped Bloom & Contact-Shadow SSAO */}
       {graphicsQuality !== 'low' && (
-        <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
+        <EffectComposer
+          enableNormalPass={true}
+          multisampling={graphicsQuality === 'high' ? 2 : 0}
+        >
           <SSAO
             resolutionScale={0.5}
-            radius={0.28}
-            intensity={14}
-            luminanceInfluence={0.5}
+            radius={0.18}
+            intensity={1.25}
+            luminanceInfluence={0.6}
             color={SSAO_COLOR}
-            worldDistanceThreshold={100}
-            worldDistanceFalloff={10}
-            worldProximityThreshold={0.5}
+            worldDistanceThreshold={28}
+            worldDistanceFalloff={6}
+            worldProximityThreshold={0.4}
             worldProximityFalloff={0.1}
           />
           <Bloom
             luminanceThreshold={1.05}
             luminanceSmoothing={0.15}
-            intensity={graphicsQuality === 'medium' ? 0.25 : 0.35}
+            intensity={graphicsQuality === 'medium' ? 0.22 : 0.32}
             mipmapBlur
           />
           <Vignette eskil={false} offset={0.42} darkness={0.22} />

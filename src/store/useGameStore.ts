@@ -391,7 +391,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (get().generationId === nextGenId) {
         set({ isTraveling: false, isWorldReady: true })
       }
-    }, 600)
+    }, 120)
 
     _bannerTimer = setTimeout(() => {
       if (get().generationId === nextGenId) {
@@ -567,6 +567,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 export interface TelemetryState {
   speed: number
   rpm: number
+  maxRpm?: number
+  redlineRpm?: number
   gear: string
   distance: number
   throttle: number
@@ -588,6 +590,8 @@ export interface TelemetryState {
 export const useTelemetryStore = create<TelemetryState>((set) => ({
   speed: 0,
   rpm: 850,
+  maxRpm: 8500,
+  redlineRpm: 7200,
   gear: '1',
   distance: 0,
   throttle: 0,

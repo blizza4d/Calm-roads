@@ -123,9 +123,16 @@ function GameLoader() {
   )
 }
 
+const GL_CONFIG: THREE.WebGLRendererParameters = {
+  antialias: true,
+  powerPreference: 'high-performance',
+  alpha: false,
+  stencil: false,
+  depth: true,
+}
+
 export default function App() {
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
-  const photoMode = useGameStore((s) => s.photoMode)
 
   return (
     <KeyboardControls map={keyboardMap}>
@@ -143,17 +150,9 @@ export default function App() {
         >
           <Canvas
             shadows
-            dpr={graphicsQuality === 'low' ? 1 : graphicsQuality === 'medium' ? 1.4 : [1, 1.75]}
-            camera={{ position: [0, 3, 8], fov: 55, near: 0.2, far: 4200 }}
-            gl={{
-              antialias: true,
-              powerPreference: 'high-performance',
-              preserveDrawingBuffer: photoMode,
-              alpha: false,
-              toneMapping: THREE.ACESFilmicToneMapping,
-              toneMappingExposure: 1.0,
-              outputColorSpace: THREE.SRGBColorSpace,
-            }}
+            dpr={graphicsQuality === 'low' ? 1 : graphicsQuality === 'medium' ? 1.35 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 1.75)}
+            camera={{ position: [0, 3, 8], fov: 55, near: 0.75, far: 3800 }}
+            gl={GL_CONFIG}
             onCreated={({ gl }) => {
               gl.toneMapping = THREE.ACESFilmicToneMapping
               gl.toneMappingExposure = 1.0

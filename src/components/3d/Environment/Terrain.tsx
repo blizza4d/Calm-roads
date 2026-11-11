@@ -1493,7 +1493,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const guardrailMeshRef = useRef<THREE.Mesh>(null)
   const markingsMeshRef = useRef<THREE.Mesh>(null)
   const shoulderMeshRef = useRef<THREE.Mesh>(null)
-  const isNearShadowRef = useRef<boolean | null>(null)
   const isSceneryVisibleRef = useRef<boolean | null>(null)
   const isMarkingsVisibleRef = useRef<boolean | null>(null)
   const isShoulderVisibleRef = useRef<boolean | null>(null)
@@ -1710,7 +1709,6 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
     // Quality-calibrated distance thresholds
     const maxSceneryDist = graphicsQuality === 'low' ? 800 : graphicsQuality === 'medium' ? 1100 : 1400
-    const shadowDist = graphicsQuality === 'low' ? 60 : graphicsQuality === 'medium' ? 90 : 120
 
     // Gating subpixel highway elements: markings beyond 1200m, guardrails beyond 1200m, shoulders beyond 2200m
     const isMarkingsVisible = dist <= 1200
@@ -1740,22 +1738,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       }
     }
 
-    // 2. Dynamic Shadow Frustum Culling (Only near chunks within directional shadow bounds cast shadows)
-    const isNearShadow = dist <= shadowDist
-    if (isNearShadow !== isNearShadowRef.current) {
-      isNearShadowRef.current = isNearShadow
-      if (guardrailMeshRef.current) guardrailMeshRef.current.castShadow = isNearShadow
-      if (pineTrunkRef.current) pineTrunkRef.current.castShadow = isNearShadow
-      if (pineCanopyRef.current) pineCanopyRef.current.castShadow = isNearShadow
-      if (broadleafTrunkRef.current) broadleafTrunkRef.current.castShadow = isNearShadow
-      if (broadleafCanopyRef.current) broadleafCanopyRef.current.castShadow = isNearShadow
-      if (saguaroRef.current) saguaroRef.current.castShadow = isNearShadow
-      if (rockRef.current) rockRef.current.castShadow = isNearShadow
-      if (poleRef.current) poleRef.current.castShadow = isNearShadow
-      if (delineatorPostRef.current) delineatorPostRef.current.castShadow = isNearShadow
-      if (cabinRef.current) cabinRef.current.castShadow = isNearShadow
-    }
-
+    // Dynamic visibility culling for distant scenery
     if (!isSceneryVisible) return
 
     // 3. Multi-tier Dynamic Level of Detail (LOD) Instanced Culling
@@ -1982,20 +1965,18 @@ export default function Terrain() {
   slotsRef.current = chunkSlots
   const lastCamZ = useRef<number>(camera.position.z)
 
-  // Listen for biome travel transition & generation reset: immediate reset centered on current startZ
-  useEffect(() => {
-    if (travelCounter !== lastTravelCounter.current || generationId !== lastGenId.current) {
-      lastTravelCounter.current = travelCounter
-      lastGenId.current = generationId
-      const initial: number[] = []
-      for (let i = 0; i < NUM_CHUNKS; i++) {
-        initial.push(startZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
-      }
-      slotsRef.current = initial
-      setChunkSlots(initial)
-      lastCamZ.current = startZ
+  // Synchronous re-centering on biome travel transition & generation reset (zero 1-frame visual latency)
+  if (travelCounter !== lastTravelCounter.current || generationId !== lastGenId.current) {
+    lastTravelCounter.current = travelCounter
+    lastGenId.current = generationId
+    const initial: number[] = []
+    for (let i = 0; i < NUM_CHUNKS; i++) {
+      initial.push(startZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
     }
-  }, [travelCounter, generationId, startZ])
+    slotsRef.current = initial
+    lastCamZ.current = startZ
+    setChunkSlots(initial)
+  }
 
   useFrame(() => {
     const camZ = camera.position.z

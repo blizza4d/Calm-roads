@@ -150,7 +150,6 @@ function getDestinationIcon(iconName: string) {
 // ----------------------------------------------------------------
 function DestinationIntroBanner() {
   const destinationBanner = useGameStore((s) => s.destinationBanner)
-  const isTraveling = useGameStore((s) => s.isTraveling)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
   const [cycleToastVisible, setCycleToastVisible] = useState(false)
   const [activeBiome, setActiveBiome] = useState(currentResolvedBiome)
@@ -172,13 +171,6 @@ function DestinationIntroBanner() {
 
   return (
     <>
-      {/* Fullscreen subtle cinematic travel fade during instant world load */}
-      <div
-        className={`fixed inset-0 z-40 bg-black pointer-events-none transition-opacity duration-500 ease-in-out ${
-          isTraveling ? 'opacity-85' : 'opacity-0'
-        }`}
-      />
-
       {/* Primary Cinematic Location Intro Banner */}
       <div
         className={`fixed top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${

@@ -1058,7 +1058,7 @@ export function getRoadCrossSection(worldZ: number, chunkZ: number): RoadCrossSe
 
   const crownH = 0.025
   const asphaltBaseY = 0.085
-  const lineLift = 0.010
+  const lineLift = 0.022
 
   const cx = s.x
   const cy = s.y + asphaltBaseY

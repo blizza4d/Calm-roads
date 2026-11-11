@@ -1330,10 +1330,13 @@ export default function VehicleController() {
       useTelemetryStore.getState().setTelemetry({
         speed: Math.round(currentSpeedKmh),
         rpm: finalRpm,
+        maxRpm: config.redlineRpm,
+        redlineRpm: config.upshiftRpm || Math.round(config.redlineRpm * 0.92),
         gear: calculatedGear,
         throttle: curThrottleAbs,
         brake: targetBrake,
         distance: accumulatedDistance.current,
+        isBurnout: isBurnoutActive,
         pitch: +(bodyPitch.current * (180 / Math.PI)).toFixed(1),
         roll: +(bodyRoll.current * (180 / Math.PI)).toFixed(1),
         suspension: [
