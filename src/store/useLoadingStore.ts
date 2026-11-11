@@ -77,12 +77,12 @@ const STAGE_DEFAULT_MESSAGES: Record<LoadingStage, { title: string; sub: string 
 }
 
 export const useLoadingStore = create<LoadingState>((set, get) => ({
-  stage: 'INITIALIZING',
-  progress: 5,
-  statusMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.title,
-  subMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.sub,
+  stage: 'READY',
+  progress: 100,
+  statusMessage: STAGE_DEFAULT_MESSAGES.READY.title,
+  subMessage: STAGE_DEFAULT_MESSAGES.READY.sub,
   errorMessage: null,
-  isReady: false,
+  isReady: true,
   retryCount: 0,
 
   setStage: (stage, statusMessage, subMessage, customProgress) => {

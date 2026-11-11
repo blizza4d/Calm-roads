@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
@@ -267,7 +267,131 @@ function BmwGtrWheel({
   )
 }
 
-export function BmwM3GtrModel({
+// ----------------------------------------------------
+// Guaranteed Instant Procedural Vehicle Fallback
+// Renders immediately on Frame 0 with 0 network latency, eliminating blank/black loading frames
+// ----------------------------------------------------
+export function ProceduralSportsCarFallback({
+  paintColor,
+  metallic,
+  roughness,
+  steeringAngle,
+  wheelRotation,
+  isBraking,
+  headlightsOn,
+  isHoverMode,
+  wheelSuspensions = [0, 0, 0, 0],
+}: CarModelProps) {
+  const bodyMat = (
+    <meshPhysicalMaterial
+      color={paintColor || '#38bdf8'}
+      metalness={metallic ?? 0.72}
+      roughness={roughness ?? 0.25}
+      clearcoat={0.8}
+      clearcoatRoughness={0.06}
+    />
+  )
+  const glassMat = (
+    <meshPhysicalMaterial color="#0b132b" metalness={0.1} roughness={0.05} transmission={0.8} transparent opacity={0.9} />
+  )
+  const blackTrimMat = <meshStandardMaterial color="#111827" roughness={0.6} metalness={0.2} />
+  const wheelRubberMat = <meshStandardMaterial color="#1f2937" roughness={0.88} metalness={0.05} />
+  const rimMat = <meshStandardMaterial color="#e2e8f0" roughness={0.25} metalness={0.85} />
+
+  const renderWheel = (isFront: boolean, _isLeft: boolean) => (
+    <group rotation={[0, isFront ? steeringAngle : 0, 0]}>
+      <group rotation={[-wheelRotation, 0, 0]}>
+        <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
+          <cylinderGeometry args={[0.34, 0.34, 0.26, 24]} />
+          {wheelRubberMat}
+        </mesh>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.22, 0.22, 0.27, 16]} />
+          {rimMat}
+        </mesh>
+      </group>
+    </group>
+  )
+
+  return (
+    <group position={[0, isHoverMode ? 0.35 : 0, 0]}>
+      {/* Lower Monocoque Chassis */}
+      <mesh position={[0, 0.38, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.82, 0.38, 4.35]} />
+        {bodyMat}
+      </mesh>
+      {/* Aerodynamic Tapered Nose / Hood */}
+      <mesh position={[0, 0.46, -1.25]} rotation={[0.08, 0, 0]} castShadow>
+        <boxGeometry args={[1.76, 0.24, 1.85]} />
+        {bodyMat}
+      </mesh>
+      {/* Cabin Greenhouse & Windshield */}
+      <mesh position={[0, 0.78, 0.15]} castShadow>
+        <boxGeometry args={[1.48, 0.48, 1.95]} />
+        {glassMat}
+      </mesh>
+      {/* Roof Panel */}
+      <mesh position={[0, 1.04, 0.15]}>
+        <boxGeometry args={[1.42, 0.05, 1.7]} />
+        {bodyMat}
+      </mesh>
+      {/* Rear GT Wing Spoiler */}
+      <mesh position={[0, 0.88, 1.95]} castShadow>
+        <boxGeometry args={[1.65, 0.04, 0.32]} />
+        {blackTrimMat}
+      </mesh>
+      <mesh position={[-0.55, 0.72, 1.95]}>
+        <boxGeometry args={[0.05, 0.32, 0.12]} />
+        {blackTrimMat}
+      </mesh>
+      <mesh position={[0.55, 0.72, 1.95]}>
+        <boxGeometry args={[0.05, 0.32, 0.12]} />
+        {blackTrimMat}
+      </mesh>
+      {/* Front Splitter */}
+      <mesh position={[0, 0.16, -2.18]}>
+        <boxGeometry args={[1.78, 0.04, 0.35]} />
+        {blackTrimMat}
+      </mesh>
+
+      {/* Headlights & Taillights */}
+      <mesh position={[-0.65, 0.42, -2.18]}>
+        <boxGeometry args={[0.32, 0.12, 0.05]} />
+        <meshStandardMaterial color={headlightsOn ? '#fffbeb' : '#94a3b8'} emissive={headlightsOn ? '#fffbeb' : '#000'} emissiveIntensity={headlightsOn ? 2.5 : 0} />
+      </mesh>
+      <mesh position={[0.65, 0.42, -2.18]}>
+        <boxGeometry args={[0.32, 0.12, 0.05]} />
+        <meshStandardMaterial color={headlightsOn ? '#fffbeb' : '#94a3b8'} emissive={headlightsOn ? '#fffbeb' : '#000'} emissiveIntensity={headlightsOn ? 2.5 : 0} />
+      </mesh>
+      <mesh position={[-0.65, 0.46, 2.18]}>
+        <boxGeometry args={[0.35, 0.12, 0.05]} />
+        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={isBraking ? 4.5 : 1.2} />
+      </mesh>
+      <mesh position={[0.65, 0.46, 2.18]}>
+        <boxGeometry args={[0.35, 0.12, 0.05]} />
+        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={isBraking ? 4.5 : 1.2} />
+      </mesh>
+
+      {/* 4 Wheels */}
+      <group position={[-0.91, 0.34 + (wheelSuspensions[0] || 0), -1.35]}>{renderWheel(true, true)}</group>
+      <group position={[0.91, 0.34 + (wheelSuspensions[1] || 0), -1.35]}>{renderWheel(true, false)}</group>
+      <group position={[-0.91, 0.34 + (wheelSuspensions[2] || 0), 1.38]}>{renderWheel(false, true)}</group>
+      <group position={[0.91, 0.34 + (wheelSuspensions[3] || 0), 1.38]}>{renderWheel(false, false)}</group>
+
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.42} z={-2.2} color="#fffbeb" intensity={26} />}
+    </group>
+  )
+}
+
+export function BmwM3GtrModel(props: CarModelProps) {
+  return (
+    <Suspense fallback={<ProceduralSportsCarFallback {...props} />}>
+      <BmwM3GtrGLTF {...props} />
+    </Suspense>
+  )
+}
+
+function BmwM3GtrGLTF({
   paintColor,
   metallic,
   roughness,
@@ -507,7 +631,15 @@ const _qHover = new THREE.Quaternion()
 const _qTurn = new THREE.Quaternion()
 const _spinAxis = new THREE.Vector3()
 
-export function SupercarModel({
+export function SupercarModel(props: CarModelProps) {
+  return (
+    <Suspense fallback={<ProceduralSportsCarFallback {...props} />}>
+      <SupercarGLTF {...props} />
+    </Suspense>
+  )
+}
+
+function SupercarGLTF({
   paintColor,
   metallic,
   roughness,

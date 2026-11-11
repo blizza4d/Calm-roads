@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 
 export interface PerformanceStats {
@@ -43,8 +43,12 @@ export function subscribePerformanceStats(fn: (stats: PerformanceStats) => void)
  * Directly samples renderer.info and performance.now() without any object allocations.
  */
 export default function PerformanceBridge() {
-  const { gl } = useThree()
+  const { gl, scene, camera } = useThree()
   const frameCountRef = useRef(0)
+
+  useEffect(() => {
+    (window as any).__CALM_DEBUG = { gl, scene, camera, performanceStats }
+  }, [gl, scene, camera])
   const lastTimeRef = useRef(performance.now())
   const lastFrameTimeRef = useRef(performance.now())
   const minFpsRef = useRef(999)

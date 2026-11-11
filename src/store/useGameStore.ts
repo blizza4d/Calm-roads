@@ -329,7 +329,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (get().generationId === newGenId) {
         set({ isTraveling: false, isWorldReady: true })
       }
-    }, 600)
+    }, 120)
 
     _bannerTimer = setTimeout(() => {
       if (get().generationId === newGenId) {
