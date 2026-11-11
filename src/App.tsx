@@ -58,6 +58,7 @@ const GL_CONFIG: THREE.WebGLRendererParameters = {
   alpha: false,
   stencil: false,
   depth: true,
+  preserveDrawingBuffer: true,
 }
 
 export default function App() {
@@ -110,6 +111,15 @@ export default function App() {
             </Suspense>
           </Canvas>
         </div>
+
+        {/* Subtle Cinematic Vignette Layer (Z-5) */}
+        <div
+          className="pointer-events-none absolute inset-0 z-5"
+          style={{
+            boxShadow: 'inset 0 0 100px rgba(0, 0, 0, 0.28)',
+            pointerEvents: 'none',
+          }}
+        />
 
         {/* Interactive DOM UI Overlay Layer (Z-10) */}
         <div

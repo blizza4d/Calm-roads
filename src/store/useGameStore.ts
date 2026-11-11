@@ -307,10 +307,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (_bannerTimer) clearTimeout(_bannerTimer)
     if (_travelTimer) clearTimeout(_travelTimer)
 
+    const effectiveChosen: BiomeType = chosenBiome === 'dynamic'
+      ? SUPPORTED_STARTING_BIOMES[Math.floor(Math.random() * SUPPORTED_STARTING_BIOMES.length)]
+      : chosenBiome
+
     set({
       sessionId: newSessionId,
       generationId: newGenId,
       biome: chosenBiome,
+      currentResolvedBiome: effectiveChosen,
       worldSeed: chosenSeed,
       startZ: chosenStartZ,
       travelCounter: s.travelCounter + 1,
@@ -368,9 +373,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (_bannerTimer) clearTimeout(_bannerTimer)
     if (_travelTimer) clearTimeout(_travelTimer)
 
+    const targetResolved: BiomeType = effectiveBiome === 'dynamic'
+      ? (SUPPORTED_STARTING_BIOMES.includes(chosenId as BiomeType) ? (chosenId as BiomeType) : 'plains')
+      : (effectiveBiome as BiomeType)
+
     // 3. Freeze inputs and trigger destination banner
     set({
       biome: effectiveBiome,
+      currentResolvedBiome: targetResolved,
       worldSeed: targetSeed,
       startZ: targetStartZ,
       generationId: nextGenId,

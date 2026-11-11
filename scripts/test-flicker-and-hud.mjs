@@ -90,22 +90,26 @@ assert(
 // ------------------------------------------------------------------------
 // 4. Post-Processing & SSAO Calibration
 // ------------------------------------------------------------------------
-console.log('\n--- TEST GROUP 4: Post-Processing & Contact-Shadow SSAO Calibration ---');
+console.log('\n--- TEST GROUP 4: Post-Processing & ToneMapping Calibration ---');
 
 assert(
-  envContent.includes('enableNormalPass={true}'),
-  'EffectComposer has enableNormalPass={true} (eliminating depth-reconstructed normal jitter)'
+  envContent.includes('<ToneMapping />'),
+  'EffectComposer includes explicit <ToneMapping /> to guarantee non-black color space output in Three.js r163'
 );
 
 assert(
-  envContent.includes('intensity={1.25}'),
-  'SSAO intensity calibrated to 1.25 (down from 14.0, eliminating dark strobe noise)'
+  envContent.includes('<Bloom') && envContent.includes('mipmapBlur'),
+  'Bloom pass configured with mipmapBlur for smooth celestial and automotive lighting'
 );
 
 assert(
-  envContent.includes('worldDistanceThreshold={28}') &&
-  envContent.includes('worldDistanceFalloff={6}'),
-  'SSAO world distance clamped to 28m (contact-shadow scale only, zero distant highway flickering)'
+  envContent.includes('<Vignette') && envContent.includes('offset={0.42}'),
+  'Cinematic Vignette pass calibrated with offset and darkness'
+);
+
+assert(
+  !envContent.includes('enableNormalPass={true}'),
+  'Broken SSAO normal-pass black-screen deadlock eliminated from post-processing'
 );
 
 // ------------------------------------------------------------------------

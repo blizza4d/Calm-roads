@@ -618,6 +618,27 @@ export default function VehicleController() {
       verticalVel.current = 0
       carGroupRef.current.position.copy(pos.current)
       carGroupRef.current.rotation.set(0, yawAngle.current, 0)
+
+      // Guarantee camera is immediately locked onto the vehicle during travel transitions
+      const carPos = pos.current
+      const carQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle.current)
+      if (cameraPerspective === 'dashboard') {
+        _tempCamOffset.set(0, 0.76, 0.12).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(0, 0.72, -30).applyQuaternion(carQuat).add(carPos)
+      } else if (cameraPerspective === 'bumper') {
+        _tempCamOffset.set(0, 0.42, -2.4).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(0, 0.40, -35).applyQuaternion(carQuat).add(carPos)
+      } else if (cameraPerspective === 'drone') {
+        _tempCamOffset.set(0, 5.8, 11.5).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
+      } else {
+        _tempCamOffset.set(0, 1.82, 4.85).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(0, 0.86, -20).applyQuaternion(carQuat).add(carPos)
+      }
+      state.camera.position.copy(_tempCamOffset)
+      cameraLookAtRef.current.copy(_tempCamLookAt)
+      state.camera.lookAt(cameraLookAtRef.current)
+      isFirstCamFrameRef.current = false
       return
     }
 

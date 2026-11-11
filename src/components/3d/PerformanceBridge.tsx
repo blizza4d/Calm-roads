@@ -1,5 +1,7 @@
+import * as THREE from 'three'
 import { useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
+import { useGameStore } from '../../store/useGameStore'
 
 export interface PerformanceStats {
   fps: number
@@ -47,13 +49,15 @@ export default function PerformanceBridge() {
   const frameCountRef = useRef(0)
 
   useEffect(() => {
-    (window as any).__CALM_DEBUG = { gl, scene, camera, performanceStats }
+    (window as any).__CALM_DEBUG = { gl, scene, camera, performanceStats, THREE, useGameStore }
   }, [gl, scene, camera])
   const lastTimeRef = useRef(performance.now())
   const lastFrameTimeRef = useRef(performance.now())
   const minFpsRef = useRef(999)
   const maxSpikeRef = useRef(0)
   const recentDtsRef = useRef<number[]>([])
+  const peakCallsRef = useRef(0)
+  const peakTrianglesRef = useRef(0)
 
   useFrame(() => {
     const now = performance.now()
@@ -63,6 +67,11 @@ export default function PerformanceBridge() {
     frameCountRef.current++
     if (dt > maxSpikeRef.current) {
       maxSpikeRef.current = dt
+    }
+
+    if (gl.info.render.calls > peakCallsRef.current) {
+      peakCallsRef.current = gl.info.render.calls
+      peakTrianglesRef.current = gl.info.render.triangles
     }
 
     const dts = recentDtsRef.current
@@ -89,8 +98,10 @@ export default function PerformanceBridge() {
       performanceStats.minFps = Math.min(minFpsRef.current, curFps)
       performanceStats.frameTimeMs = +avgDt.toFixed(1)
       performanceStats.frameSpikeMs = +maxSpikeRef.current.toFixed(1)
-      performanceStats.drawCalls = gl.info.render.calls
-      performanceStats.triangles = gl.info.render.triangles
+      performanceStats.drawCalls = peakCallsRef.current || gl.info.render.calls
+      performanceStats.triangles = peakTrianglesRef.current || gl.info.render.triangles
+      peakCallsRef.current = 0
+      peakTrianglesRef.current = 0
       performanceStats.geometries = gl.info.memory.geometries
       performanceStats.textures = gl.info.memory.textures
       performanceStats.shaderPrograms = gl.info.programs?.length ?? 0
