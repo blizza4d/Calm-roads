@@ -58,7 +58,7 @@ const GL_CONFIG: THREE.WebGLRendererParameters = {
   alpha: false,
   stencil: false,
   depth: true,
-  preserveDrawingBuffer: true,
+  preserveDrawingBuffer: false,
 }
 
 export default function App() {
@@ -67,6 +67,14 @@ export default function App() {
 
   // Calculate spawn transform so camera initializes directly behind vehicle on frame 0
   const spawn = useMemo(() => getSpawnTransform(startZ, 0.36), [startZ])
+
+  // Memoize initial camera configuration to eliminate R3F camera reconciliations
+  const cameraConfig = useMemo(() => ({
+    position: [spawn.x, spawn.y + 2.8, spawn.z + 6.8] as [number, number, number],
+    fov: 55,
+    near: 0.75,
+    far: 3800,
+  }), [spawn.x, spawn.y, spawn.z])
 
   return (
     <KeyboardControls map={keyboardMap}>
@@ -89,12 +97,7 @@ export default function App() {
           <Canvas
             shadows
             dpr={graphicsQuality === 'low' ? 1 : graphicsQuality === 'medium' ? 1.35 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 1.75)}
-            camera={{
-              position: [spawn.x, spawn.y + 2.8, spawn.z + 6.8],
-              fov: 55,
-              near: 0.75,
-              far: 3800,
-            }}
+            camera={cameraConfig}
             gl={GL_CONFIG}
             onCreated={({ gl, camera }) => {
               gl.toneMapping = THREE.ACESFilmicToneMapping
@@ -106,7 +109,7 @@ export default function App() {
             }}
             style={{ width: '100%', height: '100%' }}
           >
-            <Suspense fallback={null}>
+            <Suspense fallback={<group />}>
               <Experience />
             </Suspense>
           </Canvas>

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, memo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
@@ -505,16 +505,12 @@ function PanoramicMountainHorizon({
 function ProceduralEnvironmentProbe({
   skyColor,
   fogColor,
-  lightColor,
-  lightPos,
   isNight,
   groundColor,
   graphicsQuality,
 }: {
   skyColor: string
   fogColor: string
-  lightColor: string
-  lightPos: [number, number, number]
   isNight: boolean
   groundColor: string
   graphicsQuality: 'low' | 'medium' | 'high'
@@ -546,29 +542,20 @@ function ProceduralEnvironmentProbe({
       ctx.fillStyle = grad
       ctx.fillRect(0, 0, 256, 128)
 
-      // 2. Specular celestial body highlight (sun or moon)
-      const lightVec = new THREE.Vector3(...lightPos).normalize()
-      const u = Number.isFinite(lightVec.x) && Number.isFinite(lightVec.z)
-        ? (0.5 + Math.atan2(lightVec.x, -lightVec.z) / (Math.PI * 2) + 1.0) % 1.0
-        : 0.5
-      const v = Number.isFinite(lightVec.y)
-        ? Math.max(0.05, Math.min(0.95, 0.5 - Math.asin(Math.max(-0.99, Math.min(0.99, lightVec.y))) / Math.PI))
-        : 0.5
-      const sunPx = Number.isFinite(u) ? u * 256 : 128
-      const sunPy = Number.isFinite(v) ? v * 128 : 64
-
+      // 2. Specular celestial body highlight with stable coordinates to eliminate PMREM thrashing
+      const sunPx = isNight ? 64 : 128
+      const sunPy = isNight ? 96 : 40
       const sunRadius = isNight ? 12 : 24
-      if (Number.isFinite(sunPx) && Number.isFinite(sunPy) && Number.isFinite(sunRadius)) {
-        const sunGlow = ctx.createRadialGradient(sunPx, sunPy, 0, sunPx, sunPy, sunRadius)
-        sunGlow.addColorStop(0, lightColor)
-        sunGlow.addColorStop(0.35, isNight ? 'rgba(147, 197, 253, 0.7)' : 'rgba(255, 235, 180, 0.7)')
-        sunGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)')
 
-        ctx.fillStyle = sunGlow
-        ctx.beginPath()
-        ctx.arc(sunPx, sunPy, sunRadius, 0, Math.PI * 2)
-        ctx.fill()
-      }
+      const sunGlow = ctx.createRadialGradient(sunPx, sunPy, 0, sunPx, sunPy, sunRadius)
+      sunGlow.addColorStop(0, isNight ? '#93c5fd' : '#fff5cc')
+      sunGlow.addColorStop(0.35, isNight ? 'rgba(147, 197, 253, 0.7)' : 'rgba(255, 235, 180, 0.7)')
+      sunGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)')
+
+      ctx.fillStyle = sunGlow
+      ctx.beginPath()
+      ctx.arc(sunPx, sunPy, sunRadius, 0, Math.PI * 2)
+      ctx.fill()
     }
 
     const tex = new THREE.CanvasTexture(canvas)
@@ -587,7 +574,15 @@ function ProceduralEnvironmentProbe({
       prevTargetRef.current.dispose()
     }
     prevTargetRef.current = envTarget
-  }, [gl, scene, skyColor, fogColor, lightColor, lightPos[0], lightPos[1], lightPos[2], isNight, groundColor, graphicsQuality])
+  }, [gl, scene, skyColor, fogColor, isNight, groundColor, graphicsQuality])
+
+  // Dynamic light intensity update without PMREM recreation or shader recompilation
+  useFrame(() => {
+    const intensity = graphicsQuality === 'low' ? 0.45 : isNight ? 0.32 : 0.70
+    if (scene.environmentIntensity !== intensity) {
+      scene.environmentIntensity = intensity
+    }
+  })
 
   useEffect(() => {
     return () => {
@@ -1078,10 +1073,8 @@ export default function GameEnvironment() {
 
       {/* Dynamic Procedural Offline Environment Probe (Zero CDN downloads, Zero Suspense, Zero Black Flashing) */}
       <ProceduralEnvironmentProbe
-        skyColor={skyColor}
-        fogColor={activeFogColor}
-        lightColor={celestialData.lightColor}
-        lightPos={celestialData.lightPos}
+        skyColor={celestialData.isNight ? '#050b18' : (biomeConfig.skyHemiSky || '#38bdf8')}
+        fogColor={celestialData.isNight ? '#0a0f1d' : (biomeConfig.fogColor || '#7dd3fc')}
         isNight={celestialData.isNight}
         groundColor={biomeConfig.skyHemiGround || '#4a5568'}
         graphicsQuality={graphicsQuality}
@@ -1137,21 +1130,27 @@ export default function GameEnvironment() {
       )}
 
       {/* Post-Processing Pass with Explicit ToneMapping, Bloom, and Vignette */}
-      {graphicsQuality !== 'low' && (
-        <EffectComposer
-          multisampling={0}
-          frameBufferType={THREE.HalfFloatType}
-        >
-          <ToneMapping />
-          <Bloom
-            luminanceThreshold={1.05}
-            luminanceSmoothing={0.15}
-            intensity={graphicsQuality === 'medium' ? 0.22 : 0.32}
-            mipmapBlur
-          />
-          <Vignette eskil={false} offset={0.42} darkness={0.22} />
-        </EffectComposer>
-      )}
+      {graphicsQuality !== 'low' && <PostProcessingPipeline />}
     </>
   )
 }
+
+/**
+ * Isolated Memoized Post-Processing Pipeline:
+ * Prevents EffectComposer from re-creating intermediate render targets when parent environment
+ * updates time of day, weather or lighting.
+ */
+const PostProcessingPipeline = memo(function PostProcessingPipeline() {
+  return (
+    <EffectComposer multisampling={0}>
+      <ToneMapping />
+      <Bloom
+        luminanceThreshold={1.05}
+        luminanceSmoothing={0.15}
+        intensity={0.25}
+        mipmapBlur
+      />
+      <Vignette eskil={false} offset={0.42} darkness={0.22} />
+    </EffectComposer>
+  )
+})
