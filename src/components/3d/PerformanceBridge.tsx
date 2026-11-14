@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useGameStore } from '../../store/useGameStore'
+import { useLoadingStore } from '../../store/useLoadingStore'
 
 export interface PerformanceStats {
   fps: number
@@ -49,7 +50,7 @@ export default function PerformanceBridge() {
   const frameCountRef = useRef(0)
 
   useEffect(() => {
-    (window as any).__CALM_DEBUG = { gl, scene, camera, performanceStats, THREE, useGameStore }
+    (window as any).__CALM_DEBUG = { gl, scene, camera, performanceStats, THREE, useGameStore, useLoadingStore }
   }, [gl, scene, camera])
   const lastTimeRef = useRef(performance.now())
   const lastFrameTimeRef = useRef(performance.now())

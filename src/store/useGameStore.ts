@@ -71,6 +71,7 @@ interface GameState {
   randomizeWorldSeed: () => number
   travelCounter: number
   isTraveling: boolean
+  regenerateWorld: () => void
   destinationBanner: DestinationBannerState | null
   setDestinationBanner: (b: DestinationBannerState | null) => void
   initNewGameSession: (customSeed?: number, customBiome?: BiomeSelection, customStartZ?: number) => void
@@ -253,7 +254,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   sessionId: `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
   generationId: 1,
   startZ: _initialStartZ,
-  isWorldReady: true,
+  isWorldReady: false,
   setIsWorldReady: (isWorldReady) => set({ isWorldReady }),
 
   biome: _initialBiome,
@@ -277,6 +278,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   travelCounter: 0,
   isTraveling: false,
+  regenerateWorld: () => {
+    const s = get()
+    const newGenId = (s.generationId || 0) + 1
+    setWorldGenerationConfig(s.worldSeed, s.biome, s.startZ)
+    set({
+      generationId: newGenId,
+      travelCounter: s.travelCounter + 1,
+      isTraveling: false,
+      isWorldReady: false,
+    })
+  },
   destinationBanner: {
     name: _initialDest.name,
     subtitle: _initialDest.subtitle,

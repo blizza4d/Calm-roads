@@ -3,7 +3,10 @@ import { Suspense, useMemo } from 'react'
 import { KeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
 import Experience from './components/3d/Experience'
+import PerformanceBridge from './components/3d/PerformanceBridge'
+import ShaderReadinessPipeline from './components/3d/ShaderReadinessPipeline'
 import Overlay from './components/ui/Overlay'
+import LoadingScreen from './components/ui/LoadingScreen'
 import { DevelopmentDiagnostics } from './components/ui/DevelopmentDiagnostics'
 import { useGameStore } from './store/useGameStore'
 import { useLoadingStore } from './store/useLoadingStore'
@@ -19,39 +22,6 @@ const keyboardMap = [
   { name: 'burnout', keys: ['KeyB', 'b', 'B'] },
 ]
 
-/**
- * GameErrorHandler:
- * Non-blocking error handler that only displays if an unrecoverable WebGL error occurs.
- * NEVER renders a fullscreen black overlay that blocks the 3D world.
- */
-function GameErrorHandler() {
-  const stage = useLoadingStore((s) => s.stage)
-  const errorMessage = useLoadingStore((s) => s.errorMessage)
-  const retry = useLoadingStore((s) => s.retry)
-
-  if (stage !== 'ERROR') return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 select-none p-4 pointer-events-auto">
-      <div className="flex flex-col items-center p-6 bg-[#160b0c] border border-[#C63D2F] rounded-lg max-w-sm text-center shadow-2xl">
-        <div className="w-3 h-3 rounded-full bg-[#C63D2F] animate-ping mb-2" />
-        <h2 className="text-sm font-bold text-[#C63D2F] font-courier uppercase tracking-wider mb-2">
-          Rendering Initialization Error
-        </h2>
-        <p className="text-[11px] text-[#FDFBF7]/90 font-mono mb-4 leading-relaxed">
-          {errorMessage || 'A WebGL error interrupted the scene pipeline.'}
-        </p>
-        <button
-          onClick={retry}
-          className="px-5 py-2 text-xs font-bold font-courier text-[#FDFBF7] bg-[#C63D2F] hover:bg-[#a53225] rounded transition-colors shadow-md cursor-pointer"
-        >
-          RETRY INITIALIZATION
-        </button>
-      </div>
-    </div>
-  )
-}
-
 const GL_CONFIG: THREE.WebGLRendererParameters = {
   antialias: true,
   powerPreference: 'high-performance',
@@ -59,6 +29,14 @@ const GL_CONFIG: THREE.WebGLRendererParameters = {
   stencil: false,
   depth: true,
   preserveDrawingBuffer: false,
+}
+
+if (typeof window !== 'undefined') {
+  ;(window as any).__CALM_DEBUG = {
+    ...((window as any).__CALM_DEBUG || {}),
+    useLoadingStore,
+    useGameStore,
+  }
 }
 
 export default function App() {
@@ -83,9 +61,6 @@ export default function App() {
         className="w-screen h-screen relative overflow-hidden bg-[#07090e]"
         style={{ width: '100vw', height: '100vh', position: 'fixed', inset: 0, overflow: 'hidden' }}
       >
-        {/* Error Boundary Modal (Only visible on critical WebGL failure) */}
-        <GameErrorHandler />
-
         {/* Real-time Development Diagnostics Overlay (F3 Toggle) */}
         <DevelopmentDiagnostics />
 
@@ -106,9 +81,12 @@ export default function App() {
               gl.shadowMap.enabled = true
               gl.shadowMap.type = THREE.PCFSoftShadowMap
               camera.lookAt(spawn.x, spawn.y + 0.6, spawn.z - 15)
+              useLoadingStore.getState().updateChecklist('rendererValid', true)
             }}
             style={{ width: '100%', height: '100%' }}
           >
+            <PerformanceBridge />
+            <ShaderReadinessPipeline />
             <Suspense fallback={<group />}>
               <Experience />
             </Suspense>
@@ -131,6 +109,9 @@ export default function App() {
         >
           <Overlay />
         </div>
+
+        {/* Cinematic Automotive Engine Boot & Loading Experience (Z-30) */}
+        <LoadingScreen />
       </div>
     </KeyboardControls>
   )
