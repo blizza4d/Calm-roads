@@ -15,7 +15,6 @@ import {
   isRoadSurface,
   getActiveBiomeAt,
   getSurfaceHeight,
-  getSpawnTransform,
   getTerrainSlopeForVehicle,
   getDominantMacroType,
   getMacroTerrainWeights,
@@ -408,20 +407,18 @@ export default function VehicleController() {
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const headlights = useGameStore((s) => s.headlights)
   const photoMode = useGameStore((s) => s.photoMode)
-  const travelCounter = useGameStore((s) => s.travelCounter)
-  const generationId = useGameStore((s) => s.generationId)
-  const startZ = useGameStore((s) => s.startZ)
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
-  // State Variables - initialized safely on the continuous road at startZ with calibrated ride height & heading
-  const initialSpawn = getSpawnTransform(startZ, isHoverMode ? 1.25 : config.rideHeight)
-  const pos = useRef(new THREE.Vector3(initialSpawn.x, initialSpawn.y, initialSpawn.z))
+  // State Variables - initialized on the road at Z=0 with calibrated ride height
+  const initialSpawnY = getRoadElevation(0) + (isHoverMode ? 1.25 : config.rideHeight)
+  const initialSpawnX = getRoadCenter(0)
+  const pos = useRef(new THREE.Vector3(initialSpawnX, initialSpawnY, 0))
   const forwardVel = useRef(0) // meters per second
   const lateralVel = useRef(0) // drift velocity (m/s)
   const verticalVel = useRef(0) // vertical velocity (m/s) for gravity and jumps
   const isGrounded = useRef(true) // authoritative ground contact tracking
-  const yawAngle = useRef(initialSpawn.yaw) // radians
+  const yawAngle = useRef(0) // radians
   const currentSteerAngle = useRef(0) // dynamic smoothed steering angle (radians)
   const steeringVisual = useRef(0)
   const wheelSpin = useRef(0)
@@ -546,11 +543,10 @@ export default function VehicleController() {
         const curZ = pos.current.z
         pos.current.x = getRoadCenter(curZ)
         pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : config.rideHeight)
-        const tan = getRoadTangent(curZ)
-        yawAngle.current = Math.atan2(-tan.tx, -tan.tz)
         forwardVel.current = 0
         lateralVel.current = 0
         verticalVel.current = 0
+        yawAngle.current = 0
         currentSteerAngle.current = 0
         wheelSpin.current = 0
         steeringVisual.current = 0
@@ -571,79 +567,12 @@ export default function VehicleController() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isHoverMode, vehicleModel, config])
 
-  // Instant Biome Travel / Generation Re-alignment Listener
-  const lastTravelRef = useRef(travelCounter)
-  const lastGenRef = useRef(generationId)
-  useEffect(() => {
-    if (travelCounter !== lastTravelRef.current || generationId !== lastGenRef.current) {
-      lastTravelRef.current = travelCounter
-      lastGenRef.current = generationId
-      const destZ = useGameStore.getState().startZ || 0
-      const spawn = getSpawnTransform(destZ, isHoverMode ? 1.25 : config.rideHeight)
-      pos.current.set(spawn.x, spawn.y, spawn.z)
-      yawAngle.current = spawn.yaw
-
-      forwardVel.current = 0
-      lateralVel.current = 0
-      verticalVel.current = 0
-      currentSteerAngle.current = 0
-      wheelSpin.current = 0
-      steeringVisual.current = 0
-      currentGearIndex.current = 1
-      isGrounded.current = true
-      isFirstCamFrameRef.current = true
-      if (lastOdoPos.current) {
-        lastOdoPos.current.set(spawn.x, spawn.y, spawn.z)
-      }
-      skidQuadCount.current = 0
-      skidRingIndex.current = 0
-      hasPrevSkid.current = false
-      _skidGeo.setDrawRange(0, 0)
-
-      if (carGroupRef.current) {
-        carGroupRef.current.position.set(spawn.x, spawn.y, spawn.z)
-        carGroupRef.current.rotation.set(0, spawn.yaw, 0)
-      }
-    }
-  }, [travelCounter, generationId, isHoverMode, config.rideHeight])
-
   useFrame((state, delta) => {
     if (!carGroupRef.current || photoMode) return
 
-    const store = useGameStore.getState()
-    // Freeze vehicle during travel transitions until chunks and collision are 100% ready
-    if (store.isTraveling || !store.isWorldReady) {
-      forwardVel.current = 0
-      lateralVel.current = 0
-      verticalVel.current = 0
-      carGroupRef.current.position.copy(pos.current)
-      carGroupRef.current.rotation.set(0, yawAngle.current, 0)
-
-      // Guarantee camera is immediately locked onto the vehicle during travel transitions
-      const carPos = pos.current
-      const carQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawAngle.current)
-      if (cameraPerspective === 'dashboard') {
-        _tempCamOffset.set(0, 0.76, 0.12).applyQuaternion(carQuat).add(carPos)
-        _tempCamLookAt.set(0, 0.72, -30).applyQuaternion(carQuat).add(carPos)
-      } else if (cameraPerspective === 'bumper') {
-        _tempCamOffset.set(0, 0.42, -2.4).applyQuaternion(carQuat).add(carPos)
-        _tempCamLookAt.set(0, 0.40, -35).applyQuaternion(carQuat).add(carPos)
-      } else if (cameraPerspective === 'drone') {
-        _tempCamOffset.set(0, 5.8, 11.5).applyQuaternion(carQuat).add(carPos)
-        _tempCamLookAt.set(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
-      } else {
-        _tempCamOffset.set(0, 1.82, 4.85).applyQuaternion(carQuat).add(carPos)
-        _tempCamLookAt.set(0, 0.86, -20).applyQuaternion(carQuat).add(carPos)
-      }
-      state.camera.position.copy(_tempCamOffset)
-      cameraLookAtRef.current.copy(_tempCamLookAt)
-      state.camera.lookAt(cameraLookAtRef.current)
-      isFirstCamFrameRef.current = false
-      return
-    }
-
     const frameDelta = Math.min(delta, 0.08)
     const keys = getKeys()
+    const store = useGameStore.getState()
 
     // 1. Resolve active biome at current Z position without thrashing store if unchanged
     const activeBiomeConfig = getActiveBiomeAt(pos.current.z, biome)
@@ -1351,13 +1280,10 @@ export default function VehicleController() {
       useTelemetryStore.getState().setTelemetry({
         speed: Math.round(currentSpeedKmh),
         rpm: finalRpm,
-        maxRpm: config.redlineRpm,
-        redlineRpm: config.upshiftRpm || Math.round(config.redlineRpm * 0.92),
         gear: calculatedGear,
         throttle: curThrottleAbs,
         brake: targetBrake,
         distance: accumulatedDistance.current,
-        isBurnout: isBurnoutActive,
         pitch: +(bodyPitch.current * (180 / Math.PI)).toFixed(1),
         roll: +(bodyRoll.current * (180 / Math.PI)).toFixed(1),
         suspension: [
@@ -1695,11 +1621,11 @@ export default function VehicleController() {
     // ------------------------------------------------------------------------
     // 8. Dynamic Racing Camera with Speed-Dependent FOV, Vibration & Dual Smoothing
     // ------------------------------------------------------------------------
-    // Dynamic FOV: calibrated 54° baseline to 65° top speed (eliminates wide-angle perspective distortion and road flaring)
+    // Dynamic FOV: expands smoothly from 60° baseline up to 82° at high speeds
     const persCam = state.camera as THREE.PerspectiveCamera
     if (persCam.isPerspectiveCamera) {
       const speedRatio = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
-      const targetFov = 54 + Math.pow(speedRatio, 1.3) * 11.0 // 54° to 65°
+      const targetFov = 60 + Math.pow(speedRatio, 1.4) * 22.0 // 60° to 82°
       if (Math.abs(persCam.fov - targetFov) > 0.05) {
         persCam.fov = THREE.MathUtils.lerp(persCam.fov, targetFov, frameDelta * 3.5)
         persCam.updateProjectionMatrix()

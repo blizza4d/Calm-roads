@@ -1,10 +1,10 @@
-import { useMemo, useRef, useEffect, memo } from 'react'
+import { useMemo, useRef, useEffect, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Sky } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette, ToneMapping } from '@react-three/postprocessing'
+import { Sky, Environment } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
-import { BIOMES, getRoadCenter, BiomeType } from '../../../utils/roadMath'
+import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
 
 // ------------------------------------------------------------------------
 // Cosmic Night Sky Shaders: 3,500+ Twinkling Stars & Galactic Milky Way
@@ -75,6 +75,7 @@ const milkyWayFragmentShader = `
   }
 `
 
+const SSAO_COLOR = new THREE.Color('#0b101b')
 
 // Cosmic Sky Component: Centered on player camera, renders Stars, Milky Way and Glowing 3D Moon
 function CosmicCelestialSky({
@@ -297,19 +298,17 @@ function CosmicCelestialSky({
 
 // ------------------------------------------------------------------------
 // Panoramic Distant Mountain Horizon & Atmospheric Ground Skirt
-// Mesh geometry topology is memoized by biomeId only.
-// Vertex colors are updated in-place without disposing or re-allocating GPU buffers.
+// 1. DistantMountainHorizon: 360-degree panoramic alpine mountain silhouette ring with smooth aerial perspective
+// 2. AtmosphericHorizonGround: Soft atmospheric ground skirt preventing Drei Sky black void
 // ------------------------------------------------------------------------
 function PanoramicMountainHorizon({
   fogColor,
   rockColor,
   isNight,
-  biomeId = 'forest',
 }: {
   fogColor: string
   rockColor: string
   isNight: boolean
-  biomeId?: BiomeType
 }) {
   const { camera } = useThree()
   const ringGroupRef = useRef<THREE.Group>(null)
@@ -321,13 +320,16 @@ function PanoramicMountainHorizon({
     const colors: number[] = []
     const indices: number[] = []
 
-    const baseY = -800
+    const fogCol = new THREE.Color(fogColor)
+    const baseRock = new THREE.Color(rockColor)
+    // Mountain summit color: natural rock gently tinted with atmospheric aerial haze
+    const summitCol = isNight
+      ? new THREE.Color('#0f172a').lerp(fogCol, 0.65)
+      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.68)
+    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.55)
 
-    const isPlains = biomeId === 'plains'
-    const isDesert = biomeId === 'desert'
-    const isCoastal = biomeId === 'coastal'
-    const isRollingHills = biomeId === 'rolling_hills'
-    const isSnowyAlpine = biomeId === 'twisted_mountains' || biomeId === 'alpine' || biomeId === 'tundra'
+    // Deep anchor base (y = -800m) to completely eliminate floating gaps
+    const baseY = -800
 
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * Math.PI * 2
@@ -337,63 +339,27 @@ function PanoramicMountainHorizon({
       const x = radius * sinT
       const z = radius * cosT
 
-      let peakH = 140
-
-      if (isPlains) {
-        // Expansive low rolling prairie knolls and distant grassland rises (NO alpine peaks or snow)
-        peakH =
-          52 +
-          Math.sin(theta * 2.0) * 24 +
-          Math.cos(theta * 5.0 + 0.4) * 14 +
-          Math.sin(theta * 9.0) * 8 +
-          Math.cos(theta * 19.0) * 4
-      } else if (isDesert) {
-        // Flat-topped sandstone mesas and terraced canyon bluffs
-        const rawMesa = Math.sin(theta * 4.0)
-        const mesa = Math.tanh(rawMesa * 3.5) * 60 + Math.cos(theta * 8.0) * 22 + Math.sin(theta * 16.0) * 10
-        peakH = 125 + mesa
-      } else if (isCoastal) {
-        // Gentle coastal headlands and ocean dunes
-        peakH =
-          68 +
-          Math.sin(theta * 2.5) * 26 +
-          Math.cos(theta * 6.0) * 14 +
-          Math.sin(theta * 11.0) * 8
-      } else if (isRollingHills) {
-        // Soft rounded undulating hills
-        peakH =
-          90 +
-          Math.sin(theta * 3.0) * 38 +
-          Math.cos(theta * 7.0) * 18 +
-          Math.sin(theta * 14.0) * 10
-      } else if (isSnowyAlpine) {
-        // Dramatic alpine peaks with snow caps
-        peakH =
-          185 +
-          Math.sin(theta * 3.0) * 75 +
-          Math.cos(theta * 7.0 + 0.8) * 45 +
-          Math.sin(theta * 13.0) * 25 +
-          Math.cos(theta * 29.0) * 14 +
-          Math.sin(theta * 53.0) * 6
-      } else {
-        // Forest / Autumn / Enchanted: layered forested foothills
-        peakH =
-          135 +
-          Math.sin(theta * 3.0) * 48 +
-          Math.cos(theta * 6.5) * 28 +
-          Math.sin(theta * 12.0) * 15
-      }
+      // Multi-octave natural mountain peak silhouettes with rich stratified ridges
+      const peakH =
+        170 +
+        Math.sin(theta * 3.0) * 70 +
+        Math.cos(theta * 7.0 + 0.8) * 42 +
+        Math.sin(theta * 13.0) * 25 +
+        Math.cos(theta * 29.0) * 14 +
+        Math.sin(theta * 53.0) * 6
 
       // Bottom vertex (deep horizon base)
       positions.push(x, baseY, z)
-      colors.push(0, 0, 0)
+      colors.push(fogCol.r, fogCol.g, fogCol.b)
 
-      // Top vertex (mountain / hill summit)
+      // Top vertex (mountain summit)
       positions.push(x, peakH, z)
-      colors.push(0, 0, 0)
+      const col = peakH > 220 ? snowCol : summitCol
+      colors.push(col.r, col.g, col.b)
     }
 
-    // Inward-facing winding: ensures all vertex normals point consistently INWARDS towards camera
+    // Inward-facing winding: (b1, t1, b2) and (t1, t2, b2)
+    // Ensures all vertex normals point consistently INWARDS towards the camera
     for (let i = 0; i < segments; i++) {
       const b1 = i * 2
       const t1 = b1 + 1
@@ -410,69 +376,7 @@ function PanoramicMountainHorizon({
     geo.setIndex(indices)
     geo.computeVertexNormals()
     return geo
-  }, [biomeId])
-
-  // In-place vertex color updates without re-allocating or disposing GPU buffer
-  useEffect(() => {
-    const colorAttr = mountainGeo.attributes.color as THREE.BufferAttribute | undefined
-    const posAttr = mountainGeo.attributes.position as THREE.BufferAttribute | undefined
-    if (!colorAttr || !posAttr) return
-
-    const colors = colorAttr.array as Float32Array
-    const positions = posAttr.array as Float32Array
-
-    const fogCol = new THREE.Color(fogColor)
-    const baseRock = new THREE.Color(rockColor)
-    const summitCol = isNight
-      ? new THREE.Color('#0f172a').lerp(fogCol, 0.65)
-      : baseRock.clone().multiplyScalar(0.72).lerp(fogCol, 0.68)
-    const snowCol = isNight ? new THREE.Color('#1e293b') : new THREE.Color('#f8fafc').lerp(fogCol, 0.55)
-
-    const isPlains = biomeId === 'plains'
-    const isDesert = biomeId === 'desert'
-    const isCoastal = biomeId === 'coastal'
-    const isRollingHills = biomeId === 'rolling_hills'
-    const isSnowyAlpine = biomeId === 'twisted_mountains' || biomeId === 'alpine' || biomeId === 'tundra'
-
-    const prairieSummit = isNight
-      ? new THREE.Color('#0d1810').lerp(fogCol, 0.65)
-      : new THREE.Color('#4a6b2f').lerp(fogCol, 0.68)
-    const desertSummit = isNight
-      ? new THREE.Color('#1f1510').lerp(fogCol, 0.65)
-      : new THREE.Color('#a15c15').lerp(fogCol, 0.68)
-    const coastalSummit = isNight
-      ? new THREE.Color('#0b1320').lerp(fogCol, 0.65)
-      : new THREE.Color('#3b754a').lerp(fogCol, 0.70)
-    const hillsSummit = isNight
-      ? new THREE.Color('#0f1b13').lerp(fogCol, 0.65)
-      : new THREE.Color('#386641').lerp(fogCol, 0.70)
-
-    const segments = 256
-    for (let i = 0; i <= segments; i++) {
-      const bIdx = (i * 2) * 3
-      const tIdx = (i * 2 + 1) * 3
-      const peakH = positions[tIdx + 1]
-
-      let col = summitCol
-      if (isPlains) col = prairieSummit
-      else if (isDesert) col = desertSummit
-      else if (isCoastal) col = coastalSummit
-      else if (isRollingHills) col = hillsSummit
-      else if (isSnowyAlpine) col = peakH > 210 ? snowCol : summitCol
-
-      // Base vertex color = fogCol
-      colors[bIdx] = fogCol.r
-      colors[bIdx + 1] = fogCol.g
-      colors[bIdx + 2] = fogCol.b
-
-      // Summit vertex color = col
-      colors[tIdx] = col.r
-      colors[tIdx + 1] = col.g
-      colors[tIdx + 2] = col.b
-    }
-
-    colorAttr.needsUpdate = true
-  }, [mountainGeo, fogColor, rockColor, isNight, biomeId])
+  }, [fogColor, rockColor, isNight])
 
   // Track camera in X, Z and damped Y so mountains stay anchored to visual horizon
   useFrame(() => {
@@ -498,133 +402,8 @@ function PanoramicMountainHorizon({
 }
 
 // ------------------------------------------------------------------------
-// Procedural PMREM Offline Environment Probe
-// Eliminates remote CDN network fetches, zero suspense, zero null-environment drops
-// Generates an atmospheric equirectangular gradient dynamically mapped to scene.environment
+// Realistic Coastal Beach Ocean Surface: Dynamic animated sea surface with wave swells & specular highlights
 // ------------------------------------------------------------------------
-function ProceduralEnvironmentProbe({
-  skyColor,
-  fogColor,
-  isNight,
-  groundColor,
-  graphicsQuality,
-}: {
-  skyColor: string
-  fogColor: string
-  isNight: boolean
-  groundColor: string
-  graphicsQuality: 'low' | 'medium' | 'high'
-}) {
-  const { gl, scene } = useThree()
-  const pmremRef = useRef<THREE.PMREMGenerator | null>(null)
-  const prevTargetRef = useRef<THREE.WebGLRenderTarget | null>(null)
-
-  useEffect(() => {
-    if (!pmremRef.current) {
-      pmremRef.current = new THREE.PMREMGenerator(gl)
-      pmremRef.current.compileEquirectangularShader()
-    }
-    const pmrem = pmremRef.current
-
-    const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 128
-    const ctx = canvas.getContext('2d')
-
-    if (ctx) {
-      // 1. Sky-to-Horizon-to-Ground vertical gradient
-      const grad = ctx.createLinearGradient(0, 0, 0, 128)
-      grad.addColorStop(0, skyColor)
-      grad.addColorStop(0.48, fogColor)
-      grad.addColorStop(0.52, fogColor)
-      grad.addColorStop(1.0, isNight ? '#0a0d14' : groundColor)
-
-      ctx.fillStyle = grad
-      ctx.fillRect(0, 0, 256, 128)
-
-      // 2. Specular celestial body highlight with stable coordinates to eliminate PMREM thrashing
-      const sunPx = isNight ? 64 : 128
-      const sunPy = isNight ? 96 : 40
-      const sunRadius = isNight ? 12 : 24
-
-      const sunGlow = ctx.createRadialGradient(sunPx, sunPy, 0, sunPx, sunPy, sunRadius)
-      sunGlow.addColorStop(0, isNight ? '#93c5fd' : '#fff5cc')
-      sunGlow.addColorStop(0.35, isNight ? 'rgba(147, 197, 253, 0.7)' : 'rgba(255, 235, 180, 0.7)')
-      sunGlow.addColorStop(1.0, 'rgba(0, 0, 0, 0)')
-
-      ctx.fillStyle = sunGlow
-      ctx.beginPath()
-      ctx.arc(sunPx, sunPy, sunRadius, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    const tex = new THREE.CanvasTexture(canvas)
-    tex.mapping = THREE.EquirectangularReflectionMapping
-    tex.needsUpdate = true
-
-    const envTarget = pmrem.fromEquirectangular(tex)
-    scene.environment = envTarget.texture
-
-    const intensity = graphicsQuality === 'low' ? 0.45 : isNight ? 0.32 : 0.70
-    scene.environmentIntensity = intensity
-
-    tex.dispose()
-
-    if (prevTargetRef.current) {
-      prevTargetRef.current.dispose()
-    }
-    prevTargetRef.current = envTarget
-  }, [gl, scene, skyColor, fogColor, isNight, groundColor, graphicsQuality])
-
-  // Dynamic light intensity update without PMREM recreation or shader recompilation
-  useFrame(() => {
-    const intensity = graphicsQuality === 'low' ? 0.45 : isNight ? 0.32 : 0.70
-    if (scene.environmentIntensity !== intensity) {
-      scene.environmentIntensity = intensity
-    }
-  })
-
-  useEffect(() => {
-    return () => {
-      if (prevTargetRef.current) {
-        prevTargetRef.current.dispose()
-        prevTargetRef.current = null
-      }
-      if (pmremRef.current) {
-        pmremRef.current.dispose()
-        pmremRef.current = null
-      }
-      scene.environment = null
-    }
-  }, [scene])
-
-  return null
-}
-
-// ------------------------------------------------------------------------
-// Realistic Coastal Beach Ocean Surface: Dynamic GPU-accelerated sea surface with wave swells & specular highlights
-// ------------------------------------------------------------------------
-const oceanUniforms = {
-  uTime: { value: 0 },
-}
-
-function onOceanMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
-  shader.uniforms.uTime = oceanUniforms.uTime
-  shader.vertexShader = shader.vertexShader.replace(
-    '#include <common>',
-    `#include <common>
-     uniform float uTime;`
-  )
-  shader.vertexShader = shader.vertexShader.replace(
-    '#include <begin_vertex>',
-    `#include <begin_vertex>
-     float wave = sin(transformed.x * 0.015 + uTime * 1.4) * 0.28 +
-                  cos(transformed.z * 0.022 + uTime * 0.95) * 0.22 +
-                  sin((transformed.x + transformed.z) * 0.035 + uTime * 2.1) * 0.12;
-     transformed.y += wave;`
-  )
-}
-
 function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiome: string }) {
   const { camera } = useThree()
   const oceanRef = useRef<THREE.Mesh>(null)
@@ -633,40 +412,50 @@ function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiom
 
   const oceanGeo = useMemo(() => {
     // Spans 2,600m in X and 3,800m in Z with subdivisions for natural undulating swells
-    const geo = new THREE.PlaneGeometry(2600, 3800, 64, 64)
+    const geo = new THREE.PlaneGeometry(2600, 3800, 48, 48)
     geo.rotateX(-Math.PI / 2)
     return geo
   }, [])
 
-  const oceanMat = useMemo(() => {
-    const mat = new THREE.MeshStandardMaterial({
-      color: isNight ? '#061325' : '#0d5c75',
-      roughness: 0.18,
-      metalness: 0.15,
-      envMapIntensity: isNight ? 0.6 : 1.35,
-      transparent: true,
-      opacity: 0.88,
-      depthWrite: false,
-    })
-    mat.onBeforeCompile = onOceanMaterialCompile
-    return mat
-  }, [isNight])
-
   useFrame((state) => {
     if (oceanRef.current && isCoastal) {
-      oceanUniforms.uTime.value = state.clock.getElapsedTime() * 1.15
       const roadCx = getRoadCenter(camera.position.z)
       // Anchored at sea level Y = 0.0, strictly on the seaward side:
       // Center of ocean plane is placed at roadCx - 1380m so nearest edge is 80m from road,
       // completely on the ocean side of the beach dunes!
       oceanRef.current.position.set(roadCx - 1380, 0.0, camera.position.z)
+
+      const time = state.clock.getElapsedTime() * 1.15
+      const pos = oceanGeo.attributes.position
+      const count = pos.count
+
+      for (let i = 0; i < count; i++) {
+        const x = pos.getX(i)
+        const z = pos.getZ(i)
+        const wave =
+          Math.sin(x * 0.015 + time * 1.4) * 0.28 +
+          Math.cos(z * 0.022 + time * 0.95) * 0.22 +
+          Math.sin((x + z) * 0.035 + time * 2.1) * 0.12
+        pos.setY(i, wave)
+      }
+      pos.needsUpdate = true
     }
   })
 
   if (!isCoastal) return null
 
   return (
-    <mesh ref={oceanRef} geometry={oceanGeo} material={oceanMat} position={[-1380, 0, 0]} receiveShadow />
+    <mesh ref={oceanRef} geometry={oceanGeo} position={[-1380, 0, 0]} receiveShadow>
+      <meshStandardMaterial
+        color={isNight ? '#061325' : '#0d5c75'}
+        roughness={0.22}
+        metalness={0.12}
+        envMapIntensity={isNight ? 0.6 : 1.2}
+        transparent
+        opacity={0.88}
+        depthWrite={false}
+      />
+    </mesh>
   )
 }
 
@@ -732,11 +521,11 @@ export default function GameEnvironment() {
   const timeOfDayRef = useRef(timeOfDay)
   const lastDispatchedTime = useRef(timeOfDay)
 
-  // Auto-advance time of day smoothly for directional lighting, throttling Zustand dispatches to avoid unnecessary React rerenders
+  // Auto-advance time of day smoothly for directional lighting, throttling Zustand dispatches to avoid 60fps React rerenders
   useFrame((_, delta) => {
     if (autoTimeCycle) {
       timeOfDayRef.current = (timeOfDayRef.current + delta * (24 / 720)) % 24
-      if (Math.abs(timeOfDayRef.current - lastDispatchedTime.current) > 0.25) {
+      if (Math.abs(timeOfDayRef.current - lastDispatchedTime.current) > 0.08) {
         lastDispatchedTime.current = timeOfDayRef.current
         setTimeOfDay(timeOfDayRef.current)
       }
@@ -749,8 +538,7 @@ export default function GameEnvironment() {
   // Calculate sun & sky position from 24-hour time
   // 6:00 = Sunrise, 12:00 = Noon, 18:00 = Sunset, 24:00 = Midnight
   const celestialData = useMemo(() => {
-    const numTime = typeof timeOfDay === 'number' && Number.isFinite(timeOfDay) ? timeOfDay : 17.5
-    const angle = ((numTime - 6) / 24) * Math.PI * 2
+    const angle = ((timeOfDay - 6) / 24) * Math.PI * 2
     const sunHeight = Math.sin(angle) // -1 (midnight) to +1 (noon)
     const sunEastWest = Math.cos(angle)
 
@@ -826,15 +614,12 @@ export default function GameEnvironment() {
     switch (currentResolvedBiome) {
       case 'twisted_mountains':
       case 'tundra':
-      case 'alpine':
         return 'dawn' // Crisp cool alpine snow reflection
       case 'desert':
       case 'coastal':
-      case 'plains':
-        return 'sunset' // Warm golden open-horizon reflection (prevents forest reflection in Plains & Desert!)
+        return 'sunset' // Warm golden open-horizon reflection
       case 'autumn':
-      case 'rolling_hills':
-        return 'park' // Golden / rolling pasture foliage reflection
+        return 'park' // Golden foliage reflection
       case 'forest':
       case 'enchanted_forest':
       default:
@@ -903,27 +688,19 @@ export default function GameEnvironment() {
     scene.background = new THREE.Color(skyColor)
   }, [scene, skyColor])
 
-  // Player-following directional light with shadow texel snapping to prevent shadow crawling/shimmering
+  // Player-following directional light with smooth target tracking
   useFrame(() => {
     if (dirLightRef.current && lightTargetRef.current) {
       const cx = camera.position.x
       const cy = camera.position.y
       const cz = camera.position.z
 
-      // Shadow camera horizontal width is 110m (from -55 to +55).
-      // Snapping to discrete shadow map texel increments eliminates sub-pixel swimming on geometry edges.
-      const shadowMapRes = graphicsQuality === 'low' ? 1024 : 2048
-      const texelSize = 110.0 / shadowMapRes
-      const snapX = Math.round(cx / texelSize) * texelSize
-      const snapY = Math.round(cy / texelSize) * texelSize
-      const snapZ = Math.round(cz / texelSize) * texelSize
-
       dirLightRef.current.position.set(
-        snapX + celestialData.lightPos[0],
-        snapY + celestialData.lightPos[1],
-        snapZ + celestialData.lightPos[2]
+        cx + celestialData.lightPos[0],
+        cy + celestialData.lightPos[1],
+        cz + celestialData.lightPos[2]
       )
-      lightTargetRef.current.position.set(snapX, snapY, snapZ - 10)
+      lightTargetRef.current.position.set(cx, cy, cz - 10)
       dirLightRef.current.target = lightTargetRef.current
       dirLightRef.current.target.updateMatrixWorld()
     }
@@ -1068,17 +845,16 @@ export default function GameEnvironment() {
         fogColor={skyColor}
         rockColor={biomeConfig.rockColor}
         isNight={celestialData.isNight}
-        biomeId={currentResolvedBiome}
       />
 
-      {/* Dynamic Procedural Offline Environment Probe (Zero CDN downloads, Zero Suspense, Zero Black Flashing) */}
-      <ProceduralEnvironmentProbe
-        skyColor={celestialData.isNight ? '#050b18' : (biomeConfig.skyHemiSky || '#38bdf8')}
-        fogColor={celestialData.isNight ? '#0a0f1d' : (biomeConfig.fogColor || '#7dd3fc')}
-        isNight={celestialData.isNight}
-        groundColor={biomeConfig.skyHemiGround || '#4a5568'}
-        graphicsQuality={graphicsQuality}
-      />
+      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Biome-Adaptive) */}
+      <Suspense fallback={null}>
+        <Environment
+          preset={envPreset}
+          background={false}
+          environmentIntensity={graphicsQuality === 'low' ? 0.45 : celestialData.isNight ? 0.32 : 0.70}
+        />
+      </Suspense>
 
       {/* Directional Sun/Moon Light with Tight Player-Centered Shadow Frustum & Zero Surface Acne */}
       <directionalLight
@@ -1129,28 +905,29 @@ export default function GameEnvironment() {
         </points>
       )}
 
-      {/* Post-Processing Pass with Explicit ToneMapping, Bloom, and Vignette */}
-      {graphicsQuality !== 'low' && <PostProcessingPipeline />}
+      {/* Cinematic Post-Processing Pass with Clamped Bloom & Contact-Shadow SSAO */}
+      {graphicsQuality !== 'low' && (
+        <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
+          <SSAO
+            resolutionScale={0.5}
+            radius={0.35}
+            intensity={22}
+            luminanceInfluence={0.5}
+            color={SSAO_COLOR}
+            worldDistanceThreshold={100}
+            worldDistanceFalloff={10}
+            worldProximityThreshold={0.5}
+            worldProximityFalloff={0.1}
+          />
+          <Bloom
+            luminanceThreshold={1.05}
+            luminanceSmoothing={0.15}
+            intensity={graphicsQuality === 'medium' ? 0.25 : 0.35}
+            mipmapBlur
+          />
+          <Vignette eskil={false} offset={0.42} darkness={0.22} />
+        </EffectComposer>
+      )}
     </>
   )
 }
-
-/**
- * Isolated Memoized Post-Processing Pipeline:
- * Prevents EffectComposer from re-creating intermediate render targets when parent environment
- * updates time of day, weather or lighting.
- */
-const PostProcessingPipeline = memo(function PostProcessingPipeline() {
-  return (
-    <EffectComposer multisampling={0}>
-      <ToneMapping />
-      <Bloom
-        luminanceThreshold={1.05}
-        luminanceSmoothing={0.15}
-        intensity={0.25}
-        mipmapBlur
-      />
-      <Vignette eskil={false} offset={0.42} darkness={0.22} />
-    </EffectComposer>
-  )
-})

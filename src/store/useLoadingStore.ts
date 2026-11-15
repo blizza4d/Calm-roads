@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 
 export type LoadingStage =
-  | 'UNINITIALIZED'
   | 'INITIALIZING'
   | 'LOADING_ESSENTIAL_ASSETS'
   | 'BUILDING_INITIAL_WORLD'
@@ -11,17 +10,6 @@ export type LoadingStage =
   | 'VERIFYING_FIRST_SCENE'
   | 'READY'
   | 'ERROR'
-  | 'RECOVERING'
-
-export interface WorldChecklist {
-  rendererValid: boolean
-  cameraValid: boolean
-  terrainReady: boolean
-  roadReady: boolean
-  vehicleReady: boolean
-  environmentReady: boolean
-  firstFrameRendered: boolean
-}
 
 export interface LoadingState {
   stage: LoadingStage
@@ -31,168 +19,104 @@ export interface LoadingState {
   errorMessage: string | null
   isReady: boolean
   retryCount: number
-  startTime: number
-  checklist: WorldChecklist
 
   setStage: (stage: LoadingStage, statusMessage?: string, subMessage?: string, progress?: number) => void
-  setProgress: (progress: number) => void
-  updateChecklist: (key: keyof WorldChecklist, value: boolean) => void
   setError: (errorMessage: string) => void
   retry: () => void
-  reset: () => void
 }
 
-export const STAGE_PROGRESS_MAP: Record<LoadingStage, number> = {
-  UNINITIALIZED: 0,
-  INITIALIZING: 8,
-  LOADING_ESSENTIAL_ASSETS: 24,
-  BUILDING_INITIAL_WORLD: 44,
-  PREPARING_MATERIALS: 64,
-  COMPILING_SHADERS: 78,
+const STAGE_PROGRESS_MAP: Record<LoadingStage, number> = {
+  INITIALIZING: 5,
+  LOADING_ESSENTIAL_ASSETS: 25,
+  BUILDING_INITIAL_WORLD: 45,
+  PREPARING_MATERIALS: 60,
+  COMPILING_SHADERS: 75,
   WARMING_UP_RENDERER: 88,
   VERIFYING_FIRST_SCENE: 96,
   READY: 100,
   ERROR: 0,
-  RECOVERING: 10,
 }
 
-export const STAGE_DEFAULT_MESSAGES: Record<LoadingStage, { title: string; sub: string }> = {
-  UNINITIALIZED: {
-    title: '00 — UNINITIALIZED',
-    sub: 'Awaiting engine boot command...',
-  },
+const STAGE_DEFAULT_MESSAGES: Record<LoadingStage, { title: string; sub: string }> = {
   INITIALIZING: {
-    title: '01 — INITIALIZING ENGINE',
-    sub: 'Bootstrapping simulation loop, road mathematics & audio subsystem...',
+    title: 'Initializing Engine & Physics State',
+    sub: 'Bootstrapping simulation and audio subsystem...',
   },
   LOADING_ESSENTIAL_ASSETS: {
-    title: '02 — PREPARING VEHICLE',
-    sub: 'Loading monocoque chassis, suspension parameters & wheel kinematics...',
+    title: 'Loading Essential Monocoque & Textures',
+    sub: 'Fetching 3D geometries, materials, and audio samples...',
   },
   BUILDING_INITIAL_WORLD: {
-    title: '03 — GENERATING WORLD & ROAD',
-    sub: 'Constructing procedural elevation heightmaps, spline curves & lane markings...',
+    title: 'Generating Initial Road & Terrain Chunks',
+    sub: 'Constructing procedural spline tracks and elevation heightmaps...',
   },
   PREPARING_MATERIALS: {
-    title: '04 — PREPARING ENVIRONMENT',
-    sub: 'Configuring PBR materials, atmospheric scattering & PMREM reflection probe...',
+    title: 'Preparing PBR Shader Materials',
+    sub: 'Configuring ACES Filmic tonemapping, environment probes & foliage alphas...',
   },
   COMPILING_SHADERS: {
-    title: '05 — COMPILING SHADERS',
-    sub: 'Executing asynchronous parallel GPU shader program compilation...',
+    title: 'Compiling WebGL Shader Programs',
+    sub: 'Executing asynchronous parallel GPU compilation for scene & shadows...',
   },
   WARMING_UP_RENDERER: {
-    title: '06 — WARMING UP RENDERER',
-    sub: 'Executing off-screen pipeline warmup pass to eliminate runtime micro-stutters...',
+    title: 'Warming Up WebGL Pipeline State',
+    sub: 'Executing off-screen warmup passes to eliminate runtime hitching...',
   },
   VERIFYING_FIRST_SCENE: {
-    title: '07 — FINALIZING EXPERIENCE',
-    sub: 'Verifying scene matrix hierarchy, bounding spheres & first presented frame...',
+    title: 'Verifying Scene Readiness',
+    sub: 'Checking WebGL context status and matrix hierarchy...',
   },
   READY: {
-    title: 'SCENE READY',
-    sub: 'Driving controls engaged. Accelerate into the horizon.',
+    title: 'Scene Ready',
+    sub: 'Engaging driving controls...',
   },
   ERROR: {
-    title: 'WORLD INITIALIZATION INTERRUPTED',
-    sub: 'The driving environment could not be prepared.',
+    title: 'Initialization Failure',
+    sub: 'An unexpected GPU or asset error occurred.',
   },
-  RECOVERING: {
-    title: 'RECOVERING PIPELINE STATE',
-    sub: 'Re-initializing WebGL context and rebuilding scene graph...',
-  },
-}
-
-const INITIAL_CHECKLIST: WorldChecklist = {
-  rendererValid: false,
-  cameraValid: false,
-  terrainReady: false,
-  roadReady: false,
-  vehicleReady: false,
-  environmentReady: false,
-  firstFrameRendered: false,
 }
 
 export const useLoadingStore = create<LoadingState>((set, get) => ({
   stage: 'INITIALIZING',
-  progress: 8,
+  progress: 5,
   statusMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.title,
   subMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.sub,
   errorMessage: null,
   isReady: false,
   retryCount: 0,
-  startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-  checklist: { ...INITIAL_CHECKLIST },
 
   setStage: (stage, statusMessage, subMessage, customProgress) => {
     const defaultMsg = STAGE_DEFAULT_MESSAGES[stage]
-    const calculatedProgress = customProgress !== undefined
-      ? Math.max(0, Math.min(100, customProgress))
-      : STAGE_PROGRESS_MAP[stage]
-
-    set((state) => ({
+    set({
       stage,
-      progress: Math.max(state.progress, calculatedProgress), // Monotonic non-decreasing progress
+      progress: customProgress !== undefined ? customProgress : STAGE_PROGRESS_MAP[stage],
       statusMessage: statusMessage || defaultMsg.title,
       subMessage: subMessage || defaultMsg.sub,
       isReady: stage === 'READY',
       errorMessage: stage === 'ERROR' ? get().errorMessage : null,
-    }))
-  },
-
-  setProgress: (progress) => {
-    set((state) => ({
-      progress: Math.max(state.progress, Math.min(100, progress)),
-    }))
-  },
-
-  updateChecklist: (key, value) => {
-    set((state) => ({
-      checklist: {
-        ...state.checklist,
-        [key]: value,
-      },
-    }))
+    })
   },
 
   setError: (errorMessage) => {
-    console.error('[useLoadingStore] Critical initialization error:', errorMessage)
     set({
       stage: 'ERROR',
       progress: 0,
       statusMessage: STAGE_DEFAULT_MESSAGES.ERROR.title,
-      subMessage: 'Please click Retry Initialization to rebuild the rendering pipeline.',
+      subMessage: 'Please click Retry to re-initialize the rendering context.',
       errorMessage,
       isReady: false,
     })
   },
 
   retry: () => {
-    console.info('[useLoadingStore] Retrying initialization...')
     set((s) => ({
-      stage: 'RECOVERING',
-      progress: 10,
-      statusMessage: STAGE_DEFAULT_MESSAGES.RECOVERING.title,
-      subMessage: STAGE_DEFAULT_MESSAGES.RECOVERING.sub,
-      errorMessage: null,
-      isReady: false,
-      retryCount: s.retryCount + 1,
-      startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-      checklist: { ...INITIAL_CHECKLIST },
-    }))
-  },
-
-  reset: () => {
-    set({
       stage: 'INITIALIZING',
-      progress: 8,
+      progress: 5,
       statusMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.title,
       subMessage: STAGE_DEFAULT_MESSAGES.INITIALIZING.sub,
       errorMessage: null,
       isReady: false,
-      retryCount: 0,
-      startTime: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-      checklist: { ...INITIAL_CHECKLIST },
-    })
+      retryCount: s.retryCount + 1,
+    }))
   },
 }))
