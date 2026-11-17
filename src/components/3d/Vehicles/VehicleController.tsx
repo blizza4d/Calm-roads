@@ -40,7 +40,9 @@ export interface VehicleConfig {
   tireGrip: number
   roadDamping: number
   offroadDamping: number
-  gearRatios: number[] // Max speed km/h per forward gear
+  gearRatios: number[] // Physical transmission gear ratios (1st, 2nd, ...)
+  finalDrive: number // Final drive differential ratio
+  reverseRatio: number // Reverse gear ratio
   idleRpm: number
   redlineRpm: number
   upshiftRpm: number
@@ -67,11 +69,13 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.15,
     roadDamping: 0.994,
     offroadDamping: 0.985,
-    gearRatios: [48, 92, 145, 195, 238, 275],
+    gearRatios: [3.25, 2.13, 1.58, 1.24, 1.00, 0.84],
+    finalDrive: 3.85,
+    reverseRatio: 3.40,
     idleRpm: 850,
     redlineRpm: 8500,
-    upshiftRpm: 7200,
-    downshiftRpm: 2400,
+    upshiftRpm: 7400,
+    downshiftRpm: 2800,
     engineBraking: 0.18,
     drivetrain: 'rwd',
   },
@@ -92,11 +96,13 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.20,
     roadDamping: 0.995,
     offroadDamping: 0.985,
-    gearRatios: [52, 98, 155, 208, 252, 282],
+    gearRatios: [3.92, 2.44, 1.75, 1.30, 1.02, 0.84, 0.70],
+    finalDrive: 3.44,
+    reverseRatio: 3.55,
     idleRpm: 900,
     redlineRpm: 8800,
-    upshiftRpm: 7500,
-    downshiftRpm: 2500,
+    upshiftRpm: 7800,
+    downshiftRpm: 3000,
     engineBraking: 0.19,
     drivetrain: 'rwd',
   },
@@ -117,7 +123,9 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 0.85, // Low-friction inertia drift
     roadDamping: 0.997,
     offroadDamping: 0.996,
-    gearRatios: [310],
+    gearRatios: [1.0],
+    finalDrive: 1.0,
+    reverseRatio: 1.0,
     idleRpm: 1000,
     redlineRpm: 9000,
     upshiftRpm: 9999,
@@ -142,10 +150,12 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 0.95,
     roadDamping: 0.991,
     offroadDamping: 0.982,
-    gearRatios: [34, 68, 108, 145],
+    gearRatios: [4.15, 2.35, 1.45, 1.00, 0.78],
+    finalDrive: 4.50,
+    reverseRatio: 4.20,
     idleRpm: 750,
     redlineRpm: 4800,
-    upshiftRpm: 3900,
+    upshiftRpm: 3800,
     downshiftRpm: 1700,
     engineBraking: 0.14,
     drivetrain: 'rwd',
@@ -167,7 +177,9 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.1,
     roadDamping: 0.992,
     offroadDamping: 0.984,
-    gearRatios: [42, 84, 130, 178, 225],
+    gearRatios: [3.42, 2.14, 1.52, 1.16, 0.92],
+    finalDrive: 4.25,
+    reverseRatio: 3.50,
     idleRpm: 950,
     redlineRpm: 7600,
     upshiftRpm: 6800,
@@ -192,11 +204,13 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.20,
     roadDamping: 0.995,
     offroadDamping: 0.985,
-    gearRatios: [52, 98, 155, 208, 252, 282],
+    gearRatios: [3.92, 2.44, 1.75, 1.30, 1.02, 0.84, 0.70],
+    finalDrive: 3.44,
+    reverseRatio: 3.55,
     idleRpm: 900,
     redlineRpm: 8800,
-    upshiftRpm: 7500,
-    downshiftRpm: 2500,
+    upshiftRpm: 7800,
+    downshiftRpm: 2600,
     engineBraking: 0.19,
     drivetrain: 'rwd',
   },
@@ -217,7 +231,9 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     tireGrip: 1.1,
     roadDamping: 0.992,
     offroadDamping: 0.984,
-    gearRatios: [42, 84, 130, 178, 225],
+    gearRatios: [3.45, 2.05, 1.48, 1.12, 0.89],
+    finalDrive: 4.10,
+    reverseRatio: 3.50,
     idleRpm: 950,
     redlineRpm: 7600,
     upshiftRpm: 6800,
@@ -487,10 +503,15 @@ export default function VehicleController() {
   const physicsAccumulator = useRef(0)
   const FIXED_DT = 1 / 120
 
-  // Transmission simulation state (Auto by default with Left Shift upshift / Right Shift downshift manual overrides)
-  const currentGearIndex = useRef(1)
-  const manualOverrideTimer = useRef(0)
+  // Transmission state machine:
+  // gearState: 'D' (Forward Drive), 'R' (Reverse), 'N' (Neutral)
+  const gearState = useRef<'D' | 'R' | 'N'>('D')
+  // currentGear: strictly positive integer 1..maxGears for forward drive
+  const currentGear = useRef(1)
+  const shiftCooldownTimer = useRef(0)
   const shiftCutTimer = useRef(0)
+  const reverseHoldTimer = useRef(0)
+  const forwardHoldTimer = useRef(0)
   const smoothedRpm = useRef(config.idleRpm)
 
   // Vehicle Audio Engine Lifecycle: Initialize Web Audio API and cleanup on unmount
@@ -509,31 +530,48 @@ export default function VehicleController() {
 
       const maxGears = config.gearRatios.length
 
-      // Left Shift: Request Upshift
+      // M Key: Toggle transmission mode (Automatic <-> Manual)
+      if (e.code === 'KeyM') {
+        useGameStore.getState().toggleTransmissionMode()
+        return
+      }
+
+      // Left Shift: Request Upshift (Enters persistent Manual mode)
       if (e.code === 'ShiftLeft') {
-        if (currentGearIndex.current < maxGears) {
-          const nextGearMinSpeed =
-            currentGearIndex.current === 1 ? 6 : config.gearRatios[currentGearIndex.current - 2] * 0.35
-          if (Math.abs(forwardVel.current) * 3.6 >= nextGearMinSpeed) {
-            currentGearIndex.current++
-            manualOverrideTimer.current = 4.5
-            shiftCutTimer.current = 0.12
-            useGameStore.getState().setTransmissionMode('manual')
+        useGameStore.getState().setTransmissionMode('manual')
+        if (gearState.current === 'R') {
+          gearState.current = 'D'
+          currentGear.current = 1
+          shiftCooldownTimer.current = 0.28
+          shiftCutTimer.current = 0.10
+          audioSystem.triggerGearShift(vehicleModel, false)
+          return
+        }
+        if (gearState.current === 'D' && currentGear.current < maxGears && shiftCooldownTimer.current <= 0) {
+          const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
+          const nextRatio = config.gearRatios[currentGear.current]
+          const nextRpm = wheelOmega * nextRatio * config.finalDrive * (60 / (2 * Math.PI))
+          // Upshift lockout: prevent bogging engine far below idle speed
+          if (Math.abs(forwardVel.current) * 3.6 >= 8.0 && nextRpm > config.idleRpm * 0.85) {
+            currentGear.current++
+            shiftCooldownTimer.current = 0.28
+            shiftCutTimer.current = 0.11
             audioSystem.triggerGearShift(vehicleModel, false)
           }
         }
       }
-      // Right Shift: Request Downshift
+      // Right Shift: Request Downshift (Enters persistent Manual mode)
       else if (e.code === 'ShiftRight') {
-        if (currentGearIndex.current > 1) {
-          const prevGearMaxSpeed = config.gearRatios[currentGearIndex.current - 2]
-          const curSpeedKmh = Math.abs(forwardVel.current) * 3.6
-          // Safety lockout: prevent mechanical over-rev
-          if (curSpeedKmh <= prevGearMaxSpeed * 1.08) {
-            currentGearIndex.current--
-            manualOverrideTimer.current = 4.5
-            shiftCutTimer.current = 0.10
-            useGameStore.getState().setTransmissionMode('manual')
+        useGameStore.getState().setTransmissionMode('manual')
+        if (gearState.current === 'D' && currentGear.current > 1 && shiftCooldownTimer.current <= 0) {
+          const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
+          const prevRatio = config.gearRatios[currentGear.current - 2]
+          const prevRpm = wheelOmega * prevRatio * config.finalDrive * (60 / (2 * Math.PI))
+          // Safety lockout: prevent catastrophic over-rev exceeding redline
+          if (prevRpm <= config.redlineRpm + 150) {
+            currentGear.current--
+            shiftCooldownTimer.current = 0.25
+            shiftCutTimer.current = 0.09
             audioSystem.triggerGearShift(vehicleModel, true)
           }
         }
@@ -550,7 +588,12 @@ export default function VehicleController() {
         currentSteerAngle.current = 0
         wheelSpin.current = 0
         steeringVisual.current = 0
-        currentGearIndex.current = 1
+        gearState.current = 'D'
+        currentGear.current = 1
+        shiftCooldownTimer.current = 0
+        shiftCutTimer.current = 0
+        reverseHoldTimer.current = 0
+        forwardHoldTimer.current = 0
         isGrounded.current = true
         isFirstCamFrameRef.current = true
         if (lastOdoPos.current) {
@@ -600,7 +643,7 @@ export default function VehicleController() {
       isGrounded.current &&
       !isServiceBrake &&
       isThrottle &&
-      (isBurnoutKey || (isHandbrake && absVel < 3.0 && currentGearIndex.current === 1))
+      (isBurnoutKey || (isHandbrake && absVel < 3.0 && gearState.current === 'D' && currentGear.current === 1))
 
     const isBurnoutActive = isBurnoutIntentional
     isBurnoutActiveRef.current = isBurnoutActive
@@ -636,32 +679,69 @@ export default function VehicleController() {
       if (keys.left || store.virtualSteerLeft) steerInput += 1
       if (keys.right || store.virtualSteerRight) steerInput -= 1
     } else {
-      // NORMAL DRIVING & SERVICE BRAKING
+      // NORMAL DRIVING & SERVICE BRAKING (Authoritative Directional State Machine)
       if (isThrottle) {
-        if (forwardVel.current < -0.25) {
-          // Reversing and pressed forward throttle: brake to halt reverse motion first
-          targetBrake = 1.0
-          targetThrottle = 0.0
+        if (gearState.current === 'R') {
+          // In Reverse: pressing forward throttle acts as service brake to halt backward motion first
+          if (forwardVel.current < -0.15) {
+            targetBrake = 1.0
+            targetThrottle = 0.0
+            forwardHoldTimer.current = 0
+          } else {
+            // Stationary in Reverse: hold throttle to shift into Forward Drive (1st gear)
+            targetBrake = 0.8
+            targetThrottle = 0.0
+            forwardHoldTimer.current += frameDelta
+            if (forwardHoldTimer.current >= 0.16) {
+              gearState.current = 'D'
+              currentGear.current = 1
+              shiftCooldownTimer.current = 0.25
+              shiftCutTimer.current = 0.10
+              audioSystem.triggerGearShift(vehicleModel, false)
+              forwardHoldTimer.current = 0
+            }
+          }
         } else {
+          // In Forward Drive or Neutral: command forward acceleration
+          forwardHoldTimer.current = 0
           targetThrottle = 1.0
+          if (gearState.current === 'N') {
+            gearState.current = 'D'
+          }
         }
+      } else {
+        forwardHoldTimer.current = 0
       }
 
       if (isServiceBrake) {
-        if (forwardVel.current > 0.15) {
-          // Traveling forward: apply service brakes to smoothly bring vehicle to standstill
-          targetBrake = 1.0
-          targetThrottle = 0.0
-        } else if (forwardVel.current < -0.15) {
-          // Already reversing: continue accelerating backward
-          targetThrottle = -0.55
+        if (gearState.current === 'R') {
+          // Already in Reverse: brake pedal acts as reverse throttle
+          targetThrottle = -0.65
           targetBrake = 0.0
+          reverseHoldTimer.current = 0
         } else {
-          // Stationary/crawling: holding service brake smoothly engages reverse gear
-          targetThrottle = -0.55
-          targetBrake = 0.0
-          currentGearIndex.current = 0
+          // In Forward Drive:
+          if (forwardVel.current > 0.15) {
+            // Traveling forward: apply service brakes to smoothly bring vehicle to standstill
+            targetBrake = 1.0
+            targetThrottle = 0.0
+            reverseHoldTimer.current = 0
+          } else {
+            // Stationary at 0 speed: holding brake pedal engages Reverse gear
+            targetBrake = 0.8
+            targetThrottle = 0.0
+            reverseHoldTimer.current += frameDelta
+            if (reverseHoldTimer.current >= 0.16) {
+              gearState.current = 'R'
+              shiftCooldownTimer.current = 0.25
+              shiftCutTimer.current = 0.10
+              audioSystem.triggerGearShift(vehicleModel, false)
+              reverseHoldTimer.current = 0
+            }
+          }
         }
+      } else {
+        reverseHoldTimer.current = 0
       }
 
       if (isHandbrake) {
@@ -811,9 +891,8 @@ export default function VehicleController() {
           if (forwardVel.current < -12) forwardVel.current = -12
         } else {
           // Natural engine braking in lower gears
-          const curGear = currentGearIndex.current
-          const maxGear = config.gearRatios.length
-          const gearBrakingRatio = Math.max(0, 1 - (curGear - 1) / maxGear)
+          const curGear = currentGear.current
+          const gearBrakingRatio = Math.max(0.2, (config.gearRatios[curGear - 1] || 1.0) / (config.gearRatios[0] || 3.0))
           const engineBrake = !isHoverMode && forwardVel.current > 1.5 ? config.engineBraking * gearBrakingRatio * 3.8 : 0
           forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag - engineBrake) * dt
         }
@@ -930,7 +1009,12 @@ export default function VehicleController() {
         yawAngle.current = 0
         currentSteerAngle.current = 0
         wheelSpin.current = 0
-        currentGearIndex.current = 1
+        gearState.current = 'D'
+        currentGear.current = 1
+        shiftCooldownTimer.current = 0
+        shiftCutTimer.current = 0
+        reverseHoldTimer.current = 0
+        forwardHoldTimer.current = 0
         isGrounded.current = true
         isFirstCamFrameRef.current = true
         if (lastOdoPos.current) {
@@ -1087,130 +1171,127 @@ export default function VehicleController() {
     }
 
     // ------------------------------------------------------------------------
-    // 5. Automatic Transmission with Manual Shift Overrides & RPM Simulation
+    // 5. Authoritative Transmission State Machine & Physical Drivetrain RPM
     // ------------------------------------------------------------------------
 
-    // Update shift timers
-    if (manualOverrideTimer.current > 0) {
-      manualOverrideTimer.current -= frameDelta
-      if (manualOverrideTimer.current <= 0) {
-        useGameStore.getState().setTransmissionMode('auto')
-      }
+    // Update transmission shift timers
+    if (shiftCooldownTimer.current > 0) {
+      shiftCooldownTimer.current -= frameDelta
     }
     if (shiftCutTimer.current > 0) {
       shiftCutTimer.current -= frameDelta
     }
 
+    const transMode = useGameStore.getState().transmissionMode
     let calculatedGear = '1'
     let targetRpm = config.idleRpm
     const maxGears = config.gearRatios.length
+    const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
 
-    if (isHoverMode || vehicleModel === 'hovercraft') {
+    if (isHover) {
       calculatedGear = 'HOV'
       const speedNormHover = Math.min(1.0, currentSpeedKmh / config.maxSpeedKmh)
-      targetRpm = config.idleRpm + speedNormHover * (config.redlineRpm - config.idleRpm)
+      targetRpm = config.idleRpm + speedNormHover * (config.redlineRpm - config.idleRpm) * 0.85 + curThrottleAbs * 1200
     } else if (isBurnoutActive) {
       // Burnout: Locked in 1st gear bouncing on the rev limiter!
+      gearState.current = 'D'
+      currentGear.current = 1
       calculatedGear = '1'
       const limiterBounce = Math.sin(state.clock.elapsedTime * 52) * 180
       targetRpm = config.redlineRpm - 200 + limiterBounce
       smoothedRpm.current = targetRpm
-    } else if (forwardVel.current < -0.3) {
+    } else if (gearState.current === 'R') {
       calculatedGear = 'R'
-      targetRpm = config.idleRpm + Math.min(3600, Math.abs(currentSpeedKmh) * 140)
-    } else if (currentSpeedKmh < 1.0) {
-      if (curThrottleAbs < 0.08) {
-        calculatedGear = 'N'
-        targetRpm = config.idleRpm
-      } else {
-        // Driver revving throttle at standstill / launch pre-staging
-        calculatedGear = '1'
-        currentGearIndex.current = 1
-        targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm * 0.45 - config.idleRpm)
-      }
-    } else if (!isGrounded.current && !isHoverMode) {
+      const revTotalRatio = config.reverseRatio * config.finalDrive
+      const drivetrainRpm = wheelOmega * revTotalRatio * (60 / (2 * Math.PI))
+      const clutchEngagement = Math.min(1.0, currentSpeedKmh / 12.0)
+      const launchRpm = config.idleRpm + curThrottleAbs * (config.upshiftRpm * 0.38 - config.idleRpm)
+      targetRpm = Math.max(config.idleRpm, THREE.MathUtils.lerp(launchRpm, drivetrainRpm, clutchEngagement))
+    } else if (currentSpeedKmh < 1.0 && curThrottleAbs < 0.08) {
+      // Stationary at idle
+      calculatedGear = gearState.current === 'D' ? '1' : 'N'
+      targetRpm = config.idleRpm
+    } else if (currentSpeedKmh < 1.0 && curThrottleAbs >= 0.08) {
+      // Stationary revving in Neutral / launch pre-staging
+      calculatedGear = gearState.current === 'D' ? '1' : 'N'
+      targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm * 0.65 - config.idleRpm)
+    } else if (!isGrounded.current) {
       // Vehicle is airborne: engine free-revs on throttle decoupled from road load
-      calculatedGear = currentGearIndex.current.toString()
+      calculatedGear = currentGear.current.toString()
       if (curThrottleAbs > 0.08) {
         targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm - config.idleRpm) * 0.92
       } else {
         targetRpm = config.idleRpm + (currentSpeedKmh / config.maxSpeedKmh) * 1400
       }
     } else {
-      // Automatic Transmission: selects gear smoothly according to throttle load & RPM
-      if (manualOverrideTimer.current <= 0) {
+      // Grounded forward driving ('D')
+      const curGear = currentGear.current
+      const currentGearRatio = config.gearRatios[curGear - 1] || 1.0
+      const totalRatio = currentGearRatio * config.finalDrive
+      const drivetrainRpm = wheelOmega * totalRatio * (60 / (2 * Math.PI))
+
+      if (transMode === 'auto') {
         // Enforce 1st gear whenever coming to a stop or crawling
-        if (currentSpeedKmh < 2.5) {
-          currentGearIndex.current = 1
+        if (currentSpeedKmh < 2.5 && currentGear.current > 1) {
+          currentGear.current = 1
         }
 
-        const curGear = currentGearIndex.current
-        const upshiftThresh = THREE.MathUtils.lerp(
-          config.downshiftRpm + 900,
-          config.upshiftRpm,
-          curThrottleAbs
-        )
+        if (shiftCooldownTimer.current <= 0) {
+          // Dynamic load-sensitive upshift point based on throttle pedal
+          const upshiftThresh = THREE.MathUtils.lerp(
+            config.downshiftRpm + 1200,
+            config.upshiftRpm,
+            Math.min(1.0, curThrottleAbs * 1.1)
+          )
 
-        const gearTopSpeed = config.gearRatios[curGear - 1]
-        const prevGearTopSpeed = curGear > 1 ? config.gearRatios[curGear - 2] : 0
-        const progressInGear =
-          (currentSpeedKmh - prevGearTopSpeed * 0.45) / Math.max(1, gearTopSpeed - prevGearTopSpeed * 0.45)
-        const estRpm = config.idleRpm + progressInGear * (config.redlineRpm - config.idleRpm)
-
-        // Automatic Upshift
-        if (estRpm > upshiftThresh && curGear < maxGears && currentSpeedKmh > 12) {
-          currentGearIndex.current++
-          shiftCutTimer.current = 0.11
-          audioSystem.triggerGearShift(vehicleModel, false)
-        }
-        // Automatic Downshift
-        else if (estRpm < config.downshiftRpm && curGear > 1) {
-          currentGearIndex.current--
-          shiftCutTimer.current = 0.08
-          audioSystem.triggerGearShift(vehicleModel, true)
+          // Automatic Upshift
+          if (drivetrainRpm > upshiftThresh && currentGear.current < maxGears && currentSpeedKmh > 10) {
+            const nextGearRatio = config.gearRatios[currentGear.current]
+            const nextRpm = wheelOmega * nextGearRatio * config.finalDrive * (60 / (2 * Math.PI))
+            if (nextRpm >= config.downshiftRpm) {
+              currentGear.current++
+              shiftCooldownTimer.current = 0.35
+              shiftCutTimer.current = 0.11
+              audioSystem.triggerGearShift(vehicleModel, false)
+            }
+          }
+          // Automatic Downshift with clean hysteresis
+          else if (drivetrainRpm < config.downshiftRpm && currentGear.current > 1) {
+            const prevGearRatio = config.gearRatios[currentGear.current - 2]
+            const prevRpm = wheelOmega * prevGearRatio * config.finalDrive * (60 / (2 * Math.PI))
+            if (prevRpm < config.redlineRpm - 150) {
+              currentGear.current--
+              shiftCooldownTimer.current = 0.30
+              shiftCutTimer.current = 0.08
+              audioSystem.triggerGearShift(vehicleModel, true)
+            }
+          }
         }
       } else {
-        // Manual Override Mode: player controls gears via Left Shift / Right Shift
-        if (currentSpeedKmh < 2.0 && currentGearIndex.current > 1 && curThrottleAbs < 0.1) {
-          currentGearIndex.current = 1
-        }
-        const curGear = currentGearIndex.current
-        const prevGearTopSpeed = curGear > 1 ? config.gearRatios[curGear - 2] : 0
-        const gearTopSpeed = config.gearRatios[curGear - 1]
-        const progressInGear =
-          (currentSpeedKmh - prevGearTopSpeed * 0.45) / Math.max(1, gearTopSpeed - prevGearTopSpeed * 0.45)
-        const estRpm = config.idleRpm + progressInGear * (config.redlineRpm - config.idleRpm)
-
-        // Safety lockout: auto-downshift to prevent stall
-        if (estRpm < config.idleRpm - 100 && curGear > 1) {
-          currentGearIndex.current--
-        }
-        // Safety lockout: auto-upshift at absolute redline
-        else if (estRpm > config.redlineRpm + 150 && curGear < maxGears) {
-          currentGearIndex.current++
+        // Manual Mode: player controls gears via Left Shift / Right Shift
+        // Safety anti-stall downshift to 1st gear if coming to complete standstill
+        if (currentSpeedKmh < 3.5 && currentGear.current > 1) {
+          currentGear.current = 1
         }
       }
 
-      const activeGear = currentGearIndex.current
+      const activeGear = currentGear.current
       calculatedGear = activeGear.toString()
 
-      const prevSpeed = activeGear > 1 ? config.gearRatios[activeGear - 2] : 0
-      const gearTop = config.gearRatios[activeGear - 1]
-      const speedNormInGear = Math.max(
-        0,
-        Math.min(1.05, (currentSpeedKmh - prevSpeed * 0.4) / Math.max(1, gearTop - prevSpeed * 0.4))
-      )
+      // Physical clutch slip blend from standstill to lockup speed (0-16 km/h)
+      const clutchEngagement = Math.pow(Math.min(1.0, currentSpeedKmh / 16.0), 1.4)
+      const launchRpm = config.idleRpm + curThrottleAbs * (config.upshiftRpm * 0.52 - config.idleRpm)
+      targetRpm = Math.max(config.idleRpm, THREE.MathUtils.lerp(launchRpm, drivetrainRpm, clutchEngagement))
 
-      targetRpm = config.idleRpm + speedNormInGear * (config.redlineRpm - config.idleRpm)
       if (curThrottleAbs > 0.05) {
-        targetRpm += curThrottleAbs * 380
+        targetRpm += curThrottleAbs * 160 // Drivetrain torque load flare
       }
       if (shiftCutTimer.current > 0) {
-        targetRpm -= 450 // Shift cut clutch dip
+        targetRpm -= 450 // Physical torque dip during shift cut
       }
     }
 
-    smoothedRpm.current = THREE.MathUtils.lerp(smoothedRpm.current, targetRpm, frameDelta * 12)
+    smoothedRpm.current = THREE.MathUtils.lerp(smoothedRpm.current, targetRpm, frameDelta * 14)
     const finalRpm = Math.max(config.idleRpm, Math.min(config.redlineRpm, Math.round(smoothedRpm.current)))
 
     // Overrun exhaust pop detection & lateral slip factor
@@ -1281,6 +1362,7 @@ export default function VehicleController() {
         speed: Math.round(currentSpeedKmh),
         rpm: finalRpm,
         gear: calculatedGear,
+        transmissionMode: transMode,
         throttle: curThrottleAbs,
         brake: targetBrake,
         distance: accumulatedDistance.current,

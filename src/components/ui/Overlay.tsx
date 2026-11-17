@@ -309,7 +309,9 @@ function MasterMenuModal({
     { key: 'B / Space + W', action: 'Burnout (Tire Spin, Smoke & Skid Marks)' },
     { key: 'Space', action: 'Handbrake / Drift' },
     { key: 'G', action: 'Sound Horn' },
-    { key: 'Shift L / R', action: 'Manual Upshift / Downshift Override' },
+    { key: 'Shift L / R', action: 'Manual Upshift / Downshift' },
+    { key: 'M', action: 'Toggle Transmission Mode (Auto / Manual)' },
+    { key: 'K', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'R', action: 'Instant Reset to Road Centerline' },
     { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
     { key: 'H', action: 'Toggle Antigravity Hover Mode' },
@@ -317,7 +319,6 @@ function MasterMenuModal({
     { key: 'T', action: 'Cycle Weather' },
     { key: 'P', action: 'Photo Mode (Studio View)' },
     { key: 'Z', action: 'Zen Mode (Pure Driving, HUD Hidden)' },
-    { key: 'M', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'F', action: 'Toggle Fullscreen' },
     { key: 'F3', action: 'Toggle Telemetry & Diagnostics HUD' },
     { key: 'F4', action: 'Toggle Real-Time Engine & GPU Profiler HUD' },
@@ -1165,6 +1166,7 @@ export default function Overlay() {
   const cycleVehicleModel = useGameStore((s) => s.cycleVehicleModel)
   const toggleHoverMode = useGameStore((s) => s.toggleHoverMode)
   const toggleMusic = useGameStore((s) => s.toggleMusic)
+  const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
   const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
 
@@ -1188,7 +1190,8 @@ export default function Overlay() {
       if (e.key === 't' || e.key === 'T') cycleWeather()
       if (e.key === 'p' || e.key === 'P') togglePhotoMode()
       if (e.key === 'z' || e.key === 'Z') toggleZenMode()
-      if (e.key === 'm' || e.key === 'M') toggleMusic()
+      if (e.key === 'm' || e.key === 'M') toggleTransmissionMode()
+      if (e.key === 'k' || e.key === 'K') toggleMusic()
       if (e.key === 'f' || e.key === 'F') toggleFullscreen()
       if (e.key === 'Escape') setActivePanel('none')
       if (e.key === 'F3') {
@@ -1210,6 +1213,7 @@ export default function Overlay() {
     cycleWeather,
     togglePhotoMode,
     toggleZenMode,
+    toggleTransmissionMode,
     toggleMusic,
     toggleFullscreen,
     toggleDiagnostics,

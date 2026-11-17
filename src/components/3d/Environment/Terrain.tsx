@@ -279,7 +279,9 @@ const sharedGuardrailMat = new THREE.MeshStandardMaterial({
 
 const sharedMarkingsMat = new THREE.MeshStandardMaterial({
   vertexColors: true,
-  roughness: 0.65,
+  roughness: 0.40,
+  metalness: 0.12,
+  envMapIntensity: 0.85,
   polygonOffset: true,
   polygonOffsetFactor: -4,
   polygonOffsetUnits: -4,
@@ -413,11 +415,11 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
   const roadMat = new THREE.MeshStandardMaterial({
     map: asphaltTex,
     bumpMap: asphaltBumpTex,
-    bumpScale: 0.018,
+    bumpScale: 0.024,
     color: '#ffffff',
-    roughness: isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.78 : 0.82,
-    metalness: isRaining ? 0.45 : 0.04,
-    envMapIntensity: isRaining ? 1.6 : 0.4,
+    roughness: isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.74 : 0.70,
+    metalness: isRaining ? 0.45 : 0.08,
+    envMapIntensity: isRaining ? 1.6 : 0.65,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,

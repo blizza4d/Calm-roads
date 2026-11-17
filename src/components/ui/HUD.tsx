@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { useGameStore, useTelemetryStore } from '../../store/useGameStore'
 import { BIOMES } from '../../utils/roadMath'
 
@@ -171,115 +171,144 @@ const RollingOdometer = memo(function RollingOdometer({ unit }: RollingOdometerP
 })
 
 // ------------------------------------------------------------------------
-// 24-Segment LED Tachometer with Brick Red Redline & Rev Limiter
+// SPEEDOMETER 2.0: HIGH-PERFORMANCE RACING COCKPIT DASHBOARD
+// Zero-React Frame Overhead: All Telemetry Updates Mutate Raw DOM Elements
 // ------------------------------------------------------------------------
-const TOTAL_RPM_SEGMENTS = 24
-const TachometerGauge = memo(function TachometerGauge({ rpm }: { rpm: number }) {
-  const maxRpm = 8500
-  const normalizedRpm = Math.min(1.0, Math.max(0, rpm / maxRpm))
-  const activeSegments = Math.round(normalizedRpm * TOTAL_RPM_SEGMENTS)
-  const isRedline = rpm > 7200
+const TOTAL_RPM_SEGMENTS = 28
 
-  return (
-    <div className="w-full flex flex-col gap-1">
-      {/* Precision Segmented LED Bar */}
-      <div className="flex items-center gap-[2.5px] w-full h-3 bg-[#1e1e1e]/90 p-1 rounded-sm border border-[#FDFBF7]/15 shadow-inner">
-        {Array.from({ length: TOTAL_RPM_SEGMENTS }).map((_, i) => {
-          const isActive = i < activeSegments
-          // 0-14 (Normal Range): Sage Green #8EA48C / Paper Cream #FDFBF7
-          // 15-19 (Mid/Warning Range): Warm Amber #FF9D32
-          // 20-23 (Redline Alert): Brick Red #C63D2F
-          const isWarning = i >= 15 && i < 20
-          const isCritical = i >= 20
-
-          let colorClass = 'bg-[#FDFBF7]/10'
-          if (isActive) {
-            if (isCritical) {
-              colorClass = 'bg-[#C63D2F] shadow-[0_0_6px_#C63D2F]'
-            } else if (isWarning) {
-              colorClass = 'bg-[#FF9D32] shadow-[0_0_5px_#FF9D32]'
-            } else {
-              colorClass = 'bg-[#8EA48C] shadow-[0_0_4px_#8EA48C]'
-            }
-          }
-
-          return (
-            <div
-              key={i}
-              className={`h-full flex-1 rounded-[1px] transform -skew-x-12 transition-colors duration-75 ${colorClass}`}
-            />
-          )
-        })}
-      </div>
-
-      {/* Tachometer Header Readout */}
-      <div className="flex justify-between items-center text-[9px] font-special-elite tracking-wider px-0.5">
-        <span className="text-[#FDFBF7]/50">0</span>
-        <span className={isRedline ? 'text-[#C63D2F] font-bold animate-pulse' : 'text-[#FDFBF7]'}>
-          {isRedline ? '• SHIFT •' : `${Math.round(rpm).toLocaleString()} RPM`}
-        </span>
-        <span className={isRedline ? 'text-[#C63D2F] font-bold' : 'text-[#FDFBF7]/50'}>8.5k</span>
-      </div>
-    </div>
-  )
-})
-
-// ------------------------------------------------------------------------
-// Branded Analog-Engineer Driving HUD Dashboard
-// Decoupled Telemetry: Zero React Three Fiber Canvas Re-renders
-// ------------------------------------------------------------------------
 export default function HUD() {
-  // DOM References for Direct Zero-React Telemetry Mutation
+  // Direct DOM Element References
   const speedDisplayRef = useRef<HTMLSpanElement>(null)
   const gearDisplayRef = useRef<HTMLSpanElement>(null)
+  const gearContainerRef = useRef<HTMLDivElement>(null)
+  const transModeRef = useRef<HTMLSpanElement>(null)
+  const rpmTextRef = useRef<HTMLSpanElement>(null)
+  const tachSegmentsRef = useRef<(HTMLDivElement | null)[]>([])
   const brakeBarRef = useRef<HTMLDivElement>(null)
   const throttleBarRef = useRef<HTMLDivElement>(null)
+  const burnoutBadgeRef = useRef<HTMLDivElement>(null)
+  const surfaceBadgeRef = useRef<HTMLDivElement>(null)
 
-  // State for components requiring layout animation (Tachometer & Burnout)
-  const [rpm, setRpm] = useState(0)
-  const [isBurnout, setIsBurnout] = useState(false)
-  const [shiftFlash, setShiftFlash] = useState(false)
-
-  // Game Settings & State
-  const transmissionMode = useGameStore((s) => s.transmissionMode)
+  // React State solely for user settings that do not change every physics frame
   const speedUnit = useGameStore((s) => s.speedUnit)
   const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
+  const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
+  const vehicleModel = useGameStore((s) => s.vehicleModel)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
 
-  // High-Frequency Direct Telemetry Subscription (Bypasses React reconciliation)
+  // High-Frequency Direct Telemetry Subscription (100% Zero React Re-Renders)
   useEffect(() => {
     let lastDispSpeed = -1
     let lastGear = ''
+    let lastTransMode = ''
     let lastRpm = -1
     let lastBurnout = false
+    let lastSurface = ''
+    let shiftFlashTimeout: number | undefined
 
     const unsub = useTelemetryStore.subscribe((state) => {
-      // 1. Direct Speedometer DOM mutation
+      // 1. Digital Speedometer Display Update
       const unit = useGameStore.getState().speedUnit
       const dispSpeed = unit === 'mph' ? Math.round(state.speed * 0.621371) : Math.round(state.speed)
       if (dispSpeed !== lastDispSpeed && speedDisplayRef.current) {
         lastDispSpeed = dispSpeed
         speedDisplayRef.current.textContent = dispSpeed.toString()
-        const isHigh = dispSpeed > (unit === 'mph' ? 120 : 190)
-        if (isHigh) {
-          speedDisplayRef.current.classList.add('text-[#C63D2F]')
-          speedDisplayRef.current.classList.remove('text-[#FDFBF7]')
+        const isHighSpeed = dispSpeed > (unit === 'mph' ? 120 : 190)
+        if (isHighSpeed) {
+          speedDisplayRef.current.className =
+            'text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#EF4444] drop-shadow-[0_0_12px_rgba(239,68,68,0.7)]'
         } else {
-          speedDisplayRef.current.classList.add('text-[#FDFBF7]')
-          speedDisplayRef.current.classList.remove('text-[#C63D2F]')
+          speedDisplayRef.current.className =
+            'text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7] drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]'
         }
       }
 
-      // 2. Direct Gear DOM mutation & Shift Flash
-      if (state.gear !== lastGear && gearDisplayRef.current) {
-        lastGear = state.gear
-        gearDisplayRef.current.textContent = isHoverMode ? 'H' : state.gear
-        setShiftFlash(true)
-        setTimeout(() => setShiftFlash(false), 160)
+      // 2. Authoritative Gear Display & Subtle Mechanical Shift Flash
+      const activeGear = state.gear || '1'
+      if (activeGear !== lastGear && gearDisplayRef.current) {
+        lastGear = activeGear
+        gearDisplayRef.current.textContent = activeGear
+
+        // Luminous shift flash feedback
+        if (gearContainerRef.current) {
+          gearContainerRef.current.style.boxShadow = '0 0 22px rgba(255, 157, 30, 0.9), inset 0 0 12px rgba(255, 157, 30, 0.6)'
+          gearContainerRef.current.style.borderColor = '#FF9D1E'
+          if (shiftFlashTimeout) clearTimeout(shiftFlashTimeout)
+          shiftFlashTimeout = window.setTimeout(() => {
+            if (gearContainerRef.current) {
+              gearContainerRef.current.style.boxShadow = ''
+              gearContainerRef.current.style.borderColor = ''
+            }
+          }, 140)
+        }
       }
 
-      // 3. Direct Throttle & Brake DOM Bar height updates
+      // 3. Transmission Mode Badge (AUTO / MANUAL)
+      const currentMode = state.transmissionMode || 'auto'
+      if (currentMode !== lastTransMode && transModeRef.current) {
+        lastTransMode = currentMode
+        transModeRef.current.textContent = currentMode.toUpperCase()
+        if (currentMode === 'manual') {
+          transModeRef.current.className =
+            'text-[7.5px] font-special-elite font-bold tracking-wider uppercase px-1.5 py-0.5 rounded-xs bg-[#FF9D1E]/20 text-[#FF9D1E] border border-[#FF9D1E]/50 shadow-[0_0_6px_rgba(255,157,30,0.4)]'
+        } else {
+          transModeRef.current.className =
+            'text-[7.5px] font-special-elite font-bold tracking-wider uppercase px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/15 text-[#8EA48C] border border-[#8EA48C]/30'
+        }
+      }
+
+      // 4. 28-Segment LED Tachometer & Digital RPM Counter (Direct DOM mutation)
+      const currentRpm = state.rpm || 850
+      if (Math.abs(currentRpm - lastRpm) >= 25) {
+        lastRpm = currentRpm
+        const maxRpm = 8800
+        const normRpm = Math.max(0, Math.min(1.0, currentRpm / maxRpm))
+        const activeCount = Math.round(normRpm * TOTAL_RPM_SEGMENTS)
+        const isRedline = currentRpm > 7200
+
+        // Update tachometer segments
+        for (let i = 0; i < TOTAL_RPM_SEGMENTS; i++) {
+          const seg = tachSegmentsRef.current[i]
+          if (seg) {
+            if (i < activeCount) {
+              if (i >= 23) {
+                // Redline zone (Segments 24-28): Racing Red
+                seg.style.backgroundColor = '#EF4444'
+                seg.style.boxShadow = '0 0 6px #EF4444'
+                seg.style.opacity = '1'
+              } else if (i >= 17) {
+                // High load zone (Segments 18-23): Warm Amber
+                seg.style.backgroundColor = '#FF9D1E'
+                seg.style.boxShadow = '0 0 5px #FF9D1E'
+                seg.style.opacity = '1'
+              } else {
+                // Powerband zone (Segments 1-17): Crisp Sage Green
+                seg.style.backgroundColor = '#8EA48C'
+                seg.style.boxShadow = '0 0 4px #8EA48C'
+                seg.style.opacity = '1'
+              }
+            } else {
+              seg.style.backgroundColor = 'rgba(253, 251, 247, 0.08)'
+              seg.style.boxShadow = 'none'
+              seg.style.opacity = '0.5'
+            }
+          }
+        }
+
+        // Update RPM textual header
+        if (rpmTextRef.current) {
+          if (isRedline) {
+            rpmTextRef.current.textContent = '• SHIFT •'
+            rpmTextRef.current.className = 'text-[#EF4444] font-bold tracking-widest animate-pulse'
+          } else {
+            rpmTextRef.current.textContent = `${Math.round(currentRpm).toLocaleString()} RPM`
+            rpmTextRef.current.className = 'text-[#FDFBF7] font-semibold tracking-wider'
+          }
+        }
+      }
+
+      // 5. Throttle & Brake Pedals Bar
       if (brakeBarRef.current) {
         brakeBarRef.current.style.height = `${Math.round(state.brake * 100)}%`
       }
@@ -287,82 +316,118 @@ export default function HUD() {
         throttleBarRef.current.style.height = `${Math.round(state.throttle * 100)}%`
       }
 
-      // 4. Burnout badge state
-      const burnoutActive = !!state.isBurnout
-      if (burnoutActive !== lastBurnout) {
-        lastBurnout = burnoutActive
-        setIsBurnout(burnoutActive)
+      // 6. Burnout Alert Lamp
+      const isBurnoutActive = !!state.isBurnout
+      if (isBurnoutActive !== lastBurnout && burnoutBadgeRef.current) {
+        lastBurnout = isBurnoutActive
+        burnoutBadgeRef.current.style.display = isBurnoutActive ? 'block' : 'none'
       }
 
-      // 5. Throttled Tachometer update (every 40 RPM change)
-      if (Math.abs(state.rpm - lastRpm) > 40) {
-        lastRpm = state.rpm
-        setRpm(state.rpm)
+      // 7. Surface Traction Indicator
+      const onRoad = state.onRoad !== false
+      const surfaceName = onRoad ? 'ASPHALT' : 'OFF-ROAD'
+      if (surfaceName !== lastSurface && surfaceBadgeRef.current) {
+        lastSurface = surfaceName
+        surfaceBadgeRef.current.textContent = surfaceName
+        surfaceBadgeRef.current.className = onRoad
+          ? 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/20 text-[#8EA48C] border border-[#8EA48C]/40 tracking-wider uppercase'
+          : 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#FF9D1E]/20 text-[#FF9D1E] border border-[#FF9D1E]/40 tracking-wider uppercase'
       }
     })
 
-    return () => unsub()
-  }, [isHoverMode])
+    return () => {
+      unsub()
+      if (shiftFlashTimeout) clearTimeout(shiftFlashTimeout)
+    }
+  }, [])
 
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
   const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
+  const vehicleNameFormatted =
+    vehicleModel === 'bmw_m3'
+      ? 'BMW M3 GTR'
+      : vehicleModel === 'supercar'
+      ? 'SUPERCAR'
+      : vehicleModel === 'hovercraft'
+      ? 'HOVERCRAFT'
+      : vehicleModel === 'camper'
+      ? 'CAMPER VAN'
+      : vehicleModel === 'hatchback'
+      ? 'RALLY HATCH'
+      : vehicleModel === 'modern_supercar'
+      ? 'V12 SUPERCAR'
+      : 'VINTAGE TURBO'
 
   return (
     <div className="fixed bottom-6 right-6 pointer-events-auto select-none z-20 flex flex-col items-end gap-2">
       {/* ========================================================= */}
-      {/* BRANDED ANALOG-ENGINEER DASHBOARD CLUSTER                 */}
-      {/* Soft Charcoal (#2A2A2A) with blur(10px) & Paper Cream     */}
+      {/* SPEEDOMETER 2.0 RACING COCKPIT INSTRUMENT CLUSTER         */}
+      {/* Precision CNC Graphite Housing with Brushed Metal Inset   */}
       {/* ========================================================= */}
       <div
-        className="relative backdrop-blur-[10px] bg-[rgba(42,42,42,0.70)] border border-[#FDFBF7]/15 rounded-lg p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(253,251,247,0.15)] flex items-stretch gap-4 transform -skew-x-6 transition-all duration-200 hover:border-[#8EA48C]/50"
+        className="relative backdrop-blur-md bg-[#0e1014]/85 border border-[#262c38] rounded-xl p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.92),inset_0_1px_1px_rgba(255,255,255,0.12)] flex items-stretch gap-4 transform -skew-x-6 transition-all duration-200 hover:border-[#8EA48C]/40"
         style={{
-          boxShadow: '0 20px 50px rgba(0,0,0,0.85), inset 0 1px 1px rgba(253,251,247,0.15)',
+          background: 'linear-gradient(135deg, rgba(20, 24, 32, 0.90) 0%, rgba(10, 12, 16, 0.92) 100%)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.92), inset 0 1px 1px rgba(255,255,255,0.12)',
         }}
       >
-        {/* Top Paper Cream Subtle Bevel Accent */}
-        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#FDFBF7]/40 to-transparent" />
+        {/* Top Metallic Bevel Light Highlight */}
+        <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-[#FDFBF7]/30 to-transparent" />
 
         {/* ========================================================= */}
-        {/* SECTION 1: SLANTED GEAR BOX & BIOME BADGE                 */}
+        {/* SECTION 1: TRANSMISSION GEAR MATRIX & STATUS LAMPS        */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-center pr-3 border-r border-[#FDFBF7]/15 min-w-[72px]">
-          <span className="text-[8.5px] font-special-elite tracking-widest text-[#FDFBF7]/60 font-bold uppercase">
-            {isHoverMode ? 'REPULSOR' : 'GEAR'}
+        <div className="flex flex-col justify-between items-center pr-3 border-r border-[#262c38] min-w-[76px]">
+          {/* Header Title */}
+          <span className="text-[8px] font-special-elite tracking-widest text-[#FDFBF7]/50 font-bold uppercase">
+            {isHoverMode ? 'DRIVE' : 'GEAR'}
           </span>
 
-          {/* Angular Slanted Gear Frame with Shift Flash */}
+          {/* Angular Slanted Gear Frame with Dynamic Neon Backlight */}
           <div
-            className={`my-1 w-12 h-14 rounded-md flex items-center justify-center border transition-all duration-150 transform -skew-x-6 ${
-              shiftFlash
-                ? 'bg-[#C63D2F] border-white text-[#FDFBF7] shadow-[0_0_16px_#C63D2F]'
-                : isHoverMode
-                ? 'bg-[#8EA48C]/20 border-[#8EA48C] text-[#8EA48C]'
-                : 'bg-[#1e1e1e] border-[#FDFBF7]/20 text-[#FDFBF7] shadow-inner'
-            }`}
+            ref={gearContainerRef}
+            className="my-1 w-13 h-15 rounded-lg flex items-center justify-center border border-[#2b313e] bg-[#07080a] shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] transition-all duration-150 transform -skew-x-6"
           >
             <span
               ref={gearDisplayRef}
-              className={`text-4xl font-black font-courier leading-none drop-shadow-md ${
-                shiftFlash ? 'text-[#FDFBF7]' : isHoverMode ? 'text-[#8EA48C]' : 'text-[#FDFBF7]'
-              }`}
+              className="text-4xl font-black font-courier leading-none text-[#FDFBF7] drop-shadow-[0_0_10px_rgba(253,251,247,0.4)]"
             >
-              {isHoverMode ? 'H' : '1'}
+              1
             </span>
           </div>
 
-          <span className="text-[8px] font-special-elite text-[#8EA48C] font-bold tracking-wider uppercase bg-[#8EA48C]/15 px-1.5 py-0.5 rounded-xs border border-[#8EA48C]/30">
-            {transmissionMode.toUpperCase()}
-          </span>
+          {/* Clickable Transmission Mode Badge (AUTO / MANUAL) */}
+          <button
+            onClick={toggleTransmissionMode}
+            className="cursor-pointer group flex items-center gap-1 mt-0.5"
+            title="Click or press [M] to toggle Automatic / Manual transmission"
+          >
+            <span
+              ref={transModeRef}
+              className="text-[7.5px] font-special-elite font-bold tracking-wider uppercase px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/15 text-[#8EA48C] border border-[#8EA48C]/30 group-hover:border-[#8EA48C]"
+            >
+              AUTO
+            </span>
+            <span className="text-[6.5px] font-mono text-[#FDFBF7]/40 group-hover:text-[#FDFBF7]/80">[M]</span>
+          </button>
 
-          {/* Sage Green Biome Badge & Burnout Alert */}
+          {/* Status Badges: Burnout & Surface */}
           <div className="flex flex-col items-center gap-1 mt-2 w-full">
-            {isBurnout && (
-              <span className="text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#C63D2F] text-white border border-red-400 animate-pulse tracking-wider shadow-[0_0_8px_#C63D2F]">
-                BURNOUT
-              </span>
-            )}
             <div
-              className="text-[8.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/20 text-[#8EA48C] border border-[#8EA48C]/40 tracking-wider uppercase truncate max-w-[85px] text-center"
+              ref={burnoutBadgeRef}
+              style={{ display: 'none' }}
+              className="text-[7px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#EF4444] text-white border border-red-400 animate-pulse tracking-wider shadow-[0_0_8px_#EF4444]"
+            >
+              BURNOUT
+            </div>
+            <div
+              ref={surfaceBadgeRef}
+              className="text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/20 text-[#8EA48C] border border-[#8EA48C]/40 tracking-wider uppercase truncate max-w-[85px] text-center"
+            >
+              ASPHALT
+            </div>
+            <div
+              className="text-[7px] font-special-elite text-[#FDFBF7]/50 tracking-wider uppercase truncate max-w-[85px] text-center"
               title={biomeConfig.name}
             >
               {biomeConfig.name.split(' ')[0]}
@@ -371,24 +436,24 @@ export default function HUD() {
         </div>
 
         {/* ========================================================= */}
-        {/* SECTION 2: COURIER PRIME SPEEDOMETER & 24-LED TACHOMETER */}
+        {/* SECTION 2: DIGITAL SPEEDOMETER & 28-SEGMENT TACHOMETER    */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-center px-2 min-w-[145px]">
-          {/* Main Large Speed Readout in Courier Prime */}
+        <div className="flex flex-col justify-between items-center px-2 min-w-[155px]">
+          {/* Main Large Speed Readout in Monospace Courier Prime */}
           <div className="flex flex-col items-center">
             <div className="flex items-baseline gap-1">
               <span
                 ref={speedDisplayRef}
-                className="text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] text-[#FDFBF7]"
+                className="text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7] drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]"
               >
                 0
               </span>
             </div>
 
-            {/* Speed Unit Toggle Button */}
+            {/* Speed Unit Toggle Button (KM/H <-> MPH) */}
             <button
               onClick={toggleSpeedUnit}
-              className="group flex items-center gap-1 text-[8.5px] font-special-elite font-bold tracking-widest text-[#FDFBF7]/60 hover:text-[#8EA48C] transition-colors uppercase mt-1 cursor-pointer py-0.5 px-2 rounded-xs bg-[#1e1e1e] border border-[#FDFBF7]/20 hover:border-[#8EA48C]"
+              className="group flex items-center gap-1 text-[8px] font-special-elite font-bold tracking-widest text-[#FDFBF7]/60 hover:text-[#8EA48C] transition-colors uppercase mt-1 cursor-pointer py-0.5 px-2 rounded-xs bg-[#12151b] border border-[#2b313e] hover:border-[#8EA48C]"
               title="Click to toggle KM/H or MPH"
             >
               <span>{unitLabel}</span>
@@ -396,50 +461,80 @@ export default function HUD() {
             </button>
           </div>
 
-          {/* Segmented Tachometer Gauge */}
-          <div className="w-full mt-2.5">
-            <TachometerGauge rpm={rpm} />
+          {/* Sweeping 28-Segment LED Racing Tachometer */}
+          <div className="w-full mt-2 flex flex-col gap-1">
+            <div className="flex items-center gap-[2px] w-full h-3 bg-[#08090c] p-[2.5px] rounded-xs border border-[#2b313e] shadow-[inset_0_2px_4px_rgba(0,0,0,0.9)]">
+              {Array.from({ length: TOTAL_RPM_SEGMENTS }).map((_, i) => (
+                <div
+                  key={i}
+                  ref={(el) => (tachSegmentsRef.current[i] = el)}
+                  className="h-full flex-1 rounded-[0.5px] transform -skew-x-12 transition-colors duration-75 bg-[#FDFBF7]/10"
+                />
+              ))}
+            </div>
+
+            {/* Tachometer Header Readout */}
+            <div className="flex justify-between items-center text-[8.5px] font-special-elite tracking-wider px-0.5">
+              <span className="text-[#FDFBF7]/40">0</span>
+              <span ref={rpmTextRef} className="text-[#FDFBF7] font-semibold tracking-wider">
+                850 RPM
+              </span>
+              <span className="text-[#FDFBF7]/40">8.8k</span>
+            </div>
           </div>
         </div>
 
         {/* ========================================================= */}
-        {/* SECTION 3: NFS MOST WANTED MECHANICAL ODOMETER & PEDALS   */}
+        {/* SECTION 3: NFS MOST WANTED ODOMETER & PEDAL TELEMETRY     */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-end pl-3 border-l border-[#FDFBF7]/15 min-w-[125px]">
-          {/* NFS Most Wanted Rolling Mechanical Odometer */}
+        <div className="flex flex-col justify-between items-end pl-3 border-l border-[#262c38] min-w-[130px]">
+          {/* NFS Most Wanted 2005 Rolling Mechanical Odometer */}
           <div className="flex flex-col items-end">
             <RollingOdometer unit={speedUnit} />
           </div>
 
-          {/* Throttle & Brake Peak-Meter Bars */}
-          <div className="flex items-end gap-2.5 h-8 mt-2">
-            {/* Brake Input Meter in Brick Red #C63D2F */}
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[7px] font-special-elite text-[#C63D2F] font-bold">BRK</span>
-              <div
-                className="w-2 h-7 bg-[#1e1e1e] rounded-[1px] overflow-hidden flex flex-col justify-end p-[1px] border border-[#FDFBF7]/20"
-                title="Brake Telemetry"
-              >
-                <div
-                  ref={brakeBarRef}
-                  className="w-full bg-[#C63D2F] transition-all duration-75 rounded-[1px] shadow-[0_0_6px_#C63D2F]"
-                  style={{ height: '0%' }}
-                />
-              </div>
+          {/* Vehicle Name Tag & Throttle/Brake Peak Meters */}
+          <div className="flex items-end justify-between w-full mt-2">
+            {/* Active Vehicle & Biome Tag */}
+            <div className="flex flex-col items-start gap-0.5">
+              <span className="text-[7px] font-mono text-[#FDFBF7]/40 font-bold uppercase tracking-wider">
+                VEHICLE
+              </span>
+              <span className="text-[8px] font-special-elite text-[#8EA48C] font-bold uppercase tracking-wider truncate max-w-[65px]" title={vehicleNameFormatted}>
+                {vehicleNameFormatted}
+              </span>
             </div>
 
-            {/* Throttle Input Meter in Sage Green #8EA48C */}
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="text-[7px] font-special-elite text-[#8EA48C] font-bold">THR</span>
-              <div
-                className="w-2 h-7 bg-[#1e1e1e] rounded-[1px] overflow-hidden flex flex-col justify-end p-[1px] border border-[#FDFBF7]/20"
-                title="Throttle Telemetry"
-              >
+            {/* Throttle & Brake Pedals Meter */}
+            <div className="flex items-end gap-2.5 h-8">
+              {/* Brake Input Meter */}
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[7px] font-special-elite text-[#EF4444] font-bold">BRK</span>
                 <div
-                  ref={throttleBarRef}
-                  className="w-full bg-[#8EA48C] transition-all duration-75 rounded-[1px] shadow-[0_0_6px_#8EA48C]"
-                  style={{ height: '0%' }}
-                />
+                  className="w-2 h-7 bg-[#08090c] rounded-[1px] overflow-hidden flex flex-col justify-end p-[1px] border border-[#2b313e]"
+                  title="Brake Telemetry"
+                >
+                  <div
+                    ref={brakeBarRef}
+                    className="w-full bg-[#EF4444] transition-all duration-75 rounded-[1px] shadow-[0_0_6px_#EF4444]"
+                    style={{ height: '0%' }}
+                  />
+                </div>
+              </div>
+
+              {/* Throttle Input Meter */}
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[7px] font-special-elite text-[#8EA48C] font-bold">THR</span>
+                <div
+                  className="w-2 h-7 bg-[#08090c] rounded-[1px] overflow-hidden flex flex-col justify-end p-[1px] border border-[#2b313e]"
+                  title="Throttle Telemetry"
+                >
+                  <div
+                    ref={throttleBarRef}
+                    className="w-full bg-[#8EA48C] transition-all duration-75 rounded-[1px] shadow-[0_0_6px_#8EA48C]"
+                    style={{ height: '0%' }}
+                  />
+                </div>
               </div>
             </div>
           </div>
