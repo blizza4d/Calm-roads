@@ -138,24 +138,29 @@ function RegionDiscoveryBanner() {
   }, [currentResolvedBiome])
 
   const info = BIOMES[activeBiome] || BIOMES.twisted_mountains
+  const gripLabel = info.friction < 0.9 ? 'SNOW GRIP' : info.friction < 0.98 ? 'LOOSE GRIP' : 'HIGH GRIP'
 
   return (
     <div
-      className={`fixed top-8 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
+      className={`fixed top-7 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
         visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'
       }`}
     >
-      <div className="backdrop-blur-2xl bg-black/75 border border-white/20 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3.5 text-white">
-        <span className="text-amber-400 font-mono font-bold text-[10px] tracking-widest uppercase bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/25">
-          DISCOVERED REGION
+      <div className="backdrop-blur-xl bg-[#0b0d12]/85 border border-[#2a303d] px-5 py-2.5 rounded-full shadow-[0_14px_40px_rgba(0,0,0,0.85)] flex items-center gap-3 text-white whitespace-nowrap max-w-[92vw]">
+        <span className="w-2 h-2 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] shrink-0" />
+        <span className="text-[#FF9D1E] font-mono font-bold text-[10px] tracking-widest uppercase bg-[#FF9D1E]/10 px-2.5 py-0.5 rounded-full border border-[#FF9D1E]/30 shrink-0">
+          ENTERING REGION
         </span>
-        <span className="h-4 w-px bg-white/20" />
-        <span className="font-bold text-sm tracking-wide text-white">{info.name}</span>
+        <span className="h-4 w-px bg-white/15 shrink-0" />
+        <span className="font-bold text-sm tracking-wide text-[#FDFBF7] shrink-0">{info.name}</span>
         {info.tagline && (
-          <span className="text-xs text-white/50 hidden sm:inline font-medium">
+          <span className="text-xs text-white/55 hidden lg:inline font-medium truncate">
             • {info.tagline}
           </span>
         )}
+        <span className="hidden sm:inline text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[#8EA48C] shrink-0">
+          {gripLabel}
+        </span>
       </div>
     </div>
   )
@@ -210,6 +215,12 @@ function MasterMenuModal({
   // Tools
   const autoDrive = useGameStore((s) => s.autoDrive)
   const toggleAutoDrive = useGameStore((s) => s.toggleAutoDrive)
+  const headlights = useGameStore((s) => s.headlights)
+  const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
+  const cleanHud = useGameStore((s) => s.cleanHud)
+  const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
+  const transmissionMode = useGameStore((s) => s.transmissionMode)
+  const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
   const speedUnit = useGameStore((s) => s.speedUnit)
   const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
@@ -218,6 +229,8 @@ function MasterMenuModal({
   const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
   const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
   const toggleZenMode = useGameStore((s) => s.toggleZenMode)
+  const peakSpeed = useTelemetryStore((s) => s.peakSpeed)
+  const tripDistance = useTelemetryStore((s) => s.distance)
 
   const formatTime = (t: number) => {
     const hours = Math.floor(t)
@@ -311,12 +324,15 @@ function MasterMenuModal({
     { key: 'G', action: 'Sound Horn' },
     { key: 'Shift L / R', action: 'Manual Upshift / Downshift' },
     { key: 'M', action: 'Toggle Transmission Mode (Auto / Manual)' },
+    { key: 'N', action: 'Toggle Neutral Gear (Free-Rev Stationary)' },
+    { key: 'L', action: 'Toggle Headlights On / Off' },
     { key: 'K', action: 'Toggle Lo-Fi Ambient Radio' },
     { key: 'R', action: 'Instant Reset to Road Centerline' },
     { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
     { key: 'H', action: 'Toggle Antigravity Hover Mode' },
     { key: 'V', action: 'Switch Vehicle' },
     { key: 'T', action: 'Cycle Weather' },
+    { key: 'U', action: 'Toggle Clean / Minimal HUD' },
     { key: 'P', action: 'Photo Mode (Studio View)' },
     { key: 'Z', action: 'Zen Mode (Pure Driving, HUD Hidden)' },
     { key: 'F', action: 'Toggle Fullscreen' },
@@ -331,12 +347,15 @@ function MasterMenuModal({
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse"></div>
             <div>
               <h2 className="text-sm font-black tracking-widest text-white leading-none uppercase">
-                CALM ROADS MENU
+                CALM ROADS 2.0
               </h2>
-              <span className="text-[10px] text-white/50 font-mono">Customize atmosphere, vehicle, audio & preferences</span>
+              <span className="text-[10px] text-white/50 font-mono">
+                Trip: {(speedUnit === 'mph' ? tripDistance * 0.621371 : tripDistance).toFixed(2)} {speedUnit === 'mph' ? 'mi' : 'km'} • Peak:{' '}
+                {Math.round(speedUnit === 'mph' ? peakSpeed * 0.621371 : peakSpeed)} {speedUnit.toUpperCase()}
+              </span>
             </div>
           </div>
           <button
@@ -697,6 +716,54 @@ function MasterMenuModal({
                   <div>
                     <div className="text-xs font-bold">Cruise Control</div>
                     <div className="text-[10px] text-white/40 font-mono">{autoDrive ? 'Cruising' : 'Manual'}</div>
+                  </div>
+                </button>
+
+                {/* Headlights Toggle */}
+                <button
+                  onClick={toggleHeadlights}
+                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                    headlights
+                      ? 'bg-amber-600/25 border-amber-400 text-white'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                  }`}
+                >
+                  <Sun size={18} className={headlights ? 'text-amber-400' : 'text-white/60'} />
+                  <div>
+                    <div className="text-xs font-bold">Headlights</div>
+                    <div className="text-[10px] text-white/40 font-mono">{headlights ? 'ON [L]' : 'OFF [L]'}</div>
+                  </div>
+                </button>
+
+                {/* Transmission Mode */}
+                <button
+                  onClick={toggleTransmissionMode}
+                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                    transmissionMode === 'manual'
+                      ? 'bg-amber-600/25 border-amber-400 text-white'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                  }`}
+                >
+                  <Sliders size={18} className={transmissionMode === 'manual' ? 'text-amber-400' : 'text-emerald-400'} />
+                  <div>
+                    <div className="text-xs font-bold">Transmission</div>
+                    <div className="text-[10px] text-white/40 font-mono uppercase">{transmissionMode} [M]</div>
+                  </div>
+                </button>
+
+                {/* Clean HUD Mode */}
+                <button
+                  onClick={toggleCleanHud}
+                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                    cleanHud
+                      ? 'bg-emerald-600/30 border-emerald-400 text-white'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                  }`}
+                >
+                  <Eye size={18} className={cleanHud ? 'text-emerald-400' : 'text-white/60'} />
+                  <div>
+                    <div className="text-xs font-bold">Clean HUD</div>
+                    <div className="text-[10px] text-white/40 font-mono">{cleanHud ? 'Minimal [U]' : 'Full GT [U]'}</div>
                   </div>
                 </button>
 
@@ -1167,6 +1234,8 @@ export default function Overlay() {
   const toggleHoverMode = useGameStore((s) => s.toggleHoverMode)
   const toggleMusic = useGameStore((s) => s.toggleMusic)
   const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
+  const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
+  const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
   const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
 
@@ -1181,6 +1250,7 @@ export default function Overlay() {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
       if (e.key === 'c' || e.key === 'C') cycleCameraPerspective()
@@ -1191,6 +1261,8 @@ export default function Overlay() {
       if (e.key === 'p' || e.key === 'P') togglePhotoMode()
       if (e.key === 'z' || e.key === 'Z') toggleZenMode()
       if (e.key === 'm' || e.key === 'M') toggleTransmissionMode()
+      if (e.key === 'l' || e.key === 'L') toggleHeadlights()
+      if (e.key === 'u' || e.key === 'U') toggleCleanHud()
       if (e.key === 'k' || e.key === 'K') toggleMusic()
       if (e.key === 'f' || e.key === 'F') toggleFullscreen()
       if (e.key === 'Escape') setActivePanel('none')
@@ -1214,6 +1286,8 @@ export default function Overlay() {
     togglePhotoMode,
     toggleZenMode,
     toggleTransmissionMode,
+    toggleHeadlights,
+    toggleCleanHud,
     toggleMusic,
     toggleFullscreen,
     toggleDiagnostics,
@@ -1247,14 +1321,14 @@ export default function Overlay() {
       {/* ----------------- TOP NAVBAR: DECLUTTERED & STREAMLINED ----------------- */}
       <div className="flex items-center justify-between w-full pointer-events-auto">
         {/* Brand Badge */}
-        <div className="backdrop-blur-md bg-black/40 border border-white/15 px-4 py-2 rounded-2xl flex items-center gap-2.5 shadow-xl text-white">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+        <div className="backdrop-blur-md bg-[#0d1016]/80 border border-[#262c38] px-4 py-2 rounded-2xl flex items-center gap-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.75)] text-white">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse"></div>
           <div>
-            <h1 className="text-sm font-black tracking-widest text-white leading-none">
+            <h1 className="text-sm font-black tracking-widest text-[#FDFBF7] leading-none">
               CALM ROADS
             </h1>
-            <span className="text-[9px] tracking-wider text-white/50 font-mono font-bold">
-              ENDLESS DRIVE
+            <span className="text-[9px] tracking-wider text-[#8EA48C] font-mono font-bold">
+              GT DRIVING • 2.0
             </span>
           </div>
         </div>
@@ -1264,10 +1338,10 @@ export default function Overlay() {
           {/* Camera Perspective Toggle */}
           <button
             onClick={cycleCameraPerspective}
-            className="backdrop-blur-md bg-black/40 hover:bg-black/60 text-white/80 hover:text-white border border-white/15 px-3.5 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all shadow-lg"
+            className="backdrop-blur-md bg-[#0d1016]/80 hover:bg-[#161b24] text-white/85 hover:text-white border border-[#262c38] hover:border-[#8EA48C]/50 px-3.5 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all shadow-lg"
             title="Cycle Camera View [C]"
           >
-            <Camera size={15} className="text-emerald-400" />
+            <Camera size={15} className="text-[#8EA48C]" />
             <span className="font-mono">{camLabels[cameraPerspective]}</span>
             <span className="text-[9px] text-white/40 font-mono">[C]</span>
           </button>
@@ -1277,12 +1351,12 @@ export default function Overlay() {
             onClick={() => setActivePanel(activePanel === 'none' ? 'environment' : 'none')}
             className={`backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all border shadow-lg ${
               activePanel !== 'none'
-                ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
-                : 'bg-black/40 hover:bg-black/60 text-white border-white/15'
+                ? 'bg-[#FF9D1E] text-black border-amber-300 shadow-[0_0_16px_rgba(255,157,30,0.45)]'
+                : 'bg-[#0d1016]/80 hover:bg-[#161b24] text-white border-[#262c38] hover:border-[#FF9D1E]/50'
             }`}
             title="Open Game Menu [Esc]"
           >
-            {activePanel !== 'none' ? <X size={15} /> : <Menu size={15} className="text-emerald-400" />}
+            {activePanel !== 'none' ? <X size={15} /> : <Menu size={15} className="text-[#FF9D1E]" />}
             <span className="tracking-wider">MENU</span>
           </button>
         </div>

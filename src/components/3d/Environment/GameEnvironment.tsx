@@ -77,27 +77,32 @@ const milkyWayFragmentShader = `
 
 const SSAO_COLOR = new THREE.Color('#0b101b')
 
-// Cosmic Sky Component: Centered on player camera, renders Stars, Milky Way and Glowing 3D Moon
+// Cosmic Sky Component: Centered on player camera, renders Stars, Milky Way, Glowing 3D Moon & Solar Corona
 function CosmicCelestialSky({
   sunHeight,
+  sunDiscPosition,
   moonPosition,
   isNight,
+  isGoldenHour,
+  weather,
 }: {
   sunHeight: number
+  sunDiscPosition: [number, number, number]
   moonPosition: [number, number, number]
   isNight: boolean
+  isGoldenHour: boolean
+  weather: string
 }) {
   const { camera } = useThree()
   const skyGroupRef = useRef<THREE.Group>(null)
   const starMaterialRef = useRef<THREE.ShaderMaterial>(null)
   const milkyWayMaterialRef = useRef<THREE.ShaderMaterial>(null)
 
-  // Star Opacity transitions smoothly based on sun elevation
-  // SunHeight: 1.0 (Noon, opacity 0.0) -> -0.1 (Twilight, 0.4) -> -0.2 (Night, 1.0)
+  // Star Opacity transitions smoothly ONLY at true dusk/night (never washes out golden hour / afternoon skies)
   const nightFactor = useMemo(() => {
-    if (sunHeight > 0.12) return 0.0
-    if (sunHeight < -0.18) return 1.0
-    return 1.0 - (sunHeight + 0.18) / 0.30
+    if (sunHeight > -0.02) return 0.0
+    if (sunHeight < -0.22) return 1.0
+    return (-0.02 - sunHeight) / 0.20
   }, [sunHeight])
 
   // 1. Generate Multi-Spectral Starfield (3,600 stars on upper celestial dome)
@@ -167,50 +172,47 @@ function CosmicCelestialSky({
     return geo
   }, [])
 
-  // 2. Generate Milky Way Galactic Band (2,400 wispy interstellar dust & stellar core particles)
+  // 2. Generate Milky Way Galactic Band (1,800 wispy interstellar dust particles arcing strictly across upper sky)
   const milkyWayGeo = useMemo(() => {
-    const count = 2400
+    const count = 1800
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
     const sizes = new Float32Array(count)
 
     const r = 1750
-    const inclination = 0.88 // ~50 degrees galactic plane tilt
+    const inclination = 0.92 // ~53 degrees galactic plane tilt overhead
 
     const palette = [
-      new THREE.Color('#7c3aed'), // Deep cosmic violet
+      new THREE.Color('#6d28d9'), // Deep cosmic violet
       new THREE.Color('#3b82f6'), // Ethereal blue
-      new THREE.Color('#06b6d4'), // Cosmic cyan
-      new THREE.Color('#fbbf24'), // Warm galactic core
+      new THREE.Color('#0ea5e9'), // Cosmic cyan
+      new THREE.Color('#fcd34d'), // Warm galactic core
       new THREE.Color('#cbd5e1'), // Faint stellar dust
     ]
 
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2
+      // Strictly sample the upper celestial arch [0.10*PI .. 0.90*PI] — never clamp particles onto a horizon ring!
+      const angle = (0.10 + (i / count) * 0.80) * Math.PI
       // Gaussian lateral dispersion from galactic plane
-      const disp = (Math.random() + Math.random() - 1.0) * 160
-      const radialVar = (Math.random() - 0.5) * 80
+      const disp = (Math.random() + Math.random() - 1.0) * 145
+      const radialVar = (Math.random() - 0.5) * 70
 
       const rawX = (r + radialVar) * Math.cos(angle)
-      const rawY = (r + radialVar) * Math.sin(angle) * Math.sin(inclination) + disp
-      const rawZ = (r + radialVar) * Math.sin(angle) * Math.cos(inclination) + disp * 0.5
-
-      // Only upper hemisphere
-      const y = Math.max(80, rawY)
+      const rawY = (r + radialVar) * Math.sin(angle) * Math.sin(inclination) + disp * 0.45
+      const rawZ = (r + radialVar) * Math.sin(angle) * Math.cos(inclination) + disp * 0.55
 
       positions[i * 3] = rawX
-      positions[i * 3 + 1] = y
+      positions[i * 3 + 1] = Math.max(240, rawY)
       positions[i * 3 + 2] = rawZ
 
-      // Galactic core concentration near angle = 0 and angle = PI
-      const isCore = Math.abs(Math.cos(angle)) > 0.65
-      const col = isCore ? palette[3] : palette[Math.floor(Math.random() * palette.length)]
+      const isCore = Math.abs(angle - Math.PI * 0.5) < 0.45
+      const col = isCore && Math.random() > 0.45 ? palette[3] : palette[Math.floor(Math.random() * palette.length)]
 
       colors[i * 3] = col.r
       colors[i * 3 + 1] = col.g
       colors[i * 3 + 2] = col.b
 
-      sizes[i] = 12.0 + Math.random() * 24.0 // Soft large nebular puffs
+      sizes[i] = 7.0 + Math.random() * 14.0
     }
 
     const geo = new THREE.BufferGeometry()
@@ -232,7 +234,7 @@ function CosmicCelestialSky({
       starMaterialRef.current.uniforms.uOpacity.value = nightFactor
     }
     if (milkyWayMaterialRef.current) {
-      milkyWayMaterialRef.current.uniforms.uOpacity.value = nightFactor * 0.62
+      milkyWayMaterialRef.current.uniforms.uOpacity.value = nightFactor * 0.22
     }
   })
 
@@ -283,12 +285,37 @@ function CosmicCelestialSky({
           {/* Main Moon Sphere */}
           <mesh>
             <sphereGeometry args={[28, 24, 24]} />
-            <meshBasicMaterial color="#f8fafc" />
+            <meshBasicMaterial color="#f8fafc" fog={false} />
           </mesh>
           {/* Outer Lunar Corona / Halo Ring */}
           <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[28, 56, 32]} />
-            <meshBasicMaterial color="#93c5fd" transparent opacity={0.24} side={THREE.DoubleSide} />
+            <ringGeometry args={[28, 62, 32]} />
+            <meshBasicMaterial color="#93c5fd" transparent opacity={0.26} side={THREE.DoubleSide} fog={false} depthWrite={false} />
+          </mesh>
+        </group>
+      )}
+
+      {/* 4. Daytime & Golden Hour Solar Disc & Atmospheric Sun Halo */}
+      {!isNight && sunHeight > -0.02 && weather !== 'rain' && (
+        <group position={sunDiscPosition}>
+          <mesh>
+            <sphereGeometry args={[isGoldenHour ? 42 : 34, 20, 20]} />
+            <meshBasicMaterial
+              color={isGoldenHour ? '#fde68a' : '#fffef5'}
+              fog={false}
+              toneMapped={false}
+            />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[isGoldenHour ? 92 : 68, 20, 20]} />
+            <meshBasicMaterial
+              color={isGoldenHour ? '#fb923c' : '#fef3c7'}
+              transparent
+              opacity={isGoldenHour ? 0.24 : 0.14}
+              fog={false}
+              depthWrite={false}
+              blending={THREE.AdditiveBlending}
+            />
           </mesh>
         </group>
       )}
@@ -417,13 +444,18 @@ function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiom
     return geo
   }, [])
 
-  useFrame((state) => {
+  const waveAccumRef = useRef(0)
+
+  useFrame((state, delta) => {
     if (oceanRef.current && isCoastal) {
       const roadCx = getRoadCenter(camera.position.z)
       // Anchored at sea level Y = 0.0, strictly on the seaward side:
-      // Center of ocean plane is placed at roadCx - 1380m so nearest edge is 80m from road,
-      // completely on the ocean side of the beach dunes!
       oceanRef.current.position.set(roadCx - 1380, 0.0, camera.position.z)
+
+      // Update wave geometry at 30 Hz to keep CPU frame pacing ultra-low
+      waveAccumRef.current += delta
+      if (waveAccumRef.current < 0.033) return
+      waveAccumRef.current = 0
 
       const time = state.clock.getElapsedTime() * 1.15
       const pos = oceanGeo.attributes.position
@@ -447,12 +479,12 @@ function CoastalOcean({ isNight, currentBiome }: { isNight: boolean; currentBiom
   return (
     <mesh ref={oceanRef} geometry={oceanGeo} position={[-1380, 0, 0]} receiveShadow>
       <meshStandardMaterial
-        color={isNight ? '#061325' : '#0d5c75'}
-        roughness={0.22}
-        metalness={0.12}
-        envMapIntensity={isNight ? 0.6 : 1.2}
+        color={isNight ? '#071b34' : '#0b6b88'}
+        roughness={0.18}
+        metalness={0.16}
+        envMapIntensity={isNight ? 0.65 : 1.35}
         transparent
-        opacity={0.88}
+        opacity={0.90}
         depthWrite={false}
       />
     </mesh>
@@ -565,25 +597,31 @@ export default function GameEnvironment() {
 
     if (isNight) {
       lightColor = '#93c5fd' // Cool silver-blue moonlight
-      lightIntensity = 0.35
+      lightIntensity = 0.48
       skyTurbidity = 0.1
       skyRayleigh = 0.1
     } else if (isSunsetOrSunrise) {
       lightColor = '#fed7aa' // Warm golden amber sunlight
-      lightIntensity = 1.8
+      lightIntensity = 1.95
       skyTurbidity = 3.4
       skyRayleigh = 3.2
     }
 
     if (weather === 'rain') {
-      lightIntensity *= 0.52
+      lightIntensity *= 0.60
       lightColor = '#94a3b8'
       skyTurbidity = 4.2
       skyRayleigh = 1.2
     } else if (weather === 'mist') {
-      lightIntensity *= 0.65
+      lightIntensity *= 0.72
       skyTurbidity = 5.0
     }
+
+    // Visible solar disc positioned inside camera far plane along sun azimuth
+    const sunDiscDist = 1650
+    const sunDiscX = sunEastWest * sunDiscDist
+    const sunDiscY = Math.max(40, sunHeight * sunDiscDist * 0.85)
+    const sunDiscZ = -580
 
     // Moon position placed opposite the sun on the celestial dome
     const moonDist = 1200
@@ -594,12 +632,14 @@ export default function GameEnvironment() {
 
     return {
       skySunPos: [skySunX, skySunY, skySunZ] as [number, number, number],
+      sunDiscPos: [sunDiscX, sunDiscY, sunDiscZ] as [number, number, number],
       lightPos: [lightX, lightY, lightZ] as [number, number, number],
       moonPos: [moonX, moonY, moonZ] as [number, number, number],
       sunHeight,
       lightColor,
       lightIntensity,
       isNight,
+      isSunsetOrSunrise,
       skyTurbidity,
       skyRayleigh,
     }
@@ -773,6 +813,9 @@ export default function GameEnvironment() {
           // Dynamic organic drift & swirling around camera frustum
           positions[idx] += Math.sin((positions[idx + 1] + i) * 0.35) * driftSpeed * delta
           positions[idx + 2] += Math.cos((positions[idx + 1] + i) * 0.28) * (driftSpeed * 0.6) * delta
+        } else {
+          // Slight natural wind slant for rain streaks
+          positions[idx] += 2.4 * delta
         }
 
         // Loop vertically relative to camera: when particle falls below -10m relative to camera, wrap to +30m
@@ -830,11 +873,14 @@ export default function GameEnvironment() {
         />
       </group>
 
-      {/* Cosmic Celestial Night Sky: 3,600 Twinkling Stars, Milky Way & 3D Moon */}
+      {/* Cosmic Celestial Night Sky: 3,600 Twinkling Stars, Milky Way, 3D Moon & Solar Corona */}
       <CosmicCelestialSky
         sunHeight={celestialData.sunHeight}
+        sunDiscPosition={celestialData.sunDiscPos}
         moonPosition={celestialData.moonPos}
         isNight={celestialData.isNight}
+        isGoldenHour={celestialData.isSunsetOrSunrise}
+        weather={weather}
       />
 
       {/* Expansive Animated Coastal Beach Ocean Surface (Only rendered in Coastal Biome!) */}
@@ -877,17 +923,17 @@ export default function GameEnvironment() {
         <orthographicCamera attach="shadow-camera" args={[-55, 55, 65, -50, 0.5, 200]} />
       </directionalLight>
 
-      {/* Soft Ambient Fill Light (guarantees vehicle body panels never become an unlit silhouette) */}
+      {/* Soft Ambient Fill Light (guarantees vehicle body panels & night roads stay cleanly readable) */}
       <ambientLight
-        color={celestialData.isNight ? '#38bdf8' : '#fed7aa'}
-        intensity={celestialData.isNight ? 0.25 : 0.42}
+        color={celestialData.isNight ? '#475569' : '#fed7aa'}
+        intensity={celestialData.isNight ? 0.34 : 0.44}
       />
 
       {/* Atmospheric Fill Ambient / Hemisphere Lighting with Softened Ground Bounce */}
       <hemisphereLight
-        color={celestialData.isNight ? '#bae6fd' : biomeConfig.skyHemiSky}
+        color={celestialData.isNight ? '#93c5fd' : biomeConfig.skyHemiSky}
         groundColor={celestialData.isNight ? '#334155' : (biomeConfig.skyHemiGround || '#64748b')}
-        intensity={celestialData.isNight ? 0.32 : 0.68}
+        intensity={celestialData.isNight ? 0.44 : 0.72}
       />
 
       {/* Rain or Snow Particles with Soft Circular Alpha Map */}

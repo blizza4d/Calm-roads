@@ -17,7 +17,13 @@ import {
   ROAD_PROTECTED_RADIUS,
   getTerrainSlopeNormalY,
 } from '../../../utils/roadMath'
-import { getAsphaltTexture, getAsphaltBumpTexture, getTerrainBumpTexture, getWoodBumpTexture } from '../../../utils/asphaltTexture'
+import {
+  getAsphaltTexture,
+  getAsphaltBumpTexture,
+  getAsphaltRoughnessTexture,
+  getTerrainBumpTexture,
+  getWoodBumpTexture,
+} from '../../../utils/asphaltTexture'
 import { getGrassAlphaTexture } from './Scenery'
 
 const CHUNK_LEN = 200
@@ -219,6 +225,8 @@ const poleGeo = (() => {
 // 8. Highway Reflector Delineator Posts (Guide Posts / Leitpfosten) - 3D Cylindrical Meshes
 const delineatorPostGeo = new THREE.CylinderGeometry(0.065, 0.075, 1.15, 12).translate(0, 0.575, 0)
 const delineatorReflectorGeo = new THREE.CylinderGeometry(0.076, 0.076, 0.16, 12).translate(0, 0.92, 0)
+// 8b. Galvanized Steel Guardrail I-Beam Support Post (anchors curved W-beam guardrails into road shoulder)
+const guardrailPostGeo = new THREE.BoxGeometry(0.11, 1.05, 0.11).translate(0, 0.30, 0)
 
 // 9. Cozy Alpine Timber Cabin with Steep Snow-Covered Gable Roof & Stone Chimney
 const cabinGeo = (() => {
@@ -265,6 +273,7 @@ grassTuftGeo.boundingSphere = CHUNK_SPHERE
 poleGeo.boundingSphere = CHUNK_SPHERE
 delineatorPostGeo.boundingSphere = CHUNK_SPHERE
 delineatorReflectorGeo.boundingSphere = CHUNK_SPHERE
+guardrailPostGeo.boundingSphere = CHUNK_SPHERE
 cabinGeo.boundingSphere = CHUNK_SPHERE
 cabinWindowGeo.boundingSphere = CHUNK_SPHERE
 
@@ -273,8 +282,15 @@ cabinWindowGeo.boundingSphere = CHUNK_SPHERE
 // ----------------------------------------------------------------------------
 const sharedGuardrailMat = new THREE.MeshStandardMaterial({
   color: '#cbd5e1',
-  metalness: 0.85,
-  roughness: 0.25,
+  metalness: 0.78,
+  roughness: 0.34,
+  side: THREE.DoubleSide,
+})
+
+const sharedGuardrailPostMat = new THREE.MeshStandardMaterial({
+  color: '#64748b',
+  metalness: 0.72,
+  roughness: 0.45,
 })
 
 const sharedMarkingsMat = new THREE.MeshStandardMaterial({
@@ -330,9 +346,17 @@ const sharedCabinWindowMat = new THREE.MeshStandardMaterial({
   toneMapped: false,
 })
 
-// Persistent reusable Object3D to eliminate GC memory churn during instanced scenery updates
+// Persistent reusable Object3D & Color to eliminate GC memory churn during instanced scenery updates
 const _dummy = new THREE.Object3D()
 const _zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
+const _tmpColor = new THREE.Color()
+const AUTUMN_CANOPY_PALETTE = [
+  new THREE.Color('#c2410c'), // Burnt maple orange
+  new THREE.Color('#b91c1c'), // Deep crimson red
+  new THREE.Color('#d97706'), // Golden amber
+  new THREE.Color('#eab308'), // Sunlit ochre yellow
+  new THREE.Color('#9a3412'), // Russet mahogany
+]
 
 // ------------------------------------------------------------------------
 // Module-level Shared Triplanar Shader & Biome Materials Cache
@@ -372,9 +396,9 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
      float snowCoverage = smoothstep(0.0, 1.0, altT);
      float slopeHold = clamp(vCustomWorldNorm.y * 1.25, 0.0, 1.0);
      float finalSnow = snowCoverage * (0.35 + 0.65 * slopeHold);
-     vec3 alpineSnow = vec3(0.95, 0.97, 1.0);
-     diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.85);
-     roughnessFactor = mix(roughnessFactor, 0.42, finalSnow * 0.85);`
+     vec3 alpineSnow = vec3(0.80, 0.85, 0.90);
+     diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.82);
+     roughnessFactor = mix(roughnessFactor, 0.58, finalSnow * 0.82);`
   )
 }
 
@@ -400,13 +424,14 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const asphaltTex = getAsphaltTexture()
   const asphaltBumpTex = getAsphaltBumpTexture()
+  const asphaltRoughTex = getAsphaltRoughnessTexture()
   const terrainBumpTex = getTerrainBumpTexture()
   const grassAlphaTex = getGrassAlphaTexture()
 
   const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     bumpMap: terrainBumpTex,
-    bumpScale: 0.032,
+    bumpScale: 0.036,
     roughness: biomeConfig.roughness,
     metalness: 0.04,
   })
@@ -415,11 +440,12 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
   const roadMat = new THREE.MeshStandardMaterial({
     map: asphaltTex,
     bumpMap: asphaltBumpTex,
-    bumpScale: 0.024,
+    bumpScale: 0.026,
+    roughnessMap: asphaltRoughTex,
     color: '#ffffff',
-    roughness: isRaining ? 0.08 : biomeConfig.id === 'tundra' ? 0.74 : 0.70,
-    metalness: isRaining ? 0.45 : 0.08,
-    envMapIntensity: isRaining ? 1.6 : 0.65,
+    roughness: isRaining ? 0.22 : biomeConfig.id === 'tundra' ? 0.88 : 0.84,
+    metalness: isRaining ? 0.42 : 0.08,
+    envMapIntensity: isRaining ? 1.55 : 0.72,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
@@ -427,8 +453,10 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
 
   const shoulderMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.shoulderColor,
+    bumpMap: terrainBumpTex,
+    bumpScale: 0.024,
     roughness: 0.92,
-    metalness: 0.06,
+    metalness: 0.05,
     polygonOffset: true,
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1,
@@ -451,8 +479,9 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
     roughness: 0.88,
   })
 
+  // In Autumn Valley, base color is white so per-instance crimson/amber/gold palette renders at full richness
   const broadleafCanopyMat = new THREE.MeshStandardMaterial({
-    color: biomeConfig.treeFoliageColor,
+    color: biomeConfig.id === 'autumn' ? '#ffffff' : biomeConfig.treeFoliageColor,
     roughness: 0.82,
     metalness: 0.05,
     side: THREE.FrontSide,
@@ -554,25 +583,29 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
     pos.needsUpdate = true
 
-    // Fast central difference normals computation directly on regular grid (5.7x faster than computeVertexNormals)
+    // Seamless C1 central-difference normals directly on regular grid (samples across chunk Z borders for 0 seam!)
     const norm = terrainGeo.attributes.normal.array as Float32Array
     const dx = TERRAIN_W / GRID_X
     const dz = CHUNK_LEN / GRID_Z
+    const sampleClampedY = (lx: number, wz: number) => {
+      const rY = getRoadElevation(wz)
+      return Math.max(0.0, Math.min(rY + 105.0, getTerrainHeight(lx, wz, biomeConfig.id)))
+    }
     for (let iz = 0; iz < countZ; iz++) {
-      const izPrev = iz > 0 ? iz - 1 : 0
-      const izNext = iz < GRID_Z ? iz + 1 : GRID_Z
-      const dzDist = (izNext - izPrev) * dz
+      const localZ = (iz / GRID_Z - 0.5) * CHUNK_LEN
+      const worldZ = chunkZ + localZ
       for (let ix = 0; ix < countX; ix++) {
         const ixPrev = ix > 0 ? ix - 1 : 0
         const ixNext = ix < GRID_X ? ix + 1 : GRID_X
         const dxDist = (ixNext - ixPrev) * dx
         const idx = iz * countX + ix
+        const localX = (ix / GRID_X - 0.5) * TERRAIN_W
         const yL = pos.getY(iz * countX + ixPrev)
         const yR = pos.getY(iz * countX + ixNext)
-        const yD = pos.getY(izPrev * countX + ix)
-        const yU = pos.getY(izNext * countX + ix)
+        const yD = iz > 0 ? pos.getY((iz - 1) * countX + ix) : sampleClampedY(localX, worldZ - dz)
+        const yU = iz < GRID_Z ? pos.getY((iz + 1) * countX + ix) : sampleClampedY(localX, worldZ + dz)
         const gradX = -(yR - yL) / dxDist
-        const gradZ = -(yU - yD) / dzDist
+        const gradZ = -(yU - yD) / (2 * dz)
         const invLen = 1 / Math.sqrt(gradX * gradX + 1 + gradZ * gradZ)
         norm[idx * 3] = gradX * invLen
         norm[idx * 3 + 1] = invLen
@@ -601,64 +634,97 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       uvs[i * 2] = baseU + uSlope
       uvs[i * 2 + 1] = baseV + vSlope
 
-      // Smooth slope blending (smoothstep Hermite transition between grass and rock)
-      const rawSlope = Math.max(0, Math.min(1, (ny - 0.62) / 0.25))
-      const slope = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
+      // Smooth slope blending (slope = 1 on flat ground, 0 on sheer cliffs)
+      const rawSlope = Math.max(0, Math.min(1, (ny - 0.60) / 0.26))
+      const flat = rawSlope * rawSlope * (3.0 - 2.0 * rawSlope)
 
-      const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.022
+      const macroPatch = Math.sin(px * 0.0085 + worldZ * 0.0072) * 0.5 + 0.5
+      const organicVar = (Math.sin(px * 0.018 + worldZ * 0.018) + Math.cos(px * 0.035 - worldZ * 0.028)) * 0.025
       const vertexBiome = getActiveBiomeAt(worldZ, biomeConfig.id)
-      const isDesert = vertexBiome.id === 'desert'
-      const isTundra = vertexBiome.id === 'tundra'
-      const isAutumn = vertexBiome.id === 'autumn'
-      const isCoastal = vertexBiome.id === 'coastal'
-      const isTwisted = vertexBiome.id === 'twisted_mountains'
+      const bid = vertexBiome.id
+      const isDesert = bid === 'desert'
+      const isTundra = bid === 'tundra'
+      const isAutumn = bid === 'autumn'
+      const isCoastal = bid === 'coastal'
+      const isTwisted = bid === 'twisted_mountains'
+      const isEnchanted = bid === 'enchanted_forest'
+      const isAlpine = bid === 'alpine'
 
-      let cr = 0.18 * slope + 0.17 * (1 - slope)
-      let cg = 0.24 * slope + 0.32 * (1 - slope)
-      let cb = 0.28 * slope + 0.18 * (1 - slope)
+      // Default Lush Forest / Plains: sunlit meadow grass blended with warm valley moss & granite rock
+      let cr = (0.20 + macroPatch * 0.08) * flat + 0.34 * (1 - flat)
+      let cg = (0.36 + macroPatch * 0.10) * flat + 0.35 * (1 - flat)
+      let cb = (0.16 + macroPatch * 0.04) * flat + 0.36 * (1 - flat)
 
-      if (isDesert) {
-        cr = 0.62 * slope + 0.74 * (1 - slope)
-        cg = 0.44 * slope + 0.52 * (1 - slope)
-        cb = 0.25 * slope + 0.30 * (1 - slope)
+      if (isEnchanted) {
+        // Enchanted Forest: rich deep emerald moss floor & dark mossy slate outcrops
+        cr = (0.10 + macroPatch * 0.05) * flat + 0.22 * (1 - flat)
+        cg = (0.27 + macroPatch * 0.09) * flat + 0.28 * (1 - flat)
+        cb = (0.14 + macroPatch * 0.06) * flat + 0.25 * (1 - flat)
+      } else if (isAlpine) {
+        // Alpine Highlands: high-altitude olive meadow transitioning into cool exposed granite peaks
+        cr = (0.22 + macroPatch * 0.06) * flat + 0.36 * (1 - flat)
+        cg = (0.34 + macroPatch * 0.07) * flat + 0.39 * (1 - flat)
+        cb = (0.20 + macroPatch * 0.04) * flat + 0.44 * (1 - flat)
+      } else if (isDesert) {
+        // Desert Canyon: stratified horizontal sandstone canyon bands (ochre, terracotta, rust & pale cream)
+        const strata = Math.sin(py * 0.52 + px * 0.012) * 0.5 + 0.5
+        const rockR = 0.58 + strata * 0.22
+        const rockG = 0.31 + strata * 0.18
+        const rockB = 0.16 + strata * 0.12
+        const sandR = 0.78 + macroPatch * 0.09
+        const sandG = 0.56 + macroPatch * 0.08
+        const sandB = 0.32 + macroPatch * 0.06
+        cr = sandR * flat + rockR * (1 - flat)
+        cg = sandG * flat + rockG * (1 - flat)
+        cb = sandB * flat + rockB * (1 - flat)
       } else if (isAutumn) {
-        cr = 0.42 * slope + 0.48 * (1 - slope)
-        cg = 0.26 * slope + 0.32 * (1 - slope)
-        cb = 0.18 * slope + 0.14 * (1 - slope)
+        // Autumn Valley: fallen golden-amber & russet leaf carpet with warm sandstone-brown cliffs
+        const leafMix = macroPatch
+        const floorR = 0.46 + leafMix * 0.18
+        const floorG = 0.30 + leafMix * 0.11
+        const floorB = 0.12 + leafMix * 0.04
+        cr = floorR * flat + 0.38 * (1 - flat)
+        cg = floorG * flat + 0.26 * (1 - flat)
+        cb = floorB * flat + 0.19 * (1 - flat)
       } else if (isTundra) {
-        cr = 0.40 * slope + 0.68 * (1 - slope)
-        cg = 0.44 * slope + 0.72 * (1 - slope)
-        cb = 0.50 * slope + 0.76 * (1 - slope)
+        // Snowy Tundra: frosty glacier snowfields & basalt crags (calibrated below bloom threshold)
+        cr = (0.64 + macroPatch * 0.08) * flat + 0.34 * (1 - flat)
+        cg = (0.70 + macroPatch * 0.07) * flat + 0.38 * (1 - flat)
+        cb = (0.78 + macroPatch * 0.06) * flat + 0.44 * (1 - flat)
       } else if (isTwisted) {
-        // Twisted Mountains: Dark slate alpine rock on cliffs vs crisp white powder snow on flats
-        cr = 0.28 * slope + 0.86 * (1 - slope)
-        cg = 0.32 * slope + 0.90 * (1 - slope)
-        cb = 0.40 * slope + 0.94 * (1 - slope)
+        // Twisted Mountains: crisp alpine powder snow with icy blue shadow depth vs dark charcoal-slate cliff faces
+        cr = (0.68 + macroPatch * 0.07) * flat + 0.24 * (1 - flat)
+        cg = (0.74 + macroPatch * 0.06) * flat + 0.29 * (1 - flat)
+        cb = (0.82 + macroPatch * 0.05) * flat + 0.37 * (1 - flat)
       } else if (isCoastal) {
-        // Coastal Beach: Warm golden sand dunes along seaward side vs ocean-spray turf
-        const isBeachSide = px < roadCx - 14
+        // Coastal Beach: golden warm sand dunes & wet shoreline darkening seaward vs lush coastal headlands landward
+        const isBeachSide = px < roadCx - 12
         if (isBeachSide) {
-          cr = 0.84 * (1 - slope) + 0.45 * slope
-          cg = 0.76 * (1 - slope) + 0.42 * slope
-          cb = 0.58 * (1 - slope) + 0.38 * slope
+          const wetShore = Math.max(0, Math.min(1, 1.0 - py / 4.2))
+          const sandR = 0.85 - wetShore * 0.28
+          const sandG = 0.76 - wetShore * 0.26
+          const sandB = 0.56 - wetShore * 0.22
+          cr = sandR * flat + 0.46 * (1 - flat)
+          cg = sandG * flat + 0.42 * (1 - flat)
+          cb = sandB * flat + 0.36 * (1 - flat)
         } else {
-          cr = 0.24 * slope + 0.28 * (1 - slope)
-          cg = 0.30 * slope + 0.52 * (1 - slope)
-          cb = 0.34 * slope + 0.18 * (1 - slope)
+          cr = (0.24 + macroPatch * 0.06) * flat + 0.40 * (1 - flat)
+          cg = (0.44 + macroPatch * 0.08) * flat + 0.38 * (1 - flat)
+          cb = (0.20 + macroPatch * 0.04) * flat + 0.34 * (1 - flat)
         }
       }
 
-      // Smooth summit snow
-      if ((isTundra || isTwisted) && py > 22) {
-        const snowT = Math.min(1.0, (py - 22) / 20.0)
-        cr = cr * (1 - snowT) + 0.95 * snowT
-        cg = cg * (1 - snowT) + 0.97 * snowT
-        cb = cb * (1 - snowT) + 0.99 * snowT
+      // Smooth summit snow (calibrated to keep crisp shadow contours without bloom blowout)
+      if ((isTundra || isTwisted) && py > 28) {
+        const snowT = Math.min(1.0, (py - 28) / 28.0) * 0.72
+        cr = cr * (1 - snowT) + 0.78 * snowT
+        cg = cg * (1 - snowT) + 0.82 * snowT
+        cb = cb * (1 - snowT) + 0.88 * snowT
       } else if (py > 62) {
-        const snowT = Math.min(1.0, (py - 62) / 36.0)
-        cr = cr * (1 - snowT) + 0.95 * snowT
-        cg = cg * (1 - snowT) + 0.97 * snowT
-        cb = cb * (1 - snowT) + 0.99 * snowT
+        const snowT = Math.min(1.0, (py - 62) / 36.0) * 0.8
+        cr = cr * (1 - snowT) + 0.80 * snowT
+        cg = cg * (1 - snowT) + 0.84 * snowT
+        cb = cb * (1 - snowT) + 0.89 * snowT
       }
 
       const distFromCenter = Math.abs(px - roadCx)
@@ -1114,6 +1180,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     const grassTufts: { pos: [number, number, number]; scale: number; rotY: number }[] = []
     const poles: { pos: [number, number, number] }[] = []
     const delineators: { pos: [number, number, number]; rotY: number }[] = []
+    const guardrailPosts: { pos: [number, number, number] }[] = []
     const cabins: { pos: [number, number, number]; rotY: number }[] = []
 
     const bid = biomeConfig.id
@@ -1361,7 +1428,27 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       })
     }
 
-    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators, cabins }
+    // Guardrail Steel Support Posts (anchored under every active curved guardrail segment)
+    const railSegments = 28
+    const railOffset = ROAD_WIDTH / 2 + 1.2
+    for (let i = 0; i < railSegments; i++) {
+      const z1 = CHUNK_LEN / 2 - (i / railSegments) * CHUNK_LEN
+      const z2 = CHUNK_LEN / 2 - ((i + 1) / railSegments) * CHUNK_LEN
+      const wz1 = chunkZ + z1
+      const wz2 = chunkZ + z2
+      const cx1 = getRoadCenter(wz1)
+      const cx2 = getRoadCenter(wz2)
+      if (Math.abs(cx2 - cx1) > 0.4) {
+        const s1 = getRoadSplineSample(wz1)
+        const side = cx2 > cx1 ? 1 : -1
+        const px = s1.x + s1.rx * railOffset * side
+        const py = s1.y + 0.05 + s1.ry * railOffset * side
+        const pz = z1 + s1.rz * railOffset * side
+        guardrailPosts.push({ pos: [px, py, pz] })
+      }
+    }
+
+    return { pines, broadleafs, saguaros, shrubs, rocks, grassTufts, poles, delineators, guardrailPosts, cabins }
   }, [chunkZ, biomeConfig.id])
 
   // Instanced Meshes for Vegetation & Scenery Props
@@ -1376,6 +1463,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const poleRef = useRef<THREE.InstancedMesh>(null)
   const delineatorPostRef = useRef<THREE.InstancedMesh>(null)
   const delineatorReflectorRef = useRef<THREE.InstancedMesh>(null)
+  const guardrailPostRef = useRef<THREE.InstancedMesh>(null)
   const cabinRef = useRef<THREE.InstancedMesh>(null)
   const cabinWindowRef = useRef<THREE.InstancedMesh>(null)
   const sceneryGroupRef = useRef<THREE.Group>(null)
@@ -1389,10 +1477,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   const isGuardrailVisibleRef = useRef<boolean | null>(null)
   const lastCheckCamZRef = useRef<number>(-999999)
 
-  // Synchronous Matrix Updates before paint to prevent 1-frame visual popping (Zero GC allocations)
+  // Synchronous Matrix & Per-Instance Color Updates before paint (Zero GC allocations)
   // Unused instanced slots are zeroed out with _zeroMatrix to prevent ghost instances at chunk origin (0, 0, 0)
   useLayoutEffect(() => {
-    // 1. Pines (max 36)
+    const isAutumnBiome = biomeConfig.id === 'autumn'
+
+    // 1. Pines (max 36) with natural subtle shade variation
     if (pineTrunkRef.current && pineCanopyRef.current) {
       sceneryData.pines.forEach((p, i) => {
         _dummy.position.set(p.pos[0], p.pos[1], p.pos[2])
@@ -1401,6 +1491,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         pineTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
         pineCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
+
+        const shade = 0.82 + ((i * 37 + Math.abs(Math.round(p.pos[0]))) % 32) * 0.011
+        _tmpColor.setRGB(shade * 0.96, shade * 1.04, shade * 0.95)
+        pineCanopyRef.current?.setColorAt(i, _tmpColor)
       })
       for (let i = sceneryData.pines.length; i < 36; i++) {
         pineTrunkRef.current.setMatrixAt(i, _zeroMatrix)
@@ -1408,9 +1502,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       }
       pineTrunkRef.current.instanceMatrix.needsUpdate = true
       pineCanopyRef.current.instanceMatrix.needsUpdate = true
+      if (pineCanopyRef.current.instanceColor) pineCanopyRef.current.instanceColor.needsUpdate = true
     }
 
-    // 2. Broadleafs (max 36)
+    // 2. Broadleafs (max 36) with rich multi-hue Autumn foliage or natural forest canopy variation
     if (broadleafTrunkRef.current && broadleafCanopyRef.current) {
       sceneryData.broadleafs.forEach((b, i) => {
         _dummy.position.set(b.pos[0], b.pos[1], b.pos[2])
@@ -1419,6 +1514,16 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.updateMatrix()
         broadleafTrunkRef.current?.setMatrixAt(i, _dummy.matrix)
         broadleafCanopyRef.current?.setMatrixAt(i, _dummy.matrix)
+
+        if (isAutumnBiome) {
+          const pal = AUTUMN_CANOPY_PALETTE[(i + Math.abs(Math.round(b.pos[0] * 0.5))) % AUTUMN_CANOPY_PALETTE.length]
+          const jitter = 0.90 + ((i * 19) % 20) * 0.01
+          _tmpColor.copy(pal).multiplyScalar(jitter)
+        } else {
+          const shade = 0.80 + ((i * 29 + Math.abs(Math.round(b.pos[2]))) % 36) * 0.011
+          _tmpColor.setRGB(shade * 0.98, shade * 1.06, shade * 0.92)
+        }
+        broadleafCanopyRef.current?.setColorAt(i, _tmpColor)
       })
       for (let i = sceneryData.broadleafs.length; i < 36; i++) {
         broadleafTrunkRef.current.setMatrixAt(i, _zeroMatrix)
@@ -1426,6 +1531,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       }
       broadleafTrunkRef.current.instanceMatrix.needsUpdate = true
       broadleafCanopyRef.current.instanceMatrix.needsUpdate = true
+      if (broadleafCanopyRef.current.instanceColor) broadleafCanopyRef.current.instanceColor.needsUpdate = true
     }
 
     // 3. Saguaros (max 24)
@@ -1458,7 +1564,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       shrubRef.current.instanceMatrix.needsUpdate = true
     }
 
-    // 5. Rocks (max 24)
+    // 5. Rocks (max 24) with natural geological shade variation
     if (rockRef.current) {
       sceneryData.rocks.forEach((r, i) => {
         _dummy.position.set(r.pos[0], r.pos[1], r.pos[2])
@@ -1466,11 +1572,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         _dummy.rotation.set(r.rot[0], r.rot[1], r.rot[2])
         _dummy.updateMatrix()
         rockRef.current?.setMatrixAt(i, _dummy.matrix)
+        const rockShade = 0.78 + ((i * 41 + Math.abs(Math.round(r.pos[0]))) % 40) * 0.01
+        _tmpColor.setRGB(rockShade, rockShade * 0.99, rockShade * 0.97)
+        rockRef.current?.setColorAt(i, _tmpColor)
       })
       for (let i = sceneryData.rocks.length; i < 24; i++) {
         rockRef.current.setMatrixAt(i, _zeroMatrix)
       }
       rockRef.current.instanceMatrix.needsUpdate = true
+      if (rockRef.current.instanceColor) rockRef.current.instanceColor.needsUpdate = true
     }
 
     // 6. Grass Tufts (max 36)
@@ -1521,6 +1631,21 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       delineatorReflectorRef.current.instanceMatrix.needsUpdate = true
     }
 
+    // 8b. Guardrail Steel Support Posts (max 28)
+    if (guardrailPostRef.current) {
+      sceneryData.guardrailPosts.forEach((gp, i) => {
+        _dummy.position.set(gp.pos[0], gp.pos[1], gp.pos[2])
+        _dummy.scale.set(1, 1, 1)
+        _dummy.rotation.set(0, 0, 0)
+        _dummy.updateMatrix()
+        guardrailPostRef.current?.setMatrixAt(i, _dummy.matrix)
+      })
+      for (let i = sceneryData.guardrailPosts.length; i < 28; i++) {
+        guardrailPostRef.current.setMatrixAt(i, _zeroMatrix)
+      }
+      guardrailPostRef.current.instanceMatrix.needsUpdate = true
+    }
+
     // 9. Cozy Alpine Cabins (max 4)
     if (cabinRef.current && cabinWindowRef.current) {
       sceneryData.cabins.forEach((c, i) => {
@@ -1552,6 +1677,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     if (poleRef.current) poleRef.current.count = sceneryData.poles.length
     if (delineatorPostRef.current) delineatorPostRef.current.count = sceneryData.delineators.length
     if (delineatorReflectorRef.current) delineatorReflectorRef.current.count = sceneryData.delineators.length
+    if (guardrailPostRef.current) guardrailPostRef.current.count = sceneryData.guardrailPosts.length
     if (cabinRef.current) cabinRef.current.count = sceneryData.cabins.length
     if (cabinWindowRef.current) cabinWindowRef.current.count = sceneryData.cabins.length
 
@@ -1567,6 +1693,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       poleRef.current,
       delineatorPostRef.current,
       delineatorReflectorRef.current,
+      guardrailPostRef.current,
       cabinRef.current,
       cabinWindowRef.current,
     ]
@@ -1576,7 +1703,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         mesh.computeBoundingSphere()
       }
     })
-  }, [sceneryData])
+  }, [sceneryData, biomeConfig.id])
 
   // Distance-Based Level of Detail (LOD) Culling:
   // Dynamically gates instanced mesh instance count based on distance to camera,
@@ -1665,6 +1792,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
       if (rockRef.current) rockRef.current.count = sceneryData.rocks.length * midMult
       if (poleRef.current) poleRef.current.count = sceneryData.poles.length * midMult
+      if (guardrailPostRef.current) guardrailPostRef.current.count = sceneryData.guardrailPosts.length * midMult
 
       if (pineTrunkRef.current) pineTrunkRef.current.count = sceneryData.pines.length
       if (pineCanopyRef.current) pineCanopyRef.current.count = sceneryData.pines.length
@@ -1705,11 +1833,13 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
       <mesh ref={guardrailMeshRef} geometry={guardrailGeo} material={sharedGuardrailMat} castShadow={false} receiveShadow frustumCulled={false} />
 
       {/* 6. Biome-Specific Instanced Scenery Group (Chunk-local Distance Culled) */}
+      {/* Material passed as prop (NOT inside args) so weather/biome material swaps NEVER destroy & recreate InstancedMesh GPU buffers */}
       <group ref={sceneryGroupRef}>
         {/* Multi-Tiered Mountain Pines (Conifers) */}
         <instancedMesh
           ref={pineTrunkRef}
-          args={[pineTrunkGeo, mats.pineTrunkMat, 36]}
+          args={[pineTrunkGeo, undefined, 36]}
+          material={mats.pineTrunkMat}
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
@@ -1717,7 +1847,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         />
         <instancedMesh
           ref={pineCanopyRef}
-          args={[pineCanopyGeo, mats.pineCanopyMat, 36]}
+          args={[pineCanopyGeo, undefined, 36]}
+          material={mats.pineCanopyMat}
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
@@ -1727,7 +1858,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Organic Broadleaf / Mountain Maples */}
         <instancedMesh
           ref={broadleafTrunkRef}
-          args={[broadleafTrunkGeo, mats.broadleafTrunkMat, 36]}
+          args={[broadleafTrunkGeo, undefined, 36]}
+          material={mats.broadleafTrunkMat}
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
@@ -1735,7 +1867,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         />
         <instancedMesh
           ref={broadleafCanopyRef}
-          args={[broadleafCanopyGeo, mats.broadleafCanopyMat, 36]}
+          args={[broadleafCanopyGeo, undefined, 36]}
+          material={mats.broadleafCanopyMat}
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
@@ -1745,7 +1878,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Desert Saguaro Cacti */}
         <instancedMesh
           ref={saguaroRef}
-          args={[saguaroGeo, sharedSaguaroMat, 24]}
+          args={[saguaroGeo, undefined, 24]}
+          material={sharedSaguaroMat}
           count={sceneryData.saguaros.length}
           castShadow={false}
           receiveShadow
@@ -1755,7 +1889,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Mountain Shrubs & Roadside Bushes */}
         <instancedMesh
           ref={shrubRef}
-          args={[shrubGeo, mats.shrubMat, 24]}
+          args={[shrubGeo, undefined, 24]}
+          material={mats.shrubMat}
           count={sceneryData.shrubs.length}
           receiveShadow
           frustumCulled={false}
@@ -1764,7 +1899,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Weathered Boulders & Rock Outcrops */}
         <instancedMesh
           ref={rockRef}
-          args={[rockGeo, mats.rockMat, 24]}
+          args={[rockGeo, undefined, 24]}
+          material={mats.rockMat}
           count={sceneryData.rocks.length}
           castShadow={false}
           receiveShadow
@@ -1774,7 +1910,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Roadside Wild Grass Tufts */}
         <instancedMesh
           ref={grassRef}
-          args={[grassTuftGeo, mats.grassMat, 36]}
+          args={[grassTuftGeo, undefined, 36]}
+          material={mats.grassMat}
           count={sceneryData.grassTufts.length}
           receiveShadow
           frustumCulled={false}
@@ -1783,7 +1920,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Roadside Highway Utility Poles with Timber Grain */}
         <instancedMesh
           ref={poleRef}
-          args={[poleGeo, sharedPoleMat, 16]}
+          args={[poleGeo, undefined, 16]}
+          material={sharedPoleMat}
           count={sceneryData.poles.length}
           castShadow={false}
           frustumCulled={false}
@@ -1792,7 +1930,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Roadside Reflector Delineator Posts (Guide Posts) */}
         <instancedMesh
           ref={delineatorPostRef}
-          args={[delineatorPostGeo, sharedDelineatorPostMat, 32]}
+          args={[delineatorPostGeo, undefined, 32]}
+          material={sharedDelineatorPostMat}
           count={sceneryData.delineators.length}
           castShadow={false}
           receiveShadow
@@ -1802,15 +1941,28 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         {/* Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
         <instancedMesh
           ref={delineatorReflectorRef}
-          args={[delineatorReflectorGeo, sharedDelineatorReflectorMat, 32]}
+          args={[delineatorReflectorGeo, undefined, 32]}
+          material={sharedDelineatorReflectorMat}
           count={sceneryData.delineators.length}
+          frustumCulled={false}
+        />
+
+        {/* Galvanized Steel Guardrail Support Posts */}
+        <instancedMesh
+          ref={guardrailPostRef}
+          args={[guardrailPostGeo, undefined, 28]}
+          material={sharedGuardrailPostMat}
+          count={sceneryData.guardrailPosts.length}
+          castShadow={false}
+          receiveShadow
           frustumCulled={false}
         />
 
         {/* Cozy Alpine Timber Cabins & Roadside Shelters */}
         <instancedMesh
           ref={cabinRef}
-          args={[cabinGeo, sharedCabinMat, 4]}
+          args={[cabinGeo, undefined, 4]}
+          material={sharedCabinMat}
           count={sceneryData.cabins.length}
           castShadow={false}
           receiveShadow
@@ -1818,7 +1970,8 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
         />
         <instancedMesh
           ref={cabinWindowRef}
-          args={[cabinWindowGeo, sharedCabinWindowMat, 4]}
+          args={[cabinWindowGeo, undefined, 4]}
+          material={sharedCabinWindowMat}
           count={sceneryData.cabins.length}
           frustumCulled={false}
         />

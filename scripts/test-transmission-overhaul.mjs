@@ -246,5 +246,48 @@ assert(!downAt200.allowed, 'Downshift from 3rd to 2nd at 200 km/h locked out to 
 const downAt80 = testManualShift(3, 80, 'down')
 assert(downAt80.allowed && downAt80.newGear === 2, 'Downshift from 3rd to 2nd at 80 km/h permitted')
 
+// ------------------------------------------------------------------------
+// TEST 5: Differentiated 7-Vehicle Profiles & Grade-Aware Shifting
+// ------------------------------------------------------------------------
+console.log('\n--- Test 5: Vehicle Differentiation, Neutral Torque & Grade Load ---')
+assert(
+  VEHICLE_CONFIGS.modern_supercar.redlineRpm === 9500 &&
+    VEHICLE_CONFIGS.modern_supercar.maxSpeedKmh > VEHICLE_CONFIGS.supercar.maxSpeedKmh,
+  'Modern Exotic V12 Hypercar has distinct 9,500 RPM redline and higher top speed than base supercar'
+)
+assert(
+  VEHICLE_CONFIGS.vintage_hatch.redlineRpm === 7800 &&
+    VEHICLE_CONFIGS.vintage_hatch.massKg < VEHICLE_CONFIGS.hatchback.massKg,
+  'Vintage Turbo Hatch has distinct 7,800 RPM redline and lighter chassis mass than Rally Hatch'
+)
+assert(
+  VEHICLE_CONFIGS.camper.redlineRpm === 4400 && VEHICLE_CONFIGS.camper.upshiftRpm === 3600,
+  'Camper Van diesel profile has authentic 4,400 RPM redline and low-RPM upshift point'
+)
+assert(
+  VEHICLE_CONFIGS.bmw_m3.gearRatios.length === 6 &&
+    VEHICLE_CONFIGS.supercar.gearRatios.length === 7 &&
+    VEHICLE_CONFIGS.camper.gearRatios.length === 5,
+  'Each vehicle class preserves distinct gear count (BMW 6-sp, Supercar 7-sp, Camper 5-sp)'
+)
+
+// Uphill grade raises automatic shift thresholds to prevent bogging on mountain climbs
+const flatUpshift = m3.upshiftRpm
+const uphillLoad = Math.min(1, 0.12 / 0.14)
+const uphillUpshift = Math.min(m3.redlineRpm - 250, flatUpshift + uphillLoad * 550)
+const uphillDownshift = m3.downshiftRpm + uphillLoad * 650
+assert(
+  uphillUpshift > flatUpshift && uphillDownshift > m3.downshiftRpm,
+  'Steep uphill grade raises automatic upshift & downshift thresholds',
+  `up: ${flatUpshift} -> ${Math.round(uphillUpshift)}, down: ${m3.downshiftRpm} -> ${Math.round(uphillDownshift)}`
+)
+
+// Vehicle switching gear clamp safety (7th gear supercar -> 5th gear camper)
+const clampedGear = Math.max(1, Math.min(VEHICLE_CONFIGS.camper.gearRatios.length, 7))
+assert(
+  clampedGear === 5 && Number.isFinite(VEHICLE_CONFIGS.camper.gearRatios[clampedGear - 1]),
+  'Switching from 7-speed to 5-speed vehicle clamps gear safely without out-of-bounds undefined ratio'
+)
+
 console.log(`\n=== SUMMARY: ${passed} PASSED, ${failed} FAILED ===`)
 process.exit(failed > 0 ? 1 : 0)

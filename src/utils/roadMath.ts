@@ -962,6 +962,32 @@ export function getRawBiomeElevation(x: number, z: number, bId: BiomeType): numb
   return getRawMacroTerrainElevation(x, z, bId, macro)
 }
 
+// Minimum geological relief floors per biome so manually selected biomes always express
+// their signature topography (canyon mesas, snow ridges, rolling valleys) even near Z=0.
+const BIOME_RELIEF_FLOORS: Record<BiomeType, { tAmp: number; mAmp: number; tFreq: number; mFreq: number }> = {
+  twisted_mountains: { tAmp: 24.0, mAmp: 54.0, tFreq: 0.0044, mFreq: 0.0016 },
+  alpine: { tAmp: 22.0, mAmp: 46.0, tFreq: 0.0040, mFreq: 0.0015 },
+  desert: { tAmp: 22.0, mAmp: 40.0, tFreq: 0.0038, mFreq: 0.0015 },
+  autumn: { tAmp: 14.5, mAmp: 20.0, tFreq: 0.0032, mFreq: 0.0013 },
+  forest: { tAmp: 11.0, mAmp: 16.0, tFreq: 0.0030, mFreq: 0.0012 },
+  enchanted_forest: { tAmp: 13.0, mAmp: 18.0, tFreq: 0.0034, mFreq: 0.0013 },
+  coastal: { tAmp: 10.5, mAmp: 18.0, tFreq: 0.0029, mFreq: 0.0014 },
+  tundra: { tAmp: 15.0, mAmp: 28.0, tFreq: 0.0034, mFreq: 0.0014 },
+}
+
+function getBiomeAdjustedMacro(z: number, biomeId: BiomeType): MacroTerrainProfile {
+  const base = getInterpolatedMacroProfile(z)
+  const floor = BIOME_RELIEF_FLOORS[biomeId]
+  if (!floor) return base
+  return {
+    ...base,
+    terrainAmplitude: Math.max(base.terrainAmplitude, floor.tAmp),
+    mountainAmplitude: Math.max(base.mountainAmplitude, floor.mAmp),
+    terrainFrequency: Math.max(base.terrainFrequency, floor.tFreq),
+    mountainFrequency: Math.max(base.mountainFrequency, floor.mFreq),
+  }
+}
+
 // 5. Complete World Terrain Elevation at ANY (x, z)
 // Enforces the Bulldozer Road Mask with a strictly protected roadbed corridor and smooth Hermite transition.
 // The road is always guaranteed to remain a visible, flat, continuous, physically drivable surface.
@@ -980,29 +1006,10 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
     const roadY = getRoadElevation(uClamped)
     const dist = Math.hypot(x - roadX, z - uClamped)
     const distPastCorridor = dist - ROAD_PROTECTED_RADIUS
-    const macro = getInterpolatedMacroProfile(uClamped)
+    const macro = getBiomeAdjustedMacro(uClamped, biomeId)
 
-    const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
-    const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
-    const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
-    const frac = normZ - Math.floor(normZ)
-
-    let naturalElevation = 0
-    let mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
-
-    if (frac > 0.82) {
-      const blendT = (frac - 0.82) / 0.18
-      const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
-      const elev1 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
-      const elev2 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[nextIdx], macro)
-      naturalElevation = elev1 * (1 - sBlend) + elev2 * sBlend
-      const mult1 = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
-      const mult2 = BIOMES[BIOME_CYCLE_ORDER[nextIdx]].hillHeightMultiplier
-      mult = mult1 * (1 - sBlend) + mult2 * sBlend
-    } else {
-      naturalElevation = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
-      mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
-    }
+    const mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
+    const naturalElevation = getRawMacroTerrainElevation(x, z, biomeId, macro)
 
     const mountainRamp = macro.mountainAmplitude > 0
       ? Math.min(1.25, 0.05 + Math.pow(distPastCorridor / 140.0, 1.25) * 1.15)
@@ -1024,13 +1031,13 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const roadY = closest.roadY
   const banking = closest.banking
   const lateralOffset = closest.lateralOffset
-  const macro = getInterpolatedMacroProfile(closest.u)
+  const macro = getBiomeAdjustedMacro(closest.u, biomeId)
 
   // Calculate the banked roadbed plane at this lateral coordinate:
   const clampedOffset = Math.max(-ROAD_WIDTH / 2 - 2.5, Math.min(ROAD_WIDTH / 2 + 2.5, lateralOffset))
   const bankedCorridorBase = roadY + Math.tan(banking) * clampedOffset
 
-  // 1. Strictly protected roadbed corridor & shoulder (0m to ROAD_PROTECTED_RADIUS = 12.0m)
+  // 1. Strictly protected roadbed corridor & shoulder (0m to ROAD_PROTECTED_RADIUS = 14.5m)
   // Flat threshold depressed safely 0.28m below the banked roadbed
   // Guarantees that across the entire road width and shoulder, terrain NEVER pierces or z-fights
   if (dist <= ROAD_PROTECTED_RADIUS) {
@@ -1052,28 +1059,8 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const t = Math.min(1.0, Math.max(0.0, distPastCorridor / blendDist))
   const smoothBlend = t * t * t * (t * (t * 6.0 - 15.0) + 10.0) // Quintic smootherstep (zero 1st & 2nd derivatives at endpoints)
 
-  // Multi-octave continuous geological terrain synthesis with seamless transition between biomes
-  const normZ = Math.abs(z) / BIOME_CYCLE_DISTANCE
-  const idx = Math.floor(normZ) % BIOME_CYCLE_ORDER.length
-  const nextIdx = (idx + 1) % BIOME_CYCLE_ORDER.length
-  const frac = normZ - Math.floor(normZ)
-
-  let naturalElevation = 0
-  let mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
-
-  if (frac > 0.82) {
-    const blendT = (frac - 0.82) / 0.18
-    const sBlend = blendT * blendT * (3.0 - 2.0 * blendT)
-    const elev1 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
-    const elev2 = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[nextIdx], macro)
-    naturalElevation = elev1 * (1 - sBlend) + elev2 * sBlend
-    const mult1 = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
-    const mult2 = BIOMES[BIOME_CYCLE_ORDER[nextIdx]].hillHeightMultiplier
-    mult = mult1 * (1 - sBlend) + mult2 * sBlend
-  } else {
-    naturalElevation = getRawMacroTerrainElevation(x, z, BIOME_CYCLE_ORDER[idx], macro)
-    mult = BIOMES[BIOME_CYCLE_ORDER[idx]].hillHeightMultiplier
-  }
+  const mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
+  const naturalElevation = getRawMacroTerrainElevation(x, z, biomeId, macro)
 
   // Distance scaling into mountain massifs (soft ramp preventing intrusion onto roadbed):
   const mountainRamp = macro.mountainAmplitude > 0

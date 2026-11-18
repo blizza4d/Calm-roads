@@ -105,6 +105,8 @@ interface GameState {
   zenMode: boolean
   setZenMode: (z: boolean) => void
   toggleZenMode: () => void
+  cleanHud: boolean
+  toggleCleanHud: () => void
   activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings'
   setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
   speedUnit: 'kmh' | 'mph'
@@ -208,7 +210,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setMacroWeights: (macroWeights) => set({ macroWeights }),
 
   // Time & Weather
-  timeOfDay: 17.5, // Default to stunning Golden Hour
+  timeOfDay: 15.8, // Crisp sunlit late-afternoon golden light with vivid skies & dramatic shadows
   setTimeOfDay: (timeOfDay) => set({ timeOfDay }),
   autoTimeCycle: true,
   toggleAutoTimeCycle: () => set((s) => ({ autoTimeCycle: !s.autoTimeCycle })),
@@ -301,6 +303,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   zenMode: false,
   setZenMode: (zenMode) => set({ zenMode }),
   toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
+  cleanHud: false,
+  toggleCleanHud: () => set((s) => ({ cleanHud: !s.cleanHud })),
   activePanel: 'none',
   setActivePanel: (activePanel) => set((s) => ({ activePanel: s.activePanel === activePanel ? 'none' : activePanel })),
   speedUnit: 'kmh',
@@ -354,12 +358,18 @@ export const useGameStore = create<GameState>((set, get) => ({
  */
 export interface TelemetryState {
   speed: number
+  peakSpeed: number
   rpm: number
+  redlineRpm: number
+  upshiftRpm: number
   gear: string
+  gearState: 'D' | 'R' | 'N' | 'HOV'
+  isShifting: boolean
   transmissionMode?: 'auto' | 'manual'
   distance: number
   throttle: number
   brake: number
+  isHandbrake: boolean
   isBurnout?: boolean
   wheelSlip?: number
   pitch?: number
@@ -376,12 +386,18 @@ export interface TelemetryState {
 
 export const useTelemetryStore = create<TelemetryState>((set) => ({
   speed: 0,
+  peakSpeed: 0,
   rpm: 850,
+  redlineRpm: 8500,
+  upshiftRpm: 7400,
   gear: '1',
+  gearState: 'D',
+  isShifting: false,
   transmissionMode: 'auto',
   distance: 0,
   throttle: 0,
   brake: 0,
+  isHandbrake: false,
   isBurnout: false,
   wheelSlip: 0,
   pitch: 0,

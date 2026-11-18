@@ -153,10 +153,10 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     gearRatios: [4.15, 2.35, 1.45, 1.00, 0.78],
     finalDrive: 4.50,
     reverseRatio: 4.20,
-    idleRpm: 750,
-    redlineRpm: 4800,
-    upshiftRpm: 3800,
-    downshiftRpm: 1700,
+    idleRpm: 700,
+    redlineRpm: 4400,
+    upshiftRpm: 3600,
+    downshiftRpm: 1550,
     engineBraking: 0.14,
     drivetrain: 'rwd',
   },
@@ -169,76 +169,76 @@ export const VEHICLE_CONFIGS: Record<VehicleModelType, VehicleConfig> = {
     maxSteerAngle: 0.42,
     maxSpeedMs: 62.5, // ~225 km/h
     maxSpeedKmh: 225,
-    peakAccel: 5.6,
+    peakAccel: 5.8,
     brakeDecel: 26,
     dragCoeff: 0.36,
     downforceCoeff: 0.35,
-    turnRate: 1.42,
-    tireGrip: 1.1,
+    turnRate: 1.44,
+    tireGrip: 1.12,
     roadDamping: 0.992,
-    offroadDamping: 0.984,
+    offroadDamping: 0.986,
     gearRatios: [3.42, 2.14, 1.52, 1.16, 0.92],
     finalDrive: 4.25,
     reverseRatio: 3.50,
-    idleRpm: 950,
-    redlineRpm: 7600,
-    upshiftRpm: 6800,
+    idleRpm: 940,
+    redlineRpm: 7500,
+    upshiftRpm: 6700,
     downshiftRpm: 2600,
     engineBraking: 0.20,
-    drivetrain: 'fwd',
+    drivetrain: 'awd',
   },
   modern_supercar: {
-    name: 'Modern Exotic V12 Supercar',
-    massKg: 1420,
+    name: 'Modern Exotic V12 Hypercar',
+    massKg: 1380,
     wheelRadius: 0.36,
-    rideHeight: 0.38,
-    wheelbase: 2.65,
+    rideHeight: 0.36,
+    wheelbase: 2.68,
     maxSteerAngle: 0.38,
-    maxSpeedMs: 78.5,
-    maxSpeedKmh: 282,
-    peakAccel: 7.2,
-    brakeDecel: 30,
-    dragCoeff: 0.30,
-    downforceCoeff: 0.50,
-    turnRate: 1.45,
-    tireGrip: 1.20,
+    maxSpeedMs: 88.9, // ~320 km/h
+    maxSpeedKmh: 320,
+    peakAccel: 8.1, // 6.5L NA V12 hypercar acceleration
+    brakeDecel: 33,
+    dragCoeff: 0.28,
+    downforceCoeff: 0.62,
+    turnRate: 1.48,
+    tireGrip: 1.26,
     roadDamping: 0.995,
-    offroadDamping: 0.985,
-    gearRatios: [3.92, 2.44, 1.75, 1.30, 1.02, 0.84, 0.70],
-    finalDrive: 3.44,
-    reverseRatio: 3.55,
-    idleRpm: 900,
-    redlineRpm: 8800,
-    upshiftRpm: 7800,
-    downshiftRpm: 2600,
-    engineBraking: 0.19,
+    offroadDamping: 0.984,
+    gearRatios: [3.95, 2.52, 1.82, 1.38, 1.09, 0.89, 0.74],
+    finalDrive: 3.58,
+    reverseRatio: 3.45,
+    idleRpm: 1100,
+    redlineRpm: 9500,
+    upshiftRpm: 8650,
+    downshiftRpm: 3200,
+    engineBraking: 0.21,
     drivetrain: 'rwd',
   },
   vintage_hatch: {
     name: 'Vintage Raspy Turbo Hatch',
-    massKg: 1120,
+    massKg: 1040,
     wheelRadius: 0.34,
     rideHeight: 0.38,
-    wheelbase: 2.30,
-    maxSteerAngle: 0.42,
-    maxSpeedMs: 62.5,
-    maxSpeedKmh: 225,
-    peakAccel: 5.6,
-    brakeDecel: 26,
-    dragCoeff: 0.36,
-    downforceCoeff: 0.35,
-    turnRate: 1.42,
-    tireGrip: 1.1,
+    wheelbase: 2.28,
+    maxSteerAngle: 0.43,
+    maxSpeedMs: 59.7, // ~215 km/h
+    maxSpeedKmh: 215,
+    peakAccel: 5.4,
+    brakeDecel: 25,
+    dragCoeff: 0.37,
+    downforceCoeff: 0.28,
+    turnRate: 1.46,
+    tireGrip: 1.08,
     roadDamping: 0.992,
     offroadDamping: 0.984,
-    gearRatios: [3.45, 2.05, 1.48, 1.12, 0.89],
-    finalDrive: 4.10,
-    reverseRatio: 3.50,
-    idleRpm: 950,
-    redlineRpm: 7600,
-    upshiftRpm: 6800,
-    downshiftRpm: 2600,
-    engineBraking: 0.20,
+    gearRatios: [3.62, 2.24, 1.58, 1.18, 0.91],
+    finalDrive: 4.35,
+    reverseRatio: 3.55,
+    idleRpm: 900,
+    redlineRpm: 7800,
+    upshiftRpm: 7000,
+    downshiftRpm: 2700,
+    engineBraking: 0.21,
     drivetrain: 'fwd',
   },
 }
@@ -446,6 +446,10 @@ export default function VehicleController() {
   const prevThrottleVal = useRef(0)
   const isBrakingVisualRef = useRef(false)
   const [isBrakingVisual, setIsBrakingVisual] = useState(false)
+  const isReversingVisualRef = useRef(false)
+  const [isReversingVisual, setIsReversingVisual] = useState(false)
+  const peakSpeedRef = useRef(0)
+  const lastTerrainPitchRef = useRef(0)
 
   // Dynamic Tire Skid Mark Tracking Refs
   const skidQuadCount = useRef(0)
@@ -522,62 +526,34 @@ export default function VehicleController() {
     }
   }, [])
 
+  // Vehicle Switch Safety: clamp gear index and align RPM cleanly whenever vehicle changes
+  useEffect(() => {
+    const maxGears = config.gearRatios.length
+    if (isHoverMode || vehicleModel === 'hovercraft') {
+      gearState.current = 'D'
+      currentGear.current = 1
+    } else {
+      if (currentGear.current > maxGears) currentGear.current = maxGears
+      if (currentGear.current < 1) currentGear.current = 1
+    }
+    shiftCooldownTimer.current = 0
+    shiftCutTimer.current = 0
+    reverseHoldTimer.current = 0
+    forwardHoldTimer.current = 0
+    smoothedRpm.current = Math.max(config.idleRpm, Math.min(config.redlineRpm, smoothedRpm.current))
+    useTelemetryStore.getState().setTelemetry({
+      redlineRpm: config.redlineRpm,
+      upshiftRpm: config.upshiftRpm,
+    })
+  }, [vehicleModel, isHoverMode, config])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (isHoverMode || vehicleModel === 'hovercraft') return
 
-      const maxGears = config.gearRatios.length
-
-      // M Key: Toggle transmission mode (Automatic <-> Manual)
-      if (e.code === 'KeyM') {
-        useGameStore.getState().toggleTransmissionMode()
-        return
-      }
-
-      // Left Shift: Request Upshift (Enters persistent Manual mode)
-      if (e.code === 'ShiftLeft') {
-        useGameStore.getState().setTransmissionMode('manual')
-        if (gearState.current === 'R') {
-          gearState.current = 'D'
-          currentGear.current = 1
-          shiftCooldownTimer.current = 0.28
-          shiftCutTimer.current = 0.10
-          audioSystem.triggerGearShift(vehicleModel, false)
-          return
-        }
-        if (gearState.current === 'D' && currentGear.current < maxGears && shiftCooldownTimer.current <= 0) {
-          const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
-          const nextRatio = config.gearRatios[currentGear.current]
-          const nextRpm = wheelOmega * nextRatio * config.finalDrive * (60 / (2 * Math.PI))
-          // Upshift lockout: prevent bogging engine far below idle speed
-          if (Math.abs(forwardVel.current) * 3.6 >= 8.0 && nextRpm > config.idleRpm * 0.85) {
-            currentGear.current++
-            shiftCooldownTimer.current = 0.28
-            shiftCutTimer.current = 0.11
-            audioSystem.triggerGearShift(vehicleModel, false)
-          }
-        }
-      }
-      // Right Shift: Request Downshift (Enters persistent Manual mode)
-      else if (e.code === 'ShiftRight') {
-        useGameStore.getState().setTransmissionMode('manual')
-        if (gearState.current === 'D' && currentGear.current > 1 && shiftCooldownTimer.current <= 0) {
-          const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
-          const prevRatio = config.gearRatios[currentGear.current - 2]
-          const prevRpm = wheelOmega * prevRatio * config.finalDrive * (60 / (2 * Math.PI))
-          // Safety lockout: prevent catastrophic over-rev exceeding redline
-          if (prevRpm <= config.redlineRpm + 150) {
-            currentGear.current--
-            shiftCooldownTimer.current = 0.25
-            shiftCutTimer.current = 0.09
-            audioSystem.triggerGearShift(vehicleModel, true)
-          }
-        }
-      }
-      // R Key: Instant Vehicle Reset / Respawn on Centerline
-      else if (e.code === 'KeyR') {
+      // R Key: Instant Vehicle Reset / Respawn on Centerline (works in all modes including hover)
+      if (e.code === 'KeyR') {
         const curZ = pos.current.z
         pos.current.x = getRoadCenter(curZ)
         pos.current.y = getRoadElevation(curZ) + (isHoverMode ? 1.25 : config.rideHeight)
@@ -603,6 +579,99 @@ export default function VehicleController() {
         skidRingIndex.current = 0
         hasPrevSkid.current = false
         _skidGeo.setDrawRange(0, 0)
+        return
+      }
+
+      if (isHoverMode || vehicleModel === 'hovercraft') return
+
+      const maxGears = config.gearRatios.length
+      const absSpeedKmh = Math.abs(forwardVel.current) * 3.6
+
+      // N Key: Engage / Disengage Neutral (disengages drive torque; allows stationary free-revving)
+      if (e.code === 'KeyN') {
+        if (gearState.current === 'N') {
+          gearState.current = 'D'
+          currentGear.current = 1
+          shiftCooldownTimer.current = 0.20
+          audioSystem.triggerGearShift(vehicleModel, false)
+        } else {
+          gearState.current = 'N'
+          shiftCooldownTimer.current = 0.20
+          shiftCutTimer.current = 0.08
+          audioSystem.triggerGearShift(vehicleModel, true)
+        }
+        return
+      }
+
+      // Left Shift: Request Upshift (Enters persistent Manual mode — never auto-reverts)
+      if (e.code === 'ShiftLeft') {
+        useGameStore.getState().setTransmissionMode('manual')
+        if (shiftCooldownTimer.current > 0) return
+
+        if (gearState.current === 'R') {
+          // Shift R -> N (or directly to 1 if completely stopped)
+          gearState.current = absSpeedKmh < 1.5 ? 'N' : 'N'
+          shiftCooldownTimer.current = 0.22
+          shiftCutTimer.current = 0.08
+          audioSystem.triggerGearShift(vehicleModel, false)
+          return
+        }
+        if (gearState.current === 'N') {
+          gearState.current = 'D'
+          currentGear.current = 1
+          shiftCooldownTimer.current = 0.24
+          shiftCutTimer.current = 0.09
+          audioSystem.triggerGearShift(vehicleModel, false)
+          return
+        }
+        if (gearState.current === 'D' && currentGear.current < maxGears) {
+          const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
+          const nextRatio = config.gearRatios[currentGear.current]
+          const nextRpm = wheelOmega * nextRatio * config.finalDrive * (60 / (2 * Math.PI))
+          // Upshift lockout: prevent lugging/stalling engine far below idle speed
+          if (absSpeedKmh >= 8.0 && nextRpm > config.idleRpm * 0.82) {
+            currentGear.current++
+            shiftCooldownTimer.current = 0.28
+            shiftCutTimer.current = 0.11
+            audioSystem.triggerGearShift(vehicleModel, false)
+          }
+        }
+      }
+      // Right Shift: Request Downshift (Enters persistent Manual mode — never auto-reverts)
+      else if (e.code === 'ShiftRight') {
+        useGameStore.getState().setTransmissionMode('manual')
+        if (shiftCooldownTimer.current > 0) return
+
+        if (gearState.current === 'N') {
+          // From Neutral at standstill, allow downshifting cleanly into Reverse
+          if (absSpeedKmh < 2.0) {
+            gearState.current = 'R'
+            shiftCooldownTimer.current = 0.25
+            shiftCutTimer.current = 0.09
+            audioSystem.triggerGearShift(vehicleModel, true)
+          }
+          return
+        }
+        if (gearState.current === 'D') {
+          if (currentGear.current === 1 && absSpeedKmh < 3.5) {
+            // From 1st at standstill, downshift cleanly into Neutral
+            gearState.current = 'N'
+            shiftCooldownTimer.current = 0.22
+            shiftCutTimer.current = 0.08
+            audioSystem.triggerGearShift(vehicleModel, true)
+          } else if (currentGear.current > 1) {
+            const wheelOmega = Math.abs(forwardVel.current) / config.wheelRadius
+            const prevRatio = config.gearRatios[currentGear.current - 2]
+            const prevRpm = wheelOmega * prevRatio * config.finalDrive * (60 / (2 * Math.PI))
+            // Safety lockout: prevent catastrophic over-rev exceeding redline
+            if (prevRpm <= config.redlineRpm + 150) {
+              currentGear.current--
+              shiftCooldownTimer.current = 0.25
+              shiftCutTimer.current = 0.09
+              audioSystem.triggerGearShift(vehicleModel, true)
+            }
+          }
+        }
       }
     }
 
@@ -701,13 +770,14 @@ export default function VehicleController() {
               forwardHoldTimer.current = 0
             }
           }
-        } else {
-          // In Forward Drive or Neutral: command forward acceleration
+        } else if (gearState.current === 'N') {
+          // Neutral: Disengage drive torque completely! Allow free-revving engine without accelerating vehicle.
           forwardHoldTimer.current = 0
           targetThrottle = 1.0
-          if (gearState.current === 'N') {
-            gearState.current = 'D'
-          }
+        } else {
+          // In Forward Drive ('D'): command forward acceleration
+          forwardHoldTimer.current = 0
+          targetThrottle = 1.0
         }
       } else {
         forwardHoldTimer.current = 0
@@ -719,6 +789,22 @@ export default function VehicleController() {
           targetThrottle = -0.65
           targetBrake = 0.0
           reverseHoldTimer.current = 0
+        } else if (gearState.current === 'N') {
+          // In Neutral: brake slows vehicle cleanly; if stopped in auto mode & brake held, shift to R
+          targetBrake = 1.0
+          targetThrottle = 0.0
+          if (Math.abs(forwardVel.current) <= 0.15 && store.transmissionMode === 'auto') {
+            reverseHoldTimer.current += frameDelta
+            if (reverseHoldTimer.current >= 0.18) {
+              gearState.current = 'R'
+              shiftCooldownTimer.current = 0.25
+              shiftCutTimer.current = 0.10
+              audioSystem.triggerGearShift(vehicleModel, false)
+              reverseHoldTimer.current = 0
+            }
+          } else {
+            reverseHoldTimer.current = 0
+          }
         } else {
           // In Forward Drive:
           if (forwardVel.current > 0.15) {
@@ -779,10 +865,16 @@ export default function VehicleController() {
     }
     const curThrottleAbs = Math.abs(currentThrottle.current)
 
-    const currentIsBraking = targetBrake > 0.1 || isServiceBrake
+    const currentIsBraking = targetBrake > 0.1 || (isServiceBrake && gearState.current !== 'R')
     if (isBrakingVisualRef.current !== currentIsBraking) {
       isBrakingVisualRef.current = currentIsBraking
       setIsBrakingVisual(currentIsBraking)
+    }
+
+    const currentIsReversing = !isHover && gearState.current === 'R'
+    if (isReversingVisualRef.current !== currentIsReversing) {
+      isReversingVisualRef.current = currentIsReversing
+      setIsReversingVisual(currentIsReversing)
     }
 
     // ------------------------------------------------------------------------
@@ -819,6 +911,7 @@ export default function VehicleController() {
         rightZ,
         activeBiomeConfig.id
       )
+      lastTerrainPitchRef.current = terrainPitch
 
       // True 3D Drivable Surface and Contact Height
       const groundSurfaceY = getSurfaceHeight(pos.current.x, pos.current.z, activeBiomeConfig.id)
@@ -877,9 +970,12 @@ export default function VehicleController() {
       if (!isGrounded.current && !isHoverMode) {
         // Airborne: tires cannot push vehicle forward against air
         forwardVel.current += (-Math.sign(forwardVel.current) * aeroDrag) * dt
-        if (currentThrottle.current > 0) {
+        if (currentThrottle.current > 0 && gearState.current !== 'N') {
           wheelSpin.current += ((config.redlineRpm * 0.85) / 60) * Math.PI * 2 * dt
         }
+      } else if (!isHoverMode && vehicleModel !== 'hovercraft' && gearState.current === 'N') {
+        // Neutral: drive torque is strictly disengaged (vehicle coasts freely under slope gravity & drag)
+        forwardVel.current += (slopeGravity - Math.sign(forwardVel.current) * aeroDrag) * dt
       } else {
         // Grounded: full powertrain traction and tire propulsion
         if (currentThrottle.current > 0) {
@@ -1200,6 +1296,16 @@ export default function VehicleController() {
       const limiterBounce = Math.sin(state.clock.elapsedTime * 52) * 180
       targetRpm = config.redlineRpm - 200 + limiterBounce
       smoothedRpm.current = targetRpm
+    } else if (gearState.current === 'N') {
+      // Neutral: Drive torque disengaged; engine revs freely to limiter on throttle without accelerating car
+      calculatedGear = 'N'
+      if (curThrottleAbs > 0.05) {
+        const revTarget = config.idleRpm + curThrottleAbs * (config.redlineRpm - config.idleRpm) * 0.96
+        const limiterBounce = revTarget > config.redlineRpm - 300 ? Math.sin(state.clock.elapsedTime * 50) * 160 : 0
+        targetRpm = revTarget + limiterBounce
+      } else {
+        targetRpm = config.idleRpm
+      }
     } else if (gearState.current === 'R') {
       calculatedGear = 'R'
       const revTotalRatio = config.reverseRatio * config.finalDrive
@@ -1208,12 +1314,12 @@ export default function VehicleController() {
       const launchRpm = config.idleRpm + curThrottleAbs * (config.upshiftRpm * 0.38 - config.idleRpm)
       targetRpm = Math.max(config.idleRpm, THREE.MathUtils.lerp(launchRpm, drivetrainRpm, clutchEngagement))
     } else if (currentSpeedKmh < 1.0 && curThrottleAbs < 0.08) {
-      // Stationary at idle
-      calculatedGear = gearState.current === 'D' ? '1' : 'N'
+      // Stationary at idle in Drive (1st gear staged)
+      calculatedGear = '1'
       targetRpm = config.idleRpm
     } else if (currentSpeedKmh < 1.0 && curThrottleAbs >= 0.08) {
-      // Stationary revving in Neutral / launch pre-staging
-      calculatedGear = gearState.current === 'D' ? '1' : 'N'
+      // Stationary launch pre-staging in 1st gear
+      calculatedGear = '1'
       targetRpm = config.idleRpm + curThrottleAbs * (config.redlineRpm * 0.65 - config.idleRpm)
     } else if (!isGrounded.current) {
       // Vehicle is airborne: engine free-revs on throttle decoupled from road load
@@ -1225,7 +1331,8 @@ export default function VehicleController() {
       }
     } else {
       // Grounded forward driving ('D')
-      const curGear = currentGear.current
+      const curGear = Math.max(1, Math.min(maxGears, currentGear.current))
+      currentGear.current = curGear
       const currentGearRatio = config.gearRatios[curGear - 1] || 1.0
       const totalRatio = currentGearRatio * config.finalDrive
       const drivetrainRpm = wheelOmega * totalRatio * (60 / (2 * Math.PI))
@@ -1237,15 +1344,29 @@ export default function VehicleController() {
         }
 
         if (shiftCooldownTimer.current <= 0) {
-          // Dynamic load-sensitive upshift point based on throttle pedal
-          const upshiftThresh = THREE.MathUtils.lerp(
+          // Uphill / downhill road grade compensation for realistic mountain pass shifting
+          const uphillLoad = Math.max(0, Math.min(1, lastTerrainPitchRef.current / 0.14))
+          const isSteepDownhillCoast = lastTerrainPitchRef.current < -0.025 && curThrottleAbs < 0.15
+
+          // Dynamic load-sensitive upshift point based on throttle pedal + uphill grade
+          const baseUpshift = THREE.MathUtils.lerp(
             config.downshiftRpm + 1200,
             config.upshiftRpm,
             Math.min(1.0, curThrottleAbs * 1.1)
           )
+          const upshiftThresh = Math.min(config.redlineRpm - 250, baseUpshift + uphillLoad * 550)
+          const downshiftThresh = Math.min(
+            upshiftThresh - 900,
+            config.downshiftRpm + uphillLoad * 650 + (targetBrake > 0.3 ? 350 : 0)
+          )
 
-          // Automatic Upshift
-          if (drivetrainRpm > upshiftThresh && currentGear.current < maxGears && currentSpeedKmh > 10) {
+          // Automatic Upshift (suppressed during off-throttle steep downhill engine braking)
+          if (
+            !isSteepDownhillCoast &&
+            drivetrainRpm > upshiftThresh &&
+            currentGear.current < maxGears &&
+            currentSpeedKmh > 10
+          ) {
             const nextGearRatio = config.gearRatios[currentGear.current]
             const nextRpm = wheelOmega * nextGearRatio * config.finalDrive * (60 / (2 * Math.PI))
             if (nextRpm >= config.downshiftRpm) {
@@ -1256,7 +1377,7 @@ export default function VehicleController() {
             }
           }
           // Automatic Downshift with clean hysteresis
-          else if (drivetrainRpm < config.downshiftRpm && currentGear.current > 1) {
+          else if (drivetrainRpm < downshiftThresh && currentGear.current > 1) {
             const prevGearRatio = config.gearRatios[currentGear.current - 2]
             const prevRpm = wheelOmega * prevGearRatio * config.finalDrive * (60 / (2 * Math.PI))
             if (prevRpm < config.redlineRpm - 150) {
@@ -1353,18 +1474,31 @@ export default function VehicleController() {
       drivenWheelSpeed: isBurnoutActive ? config.redlineRpm * 0.85 : (currentSpeedKmh / 3.6) / 0.33,
     })
 
+    // Track session peak speed record (km/h)
+    const roundedSpeedKmh = Math.round(currentSpeedKmh)
+    if (roundedSpeedKmh > peakSpeedRef.current) {
+      peakSpeedRef.current = roundedSpeedKmh
+    }
+
     // Decoupled Telemetry Dispatch (throttled to 20-30Hz, zero 3D Fiber tree re-renders)
     telemetryCounter.current++
     if (telemetryCounter.current % 3 === 0) {
       const closestRoad = getClosestRoadPoint(pos.current.x, pos.current.z)
       const groundClearanceMm = Math.round((pos.current.y - groundY) * 1000)
       useTelemetryStore.getState().setTelemetry({
-        speed: Math.round(currentSpeedKmh),
+        speed: roundedSpeedKmh,
+        peakSpeed: peakSpeedRef.current,
         rpm: finalRpm,
+        redlineRpm: config.redlineRpm,
+        upshiftRpm: config.upshiftRpm,
         gear: calculatedGear,
+        gearState: isHover ? 'HOV' : gearState.current,
+        isShifting: shiftCutTimer.current > 0,
         transmissionMode: transMode,
         throttle: curThrottleAbs,
         brake: targetBrake,
+        isHandbrake,
+        isBurnout: isBurnoutActive,
         distance: accumulatedDistance.current,
         pitch: +(bodyPitch.current * (180 / Math.PI)).toFixed(1),
         roll: +(bodyRoll.current * (180 / Math.PI)).toFixed(1),
@@ -1785,6 +1919,7 @@ export default function VehicleController() {
             steeringAngle={steeringVisual.current}
             wheelRotation={wheelSpin.current}
             isBraking={isBrakingVisual}
+            isReversing={isReversingVisual}
             headlightsOn={headlights}
             isHoverMode={isHoverMode}
             wheelSuspensions={wheelSuspensions.current}

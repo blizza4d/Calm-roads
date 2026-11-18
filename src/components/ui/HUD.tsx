@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react'
 import { useGameStore, useTelemetryStore } from '../../store/useGameStore'
 import { BIOMES } from '../../utils/roadMath'
+import { VEHICLE_CONFIGS } from '../3d/Vehicles/VehicleController'
 
 // ------------------------------------------------------------------------
 // NFS MOST WANTED (2005) MECHANICAL ROLLING ODOMETER
@@ -175,70 +176,108 @@ const RollingOdometer = memo(function RollingOdometer({ unit }: RollingOdometerP
 // Zero-React Frame Overhead: All Telemetry Updates Mutate Raw DOM Elements
 // ------------------------------------------------------------------------
 const TOTAL_RPM_SEGMENTS = 28
+const SHIFT_LIGHT_COUNT = 6
 
 export default function HUD() {
   // Direct DOM Element References
   const speedDisplayRef = useRef<HTMLSpanElement>(null)
+  const peakSpeedRef = useRef<HTMLSpanElement>(null)
   const gearDisplayRef = useRef<HTMLSpanElement>(null)
   const gearContainerRef = useRef<HTMLDivElement>(null)
   const transModeRef = useRef<HTMLSpanElement>(null)
   const rpmTextRef = useRef<HTMLSpanElement>(null)
   const tachSegmentsRef = useRef<(HTMLDivElement | null)[]>([])
+  const shiftLightsRef = useRef<(HTMLDivElement | null)[]>([])
   const brakeBarRef = useRef<HTMLDivElement>(null)
   const throttleBarRef = useRef<HTMLDivElement>(null)
   const burnoutBadgeRef = useRef<HTMLDivElement>(null)
+  const handbrakeBadgeRef = useRef<HTMLDivElement>(null)
   const surfaceBadgeRef = useRef<HTMLDivElement>(null)
 
   // React State solely for user settings that do not change every physics frame
   const speedUnit = useGameStore((s) => s.speedUnit)
   const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
   const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
+  const cleanHud = useGameStore((s) => s.cleanHud)
+  const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
   const vehicleModel = useGameStore((s) => s.vehicleModel)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
 
+  const vehicleCfg = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
+  const maxRpmLabel = `${(vehicleCfg.redlineRpm / 1000).toFixed(1)}k`
+
   // High-Frequency Direct Telemetry Subscription (100% Zero React Re-Renders)
   useEffect(() => {
     let lastDispSpeed = -1
+    let lastPeakSpeed = -1
     let lastGear = ''
     let lastTransMode = ''
     let lastRpm = -1
     let lastBurnout = false
+    let lastHandbrake = false
     let lastSurface = ''
     let shiftFlashTimeout: number | undefined
 
-    const unsub = useTelemetryStore.subscribe((state) => {
-      // 1. Digital Speedometer Display Update
+    const applyTelemetry = (state: ReturnType<typeof useTelemetryStore.getState>) => {
+      // 1. Digital Speedometer & Session Peak Speed Update
       const unit = useGameStore.getState().speedUnit
-      const dispSpeed = unit === 'mph' ? Math.round(state.speed * 0.621371) : Math.round(state.speed)
+      const mult = unit === 'mph' ? 0.621371 : 1
+      const dispSpeed = Math.round(state.speed * mult)
       if (dispSpeed !== lastDispSpeed && speedDisplayRef.current) {
         lastDispSpeed = dispSpeed
         speedDisplayRef.current.textContent = dispSpeed.toString()
-        const isHighSpeed = dispSpeed > (unit === 'mph' ? 120 : 190)
-        if (isHighSpeed) {
-          speedDisplayRef.current.className =
-            'text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#EF4444] drop-shadow-[0_0_12px_rgba(239,68,68,0.7)]'
-        } else {
-          speedDisplayRef.current.className =
-            'text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7] drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]'
-        }
+        const isHighSpeed = dispSpeed > (unit === 'mph' ? 125 : 200)
+        speedDisplayRef.current.style.color = isHighSpeed ? '#EF4444' : '#FDFBF7'
+        speedDisplayRef.current.style.textShadow = isHighSpeed
+          ? '0 0 14px rgba(239, 68, 68, 0.7)'
+          : '0 4px 16px rgba(0, 0, 0, 0.9)'
       }
 
-      // 2. Authoritative Gear Display & Subtle Mechanical Shift Flash
+      const dispPeak = Math.round((state.peakSpeed || 0) * mult)
+      if (dispPeak !== lastPeakSpeed && peakSpeedRef.current) {
+        lastPeakSpeed = dispPeak
+        peakSpeedRef.current.textContent = `${dispPeak}`
+      }
+
+      // 2. Authoritative Gear Display & Color-Coded State / Shift Flash
       const activeGear = state.gear || '1'
       if (activeGear !== lastGear && gearDisplayRef.current) {
         lastGear = activeGear
         gearDisplayRef.current.textContent = activeGear
 
-        // Luminous shift flash feedback
+        if (activeGear === 'R') {
+          gearDisplayRef.current.style.color = '#EF4444'
+          gearDisplayRef.current.style.textShadow = '0 0 14px rgba(239,68,68,0.65)'
+        } else if (activeGear === 'N') {
+          gearDisplayRef.current.style.color = '#38BDF8'
+          gearDisplayRef.current.style.textShadow = '0 0 14px rgba(56,189,248,0.6)'
+        } else if (activeGear === 'HOV') {
+          gearDisplayRef.current.style.color = '#00D6A3'
+          gearDisplayRef.current.style.textShadow = '0 0 14px rgba(0,214,163,0.65)'
+        } else {
+          gearDisplayRef.current.style.color = '#FDFBF7'
+          gearDisplayRef.current.style.textShadow = '0 0 10px rgba(253,251,247,0.4)'
+        }
+
+        // Brief mechanical shift flash feedback
         if (gearContainerRef.current) {
-          gearContainerRef.current.style.boxShadow = '0 0 22px rgba(255, 157, 30, 0.9), inset 0 0 12px rgba(255, 157, 30, 0.6)'
-          gearContainerRef.current.style.borderColor = '#FF9D1E'
+          const flashColor =
+            activeGear === 'R'
+              ? 'rgba(239, 68, 68, 0.85)'
+              : activeGear === 'N'
+              ? 'rgba(56, 189, 248, 0.85)'
+              : 'rgba(255, 157, 30, 0.9)'
+          const borderHex = activeGear === 'R' ? '#EF4444' : activeGear === 'N' ? '#38BDF8' : '#FF9D1E'
+          gearContainerRef.current.style.boxShadow = `0 0 22px ${flashColor}, inset 0 0 12px ${flashColor}`
+          gearContainerRef.current.style.borderColor = borderHex
+          gearContainerRef.current.style.transform = 'skewX(-6deg) scale(1.06)'
           if (shiftFlashTimeout) clearTimeout(shiftFlashTimeout)
           shiftFlashTimeout = window.setTimeout(() => {
             if (gearContainerRef.current) {
               gearContainerRef.current.style.boxShadow = ''
               gearContainerRef.current.style.borderColor = ''
+              gearContainerRef.current.style.transform = 'skewX(-6deg) scale(1)'
             }
           }, 140)
         }
@@ -258,32 +297,32 @@ export default function HUD() {
         }
       }
 
-      // 4. 28-Segment LED Tachometer & Digital RPM Counter (Direct DOM mutation)
+      // 4. Vehicle-Calibrated 28-Segment LED Tachometer & 6-LED Sequential Shift Lights
       const currentRpm = state.rpm || 850
-      if (Math.abs(currentRpm - lastRpm) >= 25) {
-        lastRpm = currentRpm
-        const maxRpm = 8800
-        const normRpm = Math.max(0, Math.min(1.0, currentRpm / maxRpm))
-        const activeCount = Math.round(normRpm * TOTAL_RPM_SEGMENTS)
-        const isRedline = currentRpm > 7200
+      const activeRedline = state.redlineRpm || vehicleCfg.redlineRpm || 8500
+      const activeUpshift = state.upshiftRpm || vehicleCfg.upshiftRpm || activeRedline * 0.86
 
-        // Update tachometer segments
+      if (Math.abs(currentRpm - lastRpm) >= 20) {
+        lastRpm = currentRpm
+        const normRpm = Math.max(0, Math.min(1.0, currentRpm / activeRedline))
+        const activeCount = Math.round(normRpm * TOTAL_RPM_SEGMENTS)
+        const redStartIdx = Math.floor(TOTAL_RPM_SEGMENTS * 0.84)
+        const amberStartIdx = Math.floor(TOTAL_RPM_SEGMENTS * 0.64)
+        const isShiftAlert = currentRpm >= activeUpshift * 0.98 && activeGear !== 'HOV'
+
         for (let i = 0; i < TOTAL_RPM_SEGMENTS; i++) {
           const seg = tachSegmentsRef.current[i]
           if (seg) {
             if (i < activeCount) {
-              if (i >= 23) {
-                // Redline zone (Segments 24-28): Racing Red
+              if (i >= redStartIdx) {
                 seg.style.backgroundColor = '#EF4444'
                 seg.style.boxShadow = '0 0 6px #EF4444'
                 seg.style.opacity = '1'
-              } else if (i >= 17) {
-                // High load zone (Segments 18-23): Warm Amber
+              } else if (i >= amberStartIdx) {
                 seg.style.backgroundColor = '#FF9D1E'
                 seg.style.boxShadow = '0 0 5px #FF9D1E'
                 seg.style.opacity = '1'
               } else {
-                // Powerband zone (Segments 1-17): Crisp Sage Green
                 seg.style.backgroundColor = '#8EA48C'
                 seg.style.boxShadow = '0 0 4px #8EA48C'
                 seg.style.opacity = '1'
@@ -291,14 +330,31 @@ export default function HUD() {
             } else {
               seg.style.backgroundColor = 'rgba(253, 251, 247, 0.08)'
               seg.style.boxShadow = 'none'
-              seg.style.opacity = '0.5'
+              seg.style.opacity = '0.45'
             }
           }
         }
 
-        // Update RPM textual header
+        // Sequential Shift Lights (illuminate progressively from 68% to 98% redline)
+        const shiftProgress = Math.max(0, Math.min(1, (normRpm - 0.68) / 0.30))
+        const litShiftLeds = Math.round(shiftProgress * SHIFT_LIGHT_COUNT)
+        for (let i = 0; i < SHIFT_LIGHT_COUNT; i++) {
+          const led = shiftLightsRef.current[i]
+          if (!led) continue
+          if (i < litShiftLeds) {
+            const col = i >= 4 ? '#EF4444' : i >= 2 ? '#FF9D1E' : '#10B981'
+            led.style.backgroundColor = col
+            led.style.boxShadow = `0 0 7px ${col}`
+            led.style.opacity = '1'
+          } else {
+            led.style.backgroundColor = 'rgba(255, 255, 255, 0.08)'
+            led.style.boxShadow = 'none'
+            led.style.opacity = '0.4'
+          }
+        }
+
         if (rpmTextRef.current) {
-          if (isRedline) {
+          if (isShiftAlert) {
             rpmTextRef.current.textContent = '• SHIFT •'
             rpmTextRef.current.className = 'text-[#EF4444] font-bold tracking-widest animate-pulse'
           } else {
@@ -316,11 +372,17 @@ export default function HUD() {
         throttleBarRef.current.style.height = `${Math.round(state.throttle * 100)}%`
       }
 
-      // 6. Burnout Alert Lamp
+      // 6. Burnout & Handbrake Alert Lamps
       const isBurnoutActive = !!state.isBurnout
       if (isBurnoutActive !== lastBurnout && burnoutBadgeRef.current) {
         lastBurnout = isBurnoutActive
         burnoutBadgeRef.current.style.display = isBurnoutActive ? 'block' : 'none'
+      }
+
+      const isHandbrakeActive = !!state.isHandbrake
+      if (isHandbrakeActive !== lastHandbrake && handbrakeBadgeRef.current) {
+        lastHandbrake = isHandbrakeActive
+        handbrakeBadgeRef.current.style.display = isHandbrakeActive ? 'block' : 'none'
       }
 
       // 7. Surface Traction Indicator
@@ -333,13 +395,17 @@ export default function HUD() {
           ? 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/20 text-[#8EA48C] border border-[#8EA48C]/40 tracking-wider uppercase'
           : 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#FF9D1E]/20 text-[#FF9D1E] border border-[#FF9D1E]/40 tracking-wider uppercase'
       }
-    })
+    }
+
+    // Immediate initial sync on mount / cleanHud / unit toggle
+    applyTelemetry(useTelemetryStore.getState())
+    const unsub = useTelemetryStore.subscribe(applyTelemetry)
 
     return () => {
       unsub()
       if (shiftFlashTimeout) clearTimeout(shiftFlashTimeout)
     }
-  }, [])
+  }, [cleanHud, speedUnit, vehicleCfg.redlineRpm, vehicleCfg.upshiftRpm])
 
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
   const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
@@ -347,7 +413,7 @@ export default function HUD() {
     vehicleModel === 'bmw_m3'
       ? 'BMW M3 GTR'
       : vehicleModel === 'supercar'
-      ? 'SUPERCAR'
+      ? 'VELOCE GT'
       : vehicleModel === 'hovercraft'
       ? 'HOVERCRAFT'
       : vehicleModel === 'camper'
@@ -355,19 +421,79 @@ export default function HUD() {
       : vehicleModel === 'hatchback'
       ? 'RALLY HATCH'
       : vehicleModel === 'modern_supercar'
-      ? 'V12 SUPERCAR'
+      ? 'V12 HYPERCAR'
       : 'VINTAGE TURBO'
 
+  // Optional Clean / Minimal HUD Mode ([U])
+  if (cleanHud) {
+    return (
+      <div className="fixed bottom-5 right-5 pointer-events-auto select-none z-20 flex items-center gap-3">
+        <div
+          className="backdrop-blur-md bg-[#0c0e13]/80 border border-[#2a303d] rounded-xl px-4 py-2 shadow-[0_12px_36px_rgba(0,0,0,0.85)] flex items-center gap-3.5 transform -skew-x-6"
+        >
+          <div
+            ref={gearContainerRef}
+            className="w-9 h-10 rounded-md flex items-center justify-center border border-[#2b313e] bg-[#07080a] transition-all duration-150"
+          >
+            <span ref={gearDisplayRef} className="text-2xl font-black font-courier leading-none text-[#FDFBF7]">
+              1
+            </span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span
+              ref={speedDisplayRef}
+              className="text-4xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7]"
+            >
+              0
+            </span>
+            <button
+              onClick={toggleSpeedUnit}
+              className="text-[9px] font-special-elite font-bold tracking-widest text-[#8EA48C] uppercase cursor-pointer"
+              title="Toggle KM/H or MPH"
+            >
+              {unitLabel}
+            </button>
+          </div>
+          <button
+            onClick={toggleCleanHud}
+            className="text-[8px] font-mono text-[#FDFBF7]/50 hover:text-[#FF9D1E] border border-white/10 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+            title="Expand Full GT Cockpit [U]"
+          >
+            FULL [U]
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="fixed bottom-6 right-6 pointer-events-auto select-none z-20 flex flex-col items-end gap-2">
+    <div className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 pointer-events-auto select-none z-20 flex flex-col items-end gap-1.5">
+      {/* Compact Top Telemetry Strip: Peak Speed & Clean HUD Toggle */}
+      <div className="flex items-center gap-2 pr-1">
+        <div className="backdrop-blur-md bg-[#0d1016]/80 border border-[#262c38] rounded-md px-2.5 py-0.5 flex items-center gap-1.5 shadow-lg">
+          <span className="text-[7.5px] font-special-elite text-[#FDFBF7]/45 tracking-widest uppercase">PEAK</span>
+          <span ref={peakSpeedRef} className="text-[10px] font-courier font-black text-[#FF9D1E]">
+            0
+          </span>
+          <span className="text-[7px] font-mono text-[#FDFBF7]/40">{unitLabel}</span>
+        </div>
+        <button
+          onClick={toggleCleanHud}
+          className="backdrop-blur-md bg-[#0d1016]/80 hover:bg-[#161b24] border border-[#262c38] hover:border-[#8EA48C]/50 rounded-md px-2 py-0.5 text-[7.5px] font-mono text-[#FDFBF7]/55 hover:text-[#FDFBF7] transition-colors cursor-pointer"
+          title="Switch to Minimal Clean HUD [U]"
+        >
+          CLEAN [U]
+        </button>
+      </div>
+
       {/* ========================================================= */}
       {/* SPEEDOMETER 2.0 RACING COCKPIT INSTRUMENT CLUSTER         */}
       {/* Precision CNC Graphite Housing with Brushed Metal Inset   */}
       {/* ========================================================= */}
       <div
-        className="relative backdrop-blur-md bg-[#0e1014]/85 border border-[#262c38] rounded-xl p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.92),inset_0_1px_1px_rgba(255,255,255,0.12)] flex items-stretch gap-4 transform -skew-x-6 transition-all duration-200 hover:border-[#8EA48C]/40"
+        className="relative backdrop-blur-md bg-[#0e1014]/88 border border-[#262c38] rounded-xl p-3 sm:p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.92),inset_0_1px_1px_rgba(255,255,255,0.12)] flex items-stretch gap-3 sm:gap-4 transform -skew-x-6 transition-all duration-200 hover:border-[#8EA48C]/40"
         style={{
-          background: 'linear-gradient(135deg, rgba(20, 24, 32, 0.90) 0%, rgba(10, 12, 16, 0.92) 100%)',
+          background: 'linear-gradient(135deg, rgba(20, 24, 32, 0.92) 0%, rgba(10, 12, 16, 0.94) 100%)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.92), inset 0 1px 1px rgba(255,255,255,0.12)',
         }}
       >
@@ -377,16 +503,16 @@ export default function HUD() {
         {/* ========================================================= */}
         {/* SECTION 1: TRANSMISSION GEAR MATRIX & STATUS LAMPS        */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-center pr-3 border-r border-[#262c38] min-w-[76px]">
+        <div className="flex flex-col justify-between items-center pr-3 border-r border-[#262c38] min-w-[78px]">
           {/* Header Title */}
           <span className="text-[8px] font-special-elite tracking-widest text-[#FDFBF7]/50 font-bold uppercase">
-            {isHoverMode ? 'DRIVE' : 'GEAR'}
+            {isHoverMode || vehicleModel === 'hovercraft' ? 'DRIVE' : 'GEAR'}
           </span>
 
-          {/* Angular Slanted Gear Frame with Dynamic Neon Backlight */}
+          {/* Angular Slanted Gear Frame with Dynamic Backlight */}
           <div
             ref={gearContainerRef}
-            className="my-1 w-13 h-15 rounded-lg flex items-center justify-center border border-[#2b313e] bg-[#07080a] shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] transition-all duration-150 transform -skew-x-6"
+            className="my-1 w-14 h-14 rounded-lg flex items-center justify-center border border-[#2b313e] bg-[#07080a] shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] transition-all duration-150 transform -skew-x-6"
           >
             <span
               ref={gearDisplayRef}
@@ -411,8 +537,15 @@ export default function HUD() {
             <span className="text-[6.5px] font-mono text-[#FDFBF7]/40 group-hover:text-[#FDFBF7]/80">[M]</span>
           </button>
 
-          {/* Status Badges: Burnout & Surface */}
-          <div className="flex flex-col items-center gap-1 mt-2 w-full">
+          {/* Status Badges: Handbrake, Burnout, Surface & Biome */}
+          <div className="flex flex-col items-center gap-1 mt-1.5 w-full">
+            <div
+              ref={handbrakeBadgeRef}
+              style={{ display: 'none' }}
+              className="text-[7px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#FF9D1E] text-black border border-amber-300 tracking-wider shadow-[0_0_8px_#FF9D1E]"
+            >
+              HANDBRAKE
+            </div>
             <div
               ref={burnoutBadgeRef}
               style={{ display: 'none' }}
@@ -436,15 +569,26 @@ export default function HUD() {
         </div>
 
         {/* ========================================================= */}
-        {/* SECTION 2: DIGITAL SPEEDOMETER & 28-SEGMENT TACHOMETER    */}
+        {/* SECTION 2: DIGITAL SPEEDOMETER, SHIFT LIGHTS & TACHOMETER */}
         {/* ========================================================= */}
-        <div className="flex flex-col justify-between items-center px-2 min-w-[155px]">
+        <div className="flex flex-col justify-between items-center px-1.5 sm:px-2 min-w-[155px] sm:min-w-[170px]">
+          {/* 6-LED Sequential Shift Light Strip */}
+          <div className="flex items-center justify-center gap-1.5 mb-1">
+            {Array.from({ length: SHIFT_LIGHT_COUNT }).map((_, i) => (
+              <div
+                key={`sl-${i}`}
+                ref={(el) => (shiftLightsRef.current[i] = el)}
+                className="w-3 h-1.5 rounded-full bg-white/10 transition-colors duration-75"
+              />
+            ))}
+          </div>
+
           {/* Main Large Speed Readout in Monospace Courier Prime */}
           <div className="flex flex-col items-center">
-            <div className="flex items-baseline gap-1">
+            <div className="flex items-baseline gap-1 min-w-[96px] justify-center">
               <span
                 ref={speedDisplayRef}
-                className="text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7] drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]"
+                className="text-5xl sm:text-6xl font-black italic tracking-tighter font-courier leading-none text-[#FDFBF7] tabular-nums"
               >
                 0
               </span>
@@ -473,13 +617,13 @@ export default function HUD() {
               ))}
             </div>
 
-            {/* Tachometer Header Readout */}
+            {/* Tachometer Header Readout (Dynamically Calibrated to Active Vehicle Redline) */}
             <div className="flex justify-between items-center text-[8.5px] font-special-elite tracking-wider px-0.5">
               <span className="text-[#FDFBF7]/40">0</span>
-              <span ref={rpmTextRef} className="text-[#FDFBF7] font-semibold tracking-wider">
-                850 RPM
+              <span ref={rpmTextRef} className="text-[#FDFBF7] font-semibold tracking-wider tabular-nums">
+                {vehicleCfg.idleRpm} RPM
               </span>
-              <span className="text-[#FDFBF7]/40">8.8k</span>
+              <span className="text-[#EF4444]/80 font-bold">{maxRpmLabel}</span>
             </div>
           </div>
         </div>
@@ -495,12 +639,15 @@ export default function HUD() {
 
           {/* Vehicle Name Tag & Throttle/Brake Peak Meters */}
           <div className="flex items-end justify-between w-full mt-2">
-            {/* Active Vehicle & Biome Tag */}
+            {/* Active Vehicle Tag */}
             <div className="flex flex-col items-start gap-0.5">
               <span className="text-[7px] font-mono text-[#FDFBF7]/40 font-bold uppercase tracking-wider">
                 VEHICLE
               </span>
-              <span className="text-[8px] font-special-elite text-[#8EA48C] font-bold uppercase tracking-wider truncate max-w-[65px]" title={vehicleNameFormatted}>
+              <span
+                className="text-[8px] font-special-elite text-[#8EA48C] font-bold uppercase tracking-wider truncate max-w-[70px]"
+                title={vehicleCfg.name}
+              >
                 {vehicleNameFormatted}
               </span>
             </div>

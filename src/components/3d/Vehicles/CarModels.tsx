@@ -12,6 +12,7 @@ interface CarModelProps {
   steeringAngle: number
   wheelRotation: number
   isBraking: boolean
+  isReversing?: boolean
   headlightsOn: boolean
   isHoverMode: boolean
   wheelSuspensions?: [number, number, number, number]
@@ -133,6 +134,60 @@ function HeadlightBeams({
 // 1. Authentic BMW M3 GTR '05 (ALMS / GT Widebody Monocoque)
 // ----------------------------------------------------
 
+// Cached Soft Elliptical Contact Shadow Texture (grounds every vehicle on asphalt with zero shadow-map cost)
+function createContactShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.clearRect(0, 0, 128, 256)
+    const grad = ctx.createRadialGradient(64, 128, 12, 64, 128, 62)
+    grad.addColorStop(0, 'rgba(5, 7, 12, 0.78)')
+    grad.addColorStop(0.55, 'rgba(6, 8, 14, 0.52)')
+    grad.addColorStop(0.85, 'rgba(8, 10, 16, 0.16)')
+    grad.addColorStop(1, 'rgba(8, 10, 16, 0)')
+    ctx.save()
+    ctx.scale(1, 2)
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 128, 128)
+    ctx.restore()
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+const _contactShadowTex = typeof document !== 'undefined' ? createContactShadowTexture() : new THREE.Texture()
+const _contactShadowMat = new THREE.MeshBasicMaterial({
+  map: _contactShadowTex,
+  transparent: true,
+  opacity: 0.82,
+  depthWrite: false,
+  polygonOffset: true,
+  polygonOffsetFactor: -3,
+  polygonOffsetUnits: -3,
+})
+
+function VehicleContactShadow({
+  width = 2.25,
+  length = 4.9,
+  y = -0.33,
+  visible = true,
+}: {
+  width?: number
+  length?: number
+  y?: number
+  visible?: boolean
+}) {
+  if (!visible) return null
+  return (
+    <mesh position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} material={_contactShadowMat} renderOrder={3}>
+      <planeGeometry args={[width, length]} />
+    </mesh>
+  )
+}
+
 // Shared wheel materials to avoid redundant allocations across 4 wheels
 const sharedTireMat = new THREE.MeshStandardMaterial({
   color: new THREE.Color('#1c1d20'),
@@ -140,10 +195,25 @@ const sharedTireMat = new THREE.MeshStandardMaterial({
   metalness: 0.04,
 })
 
+const sharedAlloyRimMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#cbd5e1'),
+  metalness: 0.82,
+  roughness: 0.24,
+  envMapIntensity: 1.05,
+})
+
 const sharedCaliperMat = new THREE.MeshStandardMaterial({
   color: new THREE.Color('#d97706'), // Brembo racing gold/amber
   metalness: 0.85,
   roughness: 0.22,
+})
+
+const sharedReverseLampMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#ffffff'),
+  emissive: new THREE.Color('#f8fafc'),
+  emissiveIntensity: 4.0,
+  roughness: 0.1,
+  toneMapped: false,
 })
 
 function BmwGtrWheel({
@@ -258,6 +328,7 @@ export function BmwM3GtrModel({
   steeringAngle,
   wheelRotation,
   isBraking,
+  isReversing = false,
   headlightsOn,
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
@@ -270,17 +341,17 @@ export function BmwM3GtrModel({
   }, [bodyScene])
 
   const bodyPaintMaterial = useMemo(() => {
-    // Calibrated metallic & roughness to prevent blown-out white glowing artifacts on body and wheel arches
-    const effMetal = Math.min(0.72, Math.max(0.2, (metallic ?? 0.72)))
-    const effRough = Math.max(0.25, (roughness ?? 0.25))
+    // Calibrated metallic & clearcoat depth for authentic GT racing body finish without specular blowout
+    const effMetal = Math.min(0.76, Math.max(0.2, metallic ?? 0.72))
+    const effRough = Math.max(0.22, roughness ?? 0.24)
     return new THREE.MeshPhysicalMaterial({
       color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
       metalness: effMetal,
       roughness: effRough,
-      clearcoat: 0.8,
-      clearcoatRoughness: 0.06,
-      reflectivity: 0.8,
-      envMapIntensity: 0.95, // Balanced environment reflection to prevent specular blowout
+      clearcoat: 0.92,
+      clearcoatRoughness: 0.05,
+      reflectivity: 0.85,
+      envMapIntensity: 1.05,
     })
   }, [paintColor, metallic, roughness])
 
@@ -449,6 +520,21 @@ export function BmwM3GtrModel({
         roughness={roughness}
       />
 
+      {/* Grounded Ambient Underbody Contact Shadow */}
+      <VehicleContactShadow width={2.35} length={4.85} y={-0.375} visible={!isHoverMode} />
+
+      {/* Crisp White Reverse Lamp Illumination when in Reverse ('R') */}
+      {isReversing && (
+        <>
+          <mesh position={[-0.48, 0.54, 2.26]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.16, 0.06, 0.03]} />
+          </mesh>
+          <mesh position={[0.48, 0.54, 2.26]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.16, 0.06, 0.03]} />
+          </mesh>
+        </>
+      )}
+
       {/* Dynamic Headlight Projectors */}
       {headlightsOn && <HeadlightBeams x={0.65} y={0.58} z={-2.38} color="#fffbeb" intensity={26} />}
 
@@ -498,6 +584,7 @@ export function SupercarModel({
   steeringAngle,
   wheelRotation,
   isBraking,
+  isReversing = false,
   headlightsOn,
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
@@ -509,16 +596,16 @@ export function SupercarModel({
     return scene.clone(true)
   }, [scene])
 
-  // Dynamic PBR Automotive Materials
+  // Dynamic PBR Automotive Materials (calibrated envMapIntensity prevents sunlight blowout)
   const bodyPaintMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
       color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
-      metalness: metallic ?? 0.85,
-      roughness: roughness ?? 0.16,
+      metalness: Math.min(0.82, metallic ?? 0.78),
+      roughness: Math.max(0.18, roughness ?? 0.18),
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
-      reflectivity: 0.95,
-      envMapIntensity: 2.2,
+      reflectivity: 0.90,
+      envMapIntensity: 1.25,
     })
   }, [paintColor, metallic, roughness])
 
@@ -605,7 +692,7 @@ export function SupercarModel({
         } else if (matName.includes('tire') || matName.includes('rubber') || meshName.includes('tire') || meshName.includes('rubber')) {
           child.material = sharedTireMat
         } else if (matName.includes('rim') || matName.includes('wheel') || meshName.includes('rim') || meshName.includes('spoke')) {
-          child.material = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.85, roughness: 0.22 })
+          child.material = sharedAlloyRimMat
         } else if (
           matName.includes('taillight') ||
           meshName.includes('lights_red') ||
@@ -730,6 +817,21 @@ export function SupercarModel({
       {/* High-Fidelity Automotive GLTF Monocoque */}
       <primitive object={clonedScene} />
 
+      {/* Grounded Ambient Underbody Contact Shadow */}
+      <VehicleContactShadow width={2.35} length={4.80} y={0.02} visible={!isHoverMode} />
+
+      {/* Reverse Lamps */}
+      {isReversing && (
+        <>
+          <mesh position={[-0.45, 0.72, 2.28]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.05, 0.03]} />
+          </mesh>
+          <mesh position={[0.45, 0.72, 2.28]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.05, 0.03]} />
+          </mesh>
+        </>
+      )}
+
       {/* Dynamic Headlight Projectors */}
       {headlightsOn && <HeadlightBeams x={0.68} y={0.54} z={-2.35} color="#fffbeb" intensity={26} />}
 
@@ -759,10 +861,21 @@ export function CamperVanModel({
   steeringAngle,
   wheelRotation,
   isBraking,
+  isReversing = false,
   headlightsOn,
+  isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
-  const lowerBody = <meshStandardMaterial color={paintColor || '#2d4e30'} roughness={roughness || 0.45} metalness={metallic || 0.2} />
+  const lowerBody = (
+    <meshPhysicalMaterial
+      color={paintColor || '#2d4e30'}
+      roughness={Math.max(0.24, roughness || 0.35)}
+      metalness={Math.min(0.6, metallic || 0.25)}
+      clearcoat={0.65}
+      clearcoatRoughness={0.08}
+      envMapIntensity={1.0}
+    />
+  )
   const creamRoof = <meshStandardMaterial color="#fef3c7" roughness={0.35} />
   const chromeMat = <meshStandardMaterial color="#f8fafc" metalness={0.96} roughness={0.06} />
   const woodMat = <meshStandardMaterial color="#b45309" roughness={0.7} />
@@ -931,6 +1044,21 @@ export function CamperVanModel({
         {chromeMat}
       </mesh>
 
+      {/* Grounded Ambient Contact Shadow */}
+      <VehicleContactShadow width={2.35} length={4.75} y={-0.10} visible={!isHoverMode} />
+
+      {/* Reverse Lamps */}
+      {isReversing && (
+        <>
+          <mesh position={[-0.68, 0.45, 2.22]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.08, 0.05]} />
+          </mesh>
+          <mesh position={[0.68, 0.45, 2.22]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.08, 0.05]} />
+          </mesh>
+        </>
+      )}
+
       {headlightsOn && <HeadlightBeams x={0.64} y={0.82} z={-2.35} color="#fef3c7" intensity={24} />}
 
       <group position={[-0.92, 0.38 + (wheelSuspensions[0] || 0), -1.3]}>{renderVanWheel(true, true)}</group>
@@ -1091,15 +1219,19 @@ export function VintageHatchbackModel({
   steeringAngle,
   wheelRotation,
   isBraking,
+  isReversing = false,
   headlightsOn,
+  isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
   const redMat = (
-    <meshStandardMaterial
+    <meshPhysicalMaterial
       color={paintColor || '#dc2626'}
-      roughness={roughness || 0.3}
-      metalness={metallic || 0.4}
-      envMapIntensity={1.5}
+      roughness={Math.max(0.22, roughness || 0.28)}
+      metalness={Math.min(0.7, metallic || 0.4)}
+      clearcoat={0.85}
+      clearcoatRoughness={0.06}
+      envMapIntensity={1.1}
     />
   )
   const trimMat = <meshStandardMaterial color="#1e293b" roughness={0.75} />
@@ -1233,7 +1365,6 @@ export function VintageHatchbackModel({
       {/* Quad Front Rally Pod Lights */}
       {[-0.38, -0.13, 0.13, 0.38].map((fx, i) => (
         <group key={i} position={[fx, 0.52, -1.98]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.09, 0.09, 0.05, 16]} />
           <mesh>
             <cylinderGeometry args={[0.09, 0.09, 0.05, 16]} />
             {rallyFogMat}
@@ -1276,6 +1407,21 @@ export function VintageHatchbackModel({
         <boxGeometry args={[0.02, 0.24, 0.18]} />
         <meshStandardMaterial color="#dc2626" roughness={0.7} />
       </mesh>
+
+      {/* Grounded Ambient Contact Shadow */}
+      <VehicleContactShadow width={2.15} length={4.15} y={0.02} visible={!isHoverMode} />
+
+      {/* Reverse Lamps */}
+      {isReversing && (
+        <>
+          <mesh position={[-0.42, 0.52, 1.93]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.12, 0.05]} />
+          </mesh>
+          <mesh position={[0.42, 0.52, 1.93]} material={sharedReverseLampMat}>
+            <boxGeometry args={[0.14, 0.12, 0.05]} />
+          </mesh>
+        </>
+      )}
 
       {headlightsOn && <HeadlightBeams x={0.62} y={0.58} z={-2.25} color="#fff" intensity={24} />}
 
