@@ -1566,6 +1566,58 @@ export class RealisticVehicleAudioEngine {
     }
   }
 
+  /**
+   * Plays an acoustic crystal chime when discovering a new scenic landmark.
+   */
+  public playDiscoveryChime(): void {
+    this.unlock()
+    if (!this.ctx || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    const notes = [659.25, 830.61, 987.77, 1318.51] // E5, G#5, B5, E6
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator()
+      const gain = this.ctx!.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, now + idx * 0.08)
+
+      gain.gain.setValueAtTime(0.0001, now + idx * 0.08)
+      gain.gain.linearRampToValueAtTime(0.24, now + idx * 0.08 + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 1.2)
+
+      osc.connect(gain)
+      gain.connect(this.sfxMaster!)
+
+      osc.start(now + idx * 0.08)
+      osc.stop(now + idx * 0.08 + 1.25)
+    })
+  }
+
+  /**
+   * Plays a triumphant brass-like fanfare chord when a driving challenge is accomplished.
+   */
+  public playChallengeFanfare(): void {
+    this.unlock()
+    if (!this.ctx || !this.sfxMaster) return
+    const now = this.ctx.currentTime
+    const chord = [523.25, 659.25, 783.99, 1046.50] // C Major triumphant triad
+    chord.forEach((freq) => {
+      const osc = this.ctx!.createOscillator()
+      const gain = this.ctx!.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(freq, now)
+
+      gain.gain.setValueAtTime(0.0001, now)
+      gain.gain.linearRampToValueAtTime(0.20, now + 0.04)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.8)
+
+      osc.connect(gain)
+      gain.connect(this.sfxMaster!)
+
+      osc.start(now)
+      osc.stop(now + 1.85)
+    })
+  }
+
   public startMusic(trackIdx = 0): void {
     this.unlock()
     this.stopMusic()

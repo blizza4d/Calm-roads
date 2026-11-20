@@ -16,6 +16,10 @@ interface CarModelProps {
   headlightsOn: boolean
   isHoverMode: boolean
   wheelSuspensions?: [number, number, number, number]
+  caliperColor?: string
+  rimColor?: string
+  paintFinish?: string
+  spoilerType?: string
 }
 
 // Reusable Forward Dual-Beam Headlight Projector (Gentle Road & Shoulder Illumination)
@@ -195,19 +199,6 @@ const sharedTireMat = new THREE.MeshStandardMaterial({
   metalness: 0.04,
 })
 
-const sharedAlloyRimMat = new THREE.MeshStandardMaterial({
-  color: new THREE.Color('#cbd5e1'),
-  metalness: 0.82,
-  roughness: 0.24,
-  envMapIntensity: 1.05,
-})
-
-const sharedCaliperMat = new THREE.MeshStandardMaterial({
-  color: new THREE.Color('#d97706'), // Brembo racing gold/amber
-  metalness: 0.85,
-  roughness: 0.22,
-})
-
 const sharedReverseLampMat = new THREE.MeshStandardMaterial({
   color: new THREE.Color('#ffffff'),
   emissive: new THREE.Color('#f8fafc'),
@@ -225,6 +216,7 @@ function BmwGtrWheel({
   isHoverMode = false,
   position,
   rimColor,
+  caliperColor,
   metallic = 0.85,
   roughness = 0.18,
 }: {
@@ -236,6 +228,7 @@ function BmwGtrWheel({
   isHoverMode?: boolean
   position: [number, number, number]
   rimColor?: string
+  caliperColor?: string
   metallic?: number
   roughness?: number
 }) {
@@ -258,6 +251,14 @@ function BmwGtrWheel({
     })
   }, [rimColor, metallic, roughness])
 
+  const caliperMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(caliperColor || '#d97706'),
+      metalness: 0.85,
+      roughness: 0.22,
+    })
+  }, [caliperColor])
+
   useEffect(() => {
     cloned.traverse((child) => {
       // Hide corrupted giant Object_8 mesh from tuner_wheel.glb
@@ -275,11 +276,11 @@ function BmwGtrWheel({
         } else if (name.includes('Tire')) {
           child.material = sharedTireMat
         } else if (name.includes('Calliper')) {
-          child.material = sharedCaliperMat
+          child.material = caliperMat
         }
       }
     })
-  }, [cloned, rimMat])
+  }, [cloned, rimMat, caliperMat])
 
   const hoverFold = isHoverMode ? 0.78 : 0.0
 
@@ -296,7 +297,7 @@ function BmwGtrWheel({
             castShadow
           >
             <boxGeometry args={[0.075, 0.11, 0.08]} />
-            <meshStandardMaterial color="#d97706" metalness={0.85} roughness={0.22} />
+            <meshStandardMaterial color={caliperColor || '#d97706'} metalness={0.85} roughness={0.22} />
           </mesh>
 
           {/* Outboard wheel rim face alignment: Left wheel side===1 rotates 180° around Y to face outboard (-X) */}
@@ -332,6 +333,10 @@ export function BmwM3GtrModel({
   headlightsOn,
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
+  caliperColor,
+  rimColor,
+  paintFinish,
+  spoilerType,
 }: CarModelProps) {
   const { scene: bodyScene } = useGLTF('/models/bmw_m3_gtr_e46.glb')
   const { scene: wheelScene } = useGLTF('/models/tuner_wheel.glb')
@@ -341,19 +346,37 @@ export function BmwM3GtrModel({
   }, [bodyScene])
 
   const bodyPaintMaterial = useMemo(() => {
-    // Calibrated metallic & clearcoat depth for authentic GT racing body finish without specular blowout
-    const effMetal = Math.min(0.76, Math.max(0.2, metallic ?? 0.72))
-    const effRough = Math.max(0.22, roughness ?? 0.24)
+    // Dynamic Paint Finish (Metallic, Gloss, Matte, Pearl)
+    let effMetal = Math.min(0.76, Math.max(0.2, metallic ?? 0.72))
+    let effRough = Math.max(0.22, roughness ?? 0.24)
+    let clearcoat = 0.92
+    let clearcoatRough = 0.05
+    if (paintFinish === 'matte') {
+      effMetal = 0.1
+      effRough = 0.8
+      clearcoat = 0.05
+      clearcoatRough = 0.8
+    } else if (paintFinish === 'gloss') {
+      effMetal = 0.14
+      effRough = 0.12
+      clearcoat = 1.0
+      clearcoatRough = 0.02
+    } else if (paintFinish === 'pearl') {
+      effMetal = 0.45
+      effRough = 0.22
+      clearcoat = 1.0
+      clearcoatRough = 0.04
+    }
     return new THREE.MeshPhysicalMaterial({
       color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
       metalness: effMetal,
       roughness: effRough,
-      clearcoat: 0.92,
-      clearcoatRoughness: 0.05,
+      clearcoat,
+      clearcoatRoughness: clearcoatRough,
       reflectivity: 0.85,
       envMapIntensity: 1.05,
     })
-  }, [paintColor, metallic, roughness])
+  }, [paintColor, metallic, roughness, paintFinish])
 
   const glassMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
@@ -424,13 +447,23 @@ export function BmwM3GtrModel({
 
         const matName = child.material?.name || ''
         if (child.name.includes('Object_124') || child.name.includes('Spoiler_0000_001_MAT_Carbon')) {
-          // Rear wing airfoil: calibrated to 1.38m deck width, flush atop stanchion mounts
-          child.scale.set(0.88, 0.88, 0.88)
-          child.material = carbonFiberMaterial
+          if (spoilerType === 'none') {
+            child.visible = false
+          } else {
+            child.visible = true
+            // Rear wing airfoil: calibrated to 1.38m deck width, flush atop stanchion mounts
+            child.scale.set(0.88, 0.88, 0.88)
+            child.material = carbonFiberMaterial
+          }
         } else if (child.name.includes('Object_121')) {
-          // Wing stanchions: matte anodized aero brackets matching airfoil scale and mounting plane
-          child.scale.set(0.88, 0.88, 0.88)
-          child.material = wingUprightMaterial
+          if (spoilerType === 'none') {
+            child.visible = false
+          } else {
+            child.visible = true
+            // Wing stanchions: matte anodized aero brackets matching airfoil scale and mounting plane
+            child.scale.set(0.88, 0.88, 0.88)
+            child.material = wingUprightMaterial
+          }
         } else if (matName.includes('Carpaint')) {
           child.material = bodyPaintMaterial
         } else if (matName.includes('Carbon')) {
@@ -449,7 +482,7 @@ export function BmwM3GtrModel({
         }
       }
     })
-  }, [clonedBody, bodyPaintMaterial, carbonFiberMaterial, wingUprightMaterial, glassMaterial, taillightMaterial, headlightMaterial])
+  }, [clonedBody, bodyPaintMaterial, carbonFiberMaterial, wingUprightMaterial, glassMaterial, taillightMaterial, headlightMaterial, spoilerType])
 
   // Strict suspension travel clamp for sports car (max travel ±0.06m)
   const suspFl = isHoverMode ? 0 : Math.max(-0.06, Math.min(0.06, wheelSuspensions[0] || 0))
@@ -473,7 +506,8 @@ export function BmwM3GtrModel({
         wheelRotation={wheelRotation}
         suspension={suspFl}
         isHoverMode={isHoverMode}
-        rimColor="#cbd5e1"
+        rimColor={rimColor || '#cbd5e1'}
+        caliperColor={caliperColor}
         metallic={metallic}
         roughness={roughness}
       />
@@ -487,7 +521,8 @@ export function BmwM3GtrModel({
         wheelRotation={wheelRotation}
         suspension={suspFr}
         isHoverMode={isHoverMode}
-        rimColor="#cbd5e1"
+        rimColor={rimColor || '#cbd5e1'}
+        caliperColor={caliperColor}
         metallic={metallic}
         roughness={roughness}
       />
@@ -501,7 +536,8 @@ export function BmwM3GtrModel({
         wheelRotation={wheelRotation}
         suspension={suspRl}
         isHoverMode={isHoverMode}
-        rimColor="#cbd5e1"
+        rimColor={rimColor || '#cbd5e1'}
+        caliperColor={caliperColor}
         metallic={metallic}
         roughness={roughness}
       />
@@ -515,7 +551,8 @@ export function BmwM3GtrModel({
         wheelRotation={wheelRotation}
         suspension={suspRr}
         isHoverMode={isHoverMode}
-        rimColor="#cbd5e1"
+        rimColor={rimColor || '#cbd5e1'}
+        caliperColor={caliperColor}
         metallic={metallic}
         roughness={roughness}
       />
@@ -588,6 +625,8 @@ export function SupercarModel({
   headlightsOn,
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
+  rimColor,
+  paintFinish,
 }: CarModelProps) {
   const { scene } = useGLTF('/models/ferrari.glb')
 
@@ -598,16 +637,45 @@ export function SupercarModel({
 
   // Dynamic PBR Automotive Materials (calibrated envMapIntensity prevents sunlight blowout)
   const bodyPaintMaterial = useMemo(() => {
+    let effMetal = Math.min(0.82, metallic ?? 0.78)
+    let effRough = Math.max(0.18, roughness ?? 0.18)
+    let clearcoat = 1.0
+    let clearcoatRough = 0.04
+    if (paintFinish === 'matte') {
+      effMetal = 0.1
+      effRough = 0.8
+      clearcoat = 0.05
+      clearcoatRough = 0.8
+    } else if (paintFinish === 'gloss') {
+      effMetal = 0.14
+      effRough = 0.12
+      clearcoat = 1.0
+      clearcoatRough = 0.02
+    } else if (paintFinish === 'pearl') {
+      effMetal = 0.45
+      effRough = 0.2
+      clearcoat = 1.0
+      clearcoatRough = 0.04
+    }
     return new THREE.MeshPhysicalMaterial({
       color: paintColor ? new THREE.Color(paintColor) : new THREE.Color('#cbd5e1'),
-      metalness: Math.min(0.82, metallic ?? 0.78),
-      roughness: Math.max(0.18, roughness ?? 0.18),
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.04,
+      metalness: effMetal,
+      roughness: effRough,
+      clearcoat,
+      clearcoatRoughness: clearcoatRough,
       reflectivity: 0.90,
       envMapIntensity: 1.25,
     })
-  }, [paintColor, metallic, roughness])
+  }, [paintColor, metallic, roughness, paintFinish])
+
+  const supercarRimMat = useMemo(() => {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(rimColor || '#cbd5e1'),
+      metalness: 0.88,
+      roughness: 0.22,
+      envMapIntensity: 1.1,
+    })
+  }, [rimColor])
 
   const glassMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
@@ -692,7 +760,7 @@ export function SupercarModel({
         } else if (matName.includes('tire') || matName.includes('rubber') || meshName.includes('tire') || meshName.includes('rubber')) {
           child.material = sharedTireMat
         } else if (matName.includes('rim') || matName.includes('wheel') || meshName.includes('rim') || meshName.includes('spoke')) {
-          child.material = sharedAlloyRimMat
+          child.material = supercarRimMat
         } else if (
           matName.includes('taillight') ||
           meshName.includes('lights_red') ||
@@ -724,7 +792,7 @@ export function SupercarModel({
         child.quaternion.copy(BASE_STEER_QUAT)
       }
     })
-  }, [clonedScene, bodyPaintMaterial, glassMaterial, carbonFiberMaterial, taillightMaterial])
+  }, [clonedScene, bodyPaintMaterial, glassMaterial, carbonFiberMaterial, taillightMaterial, supercarRimMat])
 
   // Articulate wheels, steering, and suspension travel each frame with strict anchoring
   useFrame(() => {
@@ -1223,19 +1291,43 @@ export function VintageHatchbackModel({
   headlightsOn,
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
+  caliperColor,
+  rimColor,
+  paintFinish,
 }: CarModelProps) {
+  let effMetal = Math.min(0.7, metallic || 0.4)
+  let effRough = Math.max(0.22, roughness || 0.28)
+  let clearcoat = 0.85
+  let clearcoatRough = 0.06
+  if (paintFinish === 'matte') {
+    effMetal = 0.1
+    effRough = 0.8
+    clearcoat = 0.05
+    clearcoatRough = 0.8
+  } else if (paintFinish === 'gloss') {
+    effMetal = 0.14
+    effRough = 0.12
+    clearcoat = 1.0
+    clearcoatRough = 0.02
+  } else if (paintFinish === 'pearl') {
+    effMetal = 0.45
+    effRough = 0.2
+    clearcoat = 1.0
+    clearcoatRough = 0.04
+  }
+
   const redMat = (
     <meshPhysicalMaterial
       color={paintColor || '#dc2626'}
-      roughness={Math.max(0.22, roughness || 0.28)}
-      metalness={Math.min(0.7, metallic || 0.4)}
-      clearcoat={0.85}
-      clearcoatRoughness={0.06}
+      roughness={effRough}
+      metalness={effMetal}
+      clearcoat={clearcoat}
+      clearcoatRoughness={clearcoatRough}
       envMapIntensity={1.1}
     />
   )
   const trimMat = <meshStandardMaterial color="#1e293b" roughness={0.75} />
-  const whiteRimMat = <meshStandardMaterial color="#f8fafc" roughness={0.15} metalness={0.7} />
+  const whiteRimMat = <meshStandardMaterial color={rimColor || '#f8fafc'} roughness={0.15} metalness={0.7} />
   const glassMat = (
     <meshPhysicalMaterial color="#0284c7" roughness={0.06} transmission={0.8} transparent opacity={0.92} />
   )
@@ -1273,7 +1365,7 @@ export function VintageHatchbackModel({
         castShadow
       >
         <boxGeometry args={[0.065, 0.09, 0.07]} />
-        <meshStandardMaterial color="#dc2626" metalness={0.78} roughness={0.25} />
+        <meshStandardMaterial color={caliperColor || '#dc2626'} metalness={0.78} roughness={0.25} />
       </mesh>
 
       <group rotation={[-wheelRotation, 0, 0]}>

@@ -1,7 +1,9 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, memo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
+import { useGameStore, useTelemetryStore, GraphicsQualityType } from '../../../store/useGameStore'
+import { HighwaySigns } from './HighwaySigns'
+import { Landmarks3D } from './Landmarks3D'
 import {
   getRoadCenter,
   getRoadElevation,
@@ -530,7 +532,7 @@ interface ChunkProps {
   chunkZ: number
   biomeConfig: BiomeConfig
   isRaining: boolean
-  graphicsQuality: 'low' | 'medium' | 'high'
+  graphicsQuality: GraphicsQualityType
 }
 
 // Single Procedural Infinite Chunk Tile containing:
@@ -1976,6 +1978,12 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           frustumCulled={false}
         />
       </group>
+
+      {/* Procedural Retroreflective Highway Signage (Chevrons & Speed Limits) */}
+      <HighwaySigns chunkZ={chunkZ} />
+
+      {/* 12 Signature Discoverable Environmental Landmarks */}
+      <Landmarks3D chunkZ={chunkZ} />
     </group>
   )
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)

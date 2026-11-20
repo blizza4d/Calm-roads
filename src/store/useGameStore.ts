@@ -3,8 +3,45 @@ import type { BiomeType, MacroTerrainType, MacroTerrainWeights } from '../utils/
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'mist'
 export type VehicleModelType = 'bmw_m3' | 'supercar' | 'hovercraft' | 'camper' | 'hatchback' | 'modern_supercar' | 'vintage_hatch'
-export type CameraPerspectiveType = 'chase' | 'dashboard' | 'drone' | 'bumper'
+export type CameraPerspectiveType = 'chase' | 'close_chase' | 'dashboard' | 'drone' | 'bumper' | 'cinematic'
 export type BiomeSelection = 'dynamic' | BiomeType
+export type PaintFinishType = 'gloss' | 'metallic' | 'matte' | 'pearl'
+export type SpoilerType = 'stock' | 'gt_wing' | 'ducktail' | 'none'
+export type GraphicsQualityType = 'low' | 'medium' | 'high' | 'ultra'
+
+export interface DrivingStats {
+  totalDistanceKm: number
+  topSpeedKmh: number
+  totalDrivingTimeSec: number
+  totalDriftDistanceM: number
+  cleanAsphaltDistanceM: number
+  redlineShiftsCount: number
+}
+
+// LocalStorage Persistence Helpers
+function loadStoredJson<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const val = localStorage.getItem(`calmroads_${key}`)
+    return val ? JSON.parse(val) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function saveStoredJson<T>(key: string, data: T) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(`calmroads_${key}`, JSON.stringify(data))
+  } catch {}
+}
+
+export interface LandmarkNotificationData {
+  id: string
+  name: string
+  subtitle: string
+  biome: string
+}
 
 interface GameState {
   // 1. Antigravity & Physics Mode
@@ -18,11 +55,13 @@ interface GameState {
   currentResolvedBiome: BiomeType
   setCurrentResolvedBiome: (b: BiomeType) => void
 
-  // 2b. Macro Terrain System
+  // 2b. Macro Terrain System & Deterministic World Seed
   macroTerrain: MacroTerrainType
   setMacroTerrain: (m: MacroTerrainType) => void
   macroWeights: MacroTerrainWeights
   setMacroWeights: (w: MacroTerrainWeights) => void
+  worldSeed: string
+  setWorldSeed: (s: string) => void
 
   // 3. Time of Day & Weather
   timeOfDay: number // 0.0 to 24.0 (hours)
@@ -39,10 +78,18 @@ interface GameState {
   cycleVehicleModel: () => void
   paintColor: string
   setPaintColor: (c: string) => void
+  paintFinish: PaintFinishType
+  setPaintFinish: (f: PaintFinishType) => void
   metallic: number
   setMetallic: (m: number) => void
   roughness: number
   setRoughness: (r: number) => void
+  caliperColor: string
+  setCaliperColor: (c: string) => void
+  rimColor: string
+  setRimColor: (c: string) => void
+  spoilerType: SpoilerType
+  setSpoilerType: (s: SpoilerType) => void
 
   // 5. Camera Perspectives
   cameraPerspective: CameraPerspectiveType
@@ -85,7 +132,7 @@ interface GameState {
   isBurnout: boolean
   setIsBurnout: (b: boolean) => void
   virtualBurnout: boolean
-  setVirtualBurnout: (b: boolean) => void
+  setVirtualBurnout: (v: boolean) => void
 
   // 7. Audio System
   isMusicPlaying: boolean
@@ -94,6 +141,12 @@ interface GameState {
   setMusicVolume: (v: number) => void
   sfxVolume: number
   setSfxVolume: (v: number) => void
+  masterVolume: number
+  setMasterVolume: (v: number) => void
+  engineVolume: number
+  setEngineVolume: (v: number) => void
+  ambienceVolume: number
+  setAmbienceVolume: (v: number) => void
   currentTrackIndex: number
   nextTrack: () => void
   prevTrack: () => void
@@ -107,14 +160,46 @@ interface GameState {
   toggleZenMode: () => void
   cleanHud: boolean
   toggleCleanHud: () => void
-  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings'
-  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
+  activePanel:
+    | 'none'
+    | 'garage'
+    | 'environment'
+    | 'audio'
+    | 'controls'
+    | 'settings'
+    | 'discoveries'
+    | 'challenges'
+    | 'map'
+  setActivePanel: (
+    p:
+      | 'none'
+      | 'garage'
+      | 'environment'
+      | 'audio'
+      | 'controls'
+      | 'settings'
+      | 'discoveries'
+      | 'challenges'
+      | 'map'
+  ) => void
   speedUnit: 'kmh' | 'mph'
   toggleSpeedUnit: () => void
-  graphicsQuality: 'low' | 'medium' | 'high'
-  setGraphicsQuality: (q: 'low' | 'medium' | 'high') => void
+  graphicsQuality: GraphicsQualityType
+  setGraphicsQuality: (q: GraphicsQualityType) => void
   isFullscreen: boolean
   toggleFullscreen: () => void
+
+  // 8b. Discoveries & Challenges Progression
+  discoveries: string[]
+  addDiscovery: (id: string) => void
+  activeLandmarkNotification: LandmarkNotificationData | null
+  setActiveLandmarkNotification: (n: LandmarkNotificationData | null) => void
+  completedChallenges: string[]
+  addCompletedChallenge: (id: string) => void
+  challengeNotification: string | null
+  setChallengeNotification: (msg: string | null) => void
+  drivingStats: DrivingStats
+  updateDrivingStats: (s: Partial<DrivingStats>) => void
 
   // 9. Diagnostics & Engine Telemetry
   showDiagnostics: boolean
@@ -180,7 +265,14 @@ const VEHICLES: VehicleModelType[] = [
   'hatchback',
   'vintage_hatch',
 ]
-const CAMERAS: CameraPerspectiveType[] = ['chase', 'dashboard', 'drone', 'bumper']
+const CAMERAS: CameraPerspectiveType[] = [
+  'chase',
+  'close_chase',
+  'dashboard',
+  'drone',
+  'bumper',
+  'cinematic',
+]
 
 export const useGameStore = create<GameState>((set, get) => ({
   // Antigravity & Physics
@@ -194,7 +286,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   currentResolvedBiome: 'forest',
   setCurrentResolvedBiome: (currentResolvedBiome) => set({ currentResolvedBiome }),
 
-  // Macro Terrain System
+  // Macro Terrain System & Deterministic World Seed
   macroTerrain: 'plains',
   setMacroTerrain: (macroTerrain) => set({ macroTerrain }),
   macroWeights: {
@@ -208,6 +300,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     twistedClimb: 0.0,
   },
   setMacroWeights: (macroWeights) => set({ macroWeights }),
+  worldSeed: loadStoredJson<string>('world_seed', 'CALM_ROADS_3'),
+  setWorldSeed: (worldSeed) => {
+    saveStoredJson('world_seed', worldSeed)
+    set({ worldSeed })
+  },
 
   // Time & Weather
   timeOfDay: 15.8, // Crisp sunlit late-afternoon golden light with vivid skies & dramatic shadows
@@ -230,12 +327,35 @@ export const useGameStore = create<GameState>((set, get) => ({
     const nextIdx = (list.indexOf(get().vehicleModel) + 1) % list.length
     set({ vehicleModel: list[nextIdx] })
   },
-  paintColor: '#cbd5e1', // Iconic German Silver
-  setPaintColor: (paintColor) => set({ paintColor }),
+  paintColor: loadStoredJson<string>('paint_color', '#cbd5e1'), // Iconic German Silver
+  setPaintColor: (paintColor) => {
+    saveStoredJson('paint_color', paintColor)
+    set({ paintColor })
+  },
+  paintFinish: loadStoredJson<PaintFinishType>('paint_finish', 'metallic'),
+  setPaintFinish: (paintFinish) => {
+    saveStoredJson('paint_finish', paintFinish)
+    set({ paintFinish })
+  },
   metallic: 0.9,
   setMetallic: (metallic) => set({ metallic }),
   roughness: 0.2,
   setRoughness: (roughness) => set({ roughness }),
+  caliperColor: loadStoredJson<string>('caliper_color', '#d97706'), // Brembo Gold
+  setCaliperColor: (caliperColor) => {
+    saveStoredJson('caliper_color', caliperColor)
+    set({ caliperColor })
+  },
+  rimColor: loadStoredJson<string>('rim_color', '#cbd5e1'), // Satin Silver
+  setRimColor: (rimColor) => {
+    saveStoredJson('rim_color', rimColor)
+    set({ rimColor })
+  },
+  spoilerType: loadStoredJson<SpoilerType>('spoiler_type', 'stock'),
+  setSpoilerType: (spoilerType) => {
+    saveStoredJson('spoiler_type', spoilerType)
+    set({ spoilerType })
+  },
 
   // Camera
   cameraPerspective: 'chase',
@@ -292,6 +412,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   setMusicVolume: (musicVolume) => set({ musicVolume }),
   sfxVolume: 0.5,
   setSfxVolume: (sfxVolume) => set({ sfxVolume }),
+  masterVolume: 1.0,
+  setMasterVolume: (masterVolume) => set({ masterVolume }),
+  engineVolume: 0.85,
+  setEngineVolume: (engineVolume) => set({ engineVolume }),
+  ambienceVolume: 0.70,
+  setAmbienceVolume: (ambienceVolume) => set({ ambienceVolume }),
   currentTrackIndex: 0,
   nextTrack: () => set((s) => ({ currentTrackIndex: (s.currentTrackIndex + 1) % 5 })),
   prevTrack: () => set((s) => ({ currentTrackIndex: (s.currentTrackIndex - 1 + 5) % 5 })),
@@ -306,7 +432,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   cleanHud: false,
   toggleCleanHud: () => set((s) => ({ cleanHud: !s.cleanHud })),
   activePanel: 'none',
-  setActivePanel: (activePanel) => set((s) => ({ activePanel: s.activePanel === activePanel ? 'none' : activePanel })),
+  setActivePanel: (activePanel) =>
+    set((s) => ({ activePanel: s.activePanel === activePanel ? 'none' : activePanel })),
   speedUnit: 'kmh',
   toggleSpeedUnit: () => set((s) => ({ speedUnit: s.speedUnit === 'kmh' ? 'mph' : 'kmh' })),
   graphicsQuality: 'high',
@@ -320,6 +447,53 @@ export const useGameStore = create<GameState>((set, get) => ({
       document.exitFullscreen().catch(() => {})
       set({ isFullscreen: false })
     }
+  },
+
+  // Discoveries & Challenges Progression
+  discoveries: loadStoredJson<string[]>('discoveries', []),
+  addDiscovery: (id: string) => {
+    const list = get().discoveries
+    if (!list.includes(id)) {
+      const updated = [...list, id]
+      saveStoredJson('discoveries', updated)
+      set({ discoveries: updated })
+    }
+  },
+  activeLandmarkNotification: null,
+  setActiveLandmarkNotification: (activeLandmarkNotification) =>
+    set({ activeLandmarkNotification }),
+  completedChallenges: loadStoredJson<string[]>('completed_challenges', []),
+  addCompletedChallenge: (id: string) => {
+    const list = get().completedChallenges
+    if (!list.includes(id)) {
+      const updated = [...list, id]
+      saveStoredJson('completed_challenges', updated)
+      set({ completedChallenges: updated })
+    }
+  },
+  challengeNotification: null,
+  setChallengeNotification: (challengeNotification) =>
+    set({ challengeNotification }),
+  drivingStats: loadStoredJson<DrivingStats>('driving_stats', {
+    totalDistanceKm: 0,
+    topSpeedKmh: 0,
+    totalDrivingTimeSec: 0,
+    totalDriftDistanceM: 0,
+    cleanAsphaltDistanceM: 0,
+    redlineShiftsCount: 0,
+  }),
+  updateDrivingStats: (delta) => {
+    const current = get().drivingStats
+    const updated: DrivingStats = {
+      totalDistanceKm: Number((current.totalDistanceKm + (delta.totalDistanceKm || 0)).toFixed(3)),
+      topSpeedKmh: Math.max(current.topSpeedKmh, delta.topSpeedKmh || 0),
+      totalDrivingTimeSec: Math.round(current.totalDrivingTimeSec + (delta.totalDrivingTimeSec || 0)),
+      totalDriftDistanceM: Math.round(current.totalDriftDistanceM + (delta.totalDriftDistanceM || 0)),
+      cleanAsphaltDistanceM: Math.round(current.cleanAsphaltDistanceM + (delta.cleanAsphaltDistanceM || 0)),
+      redlineShiftsCount: current.redlineShiftsCount + (delta.redlineShiftsCount || 0),
+    }
+    saveStoredJson('driving_stats', updated)
+    set({ drivingStats: updated })
   },
 
   // Diagnostics & Engine Telemetry
@@ -381,6 +555,13 @@ export interface TelemetryState {
   isGrounded?: boolean
   verticalVel?: number
   reflectionPreset?: string
+  // Calm Roads 3.0 Telemetry
+  gForceLateral?: number
+  gForceLongitudinal?: number
+  slipAngle?: number
+  tireGripPercent?: number
+  isDrifting?: boolean
+  driftDistance?: number
   setTelemetry: (data: Partial<TelemetryState>) => void
 }
 
@@ -409,5 +590,11 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   isGrounded: true,
   verticalVel: 0,
   reflectionPreset: 'forest',
+  gForceLateral: 0,
+  gForceLongitudinal: 0,
+  slipAngle: 0,
+  tireGripPercent: 100,
+  isDrifting: false,
+  driftDistance: 0,
   setTelemetry: (data) => set((s) => ({ ...s, ...data })),
 }))

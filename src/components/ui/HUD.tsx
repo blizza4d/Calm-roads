@@ -180,6 +180,9 @@ const SHIFT_LIGHT_COUNT = 6
 
 export default function HUD() {
   // Direct DOM Element References
+  const gDotRef = useRef<HTMLDivElement>(null)
+  const gTextRef = useRef<HTMLSpanElement>(null)
+  const gripBarRef = useRef<HTMLDivElement>(null)
   const speedDisplayRef = useRef<HTMLSpanElement>(null)
   const peakSpeedRef = useRef<HTMLSpanElement>(null)
   const gearDisplayRef = useRef<HTMLSpanElement>(null)
@@ -394,6 +397,26 @@ export default function HUD() {
         surfaceBadgeRef.current.className = onRoad
           ? 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#8EA48C]/20 text-[#8EA48C] border border-[#8EA48C]/40 tracking-wider uppercase'
           : 'text-[7.5px] font-special-elite font-bold px-1.5 py-0.5 rounded-xs bg-[#FF9D1E]/20 text-[#FF9D1E] border border-[#FF9D1E]/40 tracking-wider uppercase'
+      }
+
+      // 8. Dynamic G-Force Meter & Tire Slip Gauge
+      const latG = state.gForceLateral || 0
+      const longG = state.gForceLongitudinal || 0
+      if (gDotRef.current) {
+        const clampLat = Math.max(-1.4, Math.min(1.4, latG))
+        const clampLong = Math.max(-1.4, Math.min(1.4, longG))
+        const px = (clampLat / 1.4) * 12
+        const py = (-clampLong / 1.4) * 12
+        gDotRef.current.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0)`
+      }
+      if (gTextRef.current) {
+        const absLat = Math.abs(latG)
+        gTextRef.current.textContent = absLat >= 0.05 ? `${latG > 0 ? 'R ' : 'L '}${absLat.toFixed(2)}G` : '0.00G'
+      }
+      if (gripBarRef.current) {
+        const grip = state.tireGripPercent ?? 100
+        gripBarRef.current.style.width = `${grip}%`
+        gripBarRef.current.style.backgroundColor = grip < 40 ? '#EF4444' : grip < 75 ? '#FF9D1E' : '#10B981'
       }
     }
 
@@ -650,6 +673,36 @@ export default function HUD() {
               >
                 {vehicleNameFormatted}
               </span>
+            </div>
+
+            {/* G-Force Reticle & Grip Gauge */}
+            <div className="flex items-center gap-2 mr-2">
+              {/* Circular G-Meter Crosshairs */}
+              <div className="relative w-8 h-8 rounded-full bg-[#08090c] border border-[#2b313e] flex items-center justify-center overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.9)]">
+                <div className="absolute inset-x-0 top-1/2 h-[1px] bg-white/10" />
+                <div className="absolute inset-y-0 left-1/2 w-[1px] bg-white/10" />
+                <div className="w-4 h-4 rounded-full border border-white/10" />
+                <div
+                  ref={gDotRef}
+                  className="absolute w-2 h-2 rounded-full bg-[#FF9D1E] shadow-[0_0_6px_#FF9D1E] will-change-transform"
+                  style={{ transform: 'translate3d(0px, 0px, 0)' }}
+                />
+              </div>
+
+              {/* G-Readout & Grip Bar */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center justify-between gap-1 text-[7px] font-mono">
+                  <span className="text-white/40">G-FORCE</span>
+                  <span ref={gTextRef} className="text-[#FF9D1E] font-bold">0.00G</span>
+                </div>
+                <div className="w-12 h-1.5 bg-[#08090c] rounded-xs border border-[#2b313e] p-[0.5px] overflow-hidden">
+                  <div
+                    ref={gripBarRef}
+                    className="h-full bg-[#10B981] rounded-xs transition-all duration-75"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Throttle & Brake Pedals Meter */}

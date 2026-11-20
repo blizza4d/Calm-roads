@@ -10,11 +10,42 @@ function mulberry32(a: number) {
   }
 }
 
-// High-precision Simplex Noise generators for realistic multi-octave geological terrain
-const terrainNoise = createNoise2D(mulberry32(1337))
-const detailNoise = createNoise2D(mulberry32(4242))
-const microNoise = createNoise2D(mulberry32(9999))
-const macroNoise2D = createNoise2D(mulberry32(7777))
+export function hashSeed(seed: string | number): number {
+  if (typeof seed === 'number') return seed >>> 0
+  let hash = 0x811c9dc5
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return hash >>> 0
+}
+
+let activeSeedStr: string = 'CALM_ROADS_3'
+let activeSeedInt: number = hashSeed('CALM_ROADS_3')
+let activeSeedPhase: number = (activeSeedInt % 1000) * 0.05
+
+let terrainNoise = createNoise2D(mulberry32(1337 + (activeSeedInt % 9999)))
+let detailNoise = createNoise2D(mulberry32(4242 + ((activeSeedInt >> 4) % 9999)))
+let microNoise = createNoise2D(mulberry32(9999 + ((activeSeedInt >> 8) % 9999)))
+let macroNoise2D = createNoise2D(mulberry32(7777 + ((activeSeedInt >> 12) % 9999)))
+
+export function setWorldSeed(seed: string | number) {
+  activeSeedStr = String(seed)
+  activeSeedInt = hashSeed(seed)
+  activeSeedPhase = (activeSeedInt % 1000) * 0.05
+  terrainNoise = createNoise2D(mulberry32(1337 + (activeSeedInt % 9999)))
+  detailNoise = createNoise2D(mulberry32(4242 + ((activeSeedInt >> 4) % 9999)))
+  microNoise = createNoise2D(mulberry32(9999 + ((activeSeedInt >> 8) % 9999)))
+  macroNoise2D = createNoise2D(mulberry32(7777 + ((activeSeedInt >> 12) % 9999)))
+}
+
+export function getWorldSeed(): string {
+  return activeSeedStr
+}
+
+export function getWorldSeedPhase(): number {
+  return activeSeedPhase
+}
 
 export const ROAD_WIDTH = 11.5
 
@@ -595,23 +626,24 @@ export function getBiomeElevationMultiplier(z: number): number {
 export function getRoadCenter(z: number): number {
   const char = getInterpolatedBiomeCharacter(z)
   const macro = getInterpolatedMacroProfile(z)
+  const phase = activeSeedPhase
 
   // 1. Mountain pass switchbacks & hairpins (wavelength 160m - 240m)
   // Strictly suppressed in Plains (roadCurvature < 0.25), moderate in Hills, full in Twisted Climb:
   const hairpinGate = Math.max(0.0, Math.min(1.0, (macro.roadCurvature - 0.25) / 0.55))
-  const hairpin = Math.tanh(Math.sin(z * 0.0322) * 1.85) * (char.hairpinAmplitude * 0.65)
-  const technicalChicane = Math.sin(z * 0.048 + 1.1) * (char.hairpinAmplitude * 0.22)
+  const hairpin = Math.tanh(Math.sin(z * 0.0322 + phase * 0.6) * 1.85) * (char.hairpinAmplitude * 0.65)
+  const technicalChicane = Math.sin(z * 0.048 + 1.1 + phase * 0.4) * (char.hairpinAmplitude * 0.22)
   const switchbacks = (hairpin + technicalChicane) * char.switchbackWeight * hairpinGate
 
   // 2. Dynamic flowing S-curves (wavelength 280m - 440m)
   // Gentle in Plains, flowing in Hills, strong in Twisted Climb:
   const sCurveMultiplier = macro.roadCurvature * 0.95
-  const sCurves = (Math.sin(z * 0.0175 + 0.6) * 19.0 + Math.cos(z * 0.0131 + 2.1) * 14.0) * char.sCurveWeight * sCurveMultiplier
+  const sCurves = (Math.sin(z * 0.0175 + 0.6 + phase * 0.3) * 19.0 + Math.cos(z * 0.0131 + 2.1 + phase * 0.35) * 14.0) * char.sCurveWeight * sCurveMultiplier
 
   // 3. Regional valley / open highway sweep (wavelength 750m - 1400m)
   // Provides gentle open bends across Plains and massive panoramic sweeps in Mountains:
   const sweepMultiplier = 0.35 + 0.65 * macro.roadCurvature
-  const valleySweeps = (Math.sin(z * 0.0057 + 1.4) * 28.0 + Math.sin(z * 0.0028 + 0.3) * 18.0) * char.valleySweepWeight * sweepMultiplier
+  const valleySweeps = (Math.sin(z * 0.0057 + 1.4 + phase * 0.2) * 28.0 + Math.sin(z * 0.0028 + 0.3 + phase * 0.1) * 18.0) * char.valleySweepWeight * sweepMultiplier
 
   return switchbacks + sCurves + valleySweeps
 }
@@ -621,21 +653,22 @@ export function getRoadCenter(z: number): number {
 export function getRoadElevation(z: number): number {
   const char = getInterpolatedBiomeCharacter(z)
   const macro = getInterpolatedMacroProfile(z)
+  const phase = activeSeedPhase
 
   // 1. Scenic Mountain Pass Climbs & Long Downhill Descents (wavelength ~1600m, vertical elevation change up to 52m)
   // In mountainous terrain, this creates sustained 800m+ descents where the car loses significant elevation down valleys.
-  const passWave = (Math.sin(z * 0.0039 + 0.5) * 0.5 + 0.5) * 52.0 * macro.roadElevationVariation
+  const passWave = (Math.sin(z * 0.0039 + 0.5 + phase * 0.25) * 0.5 + 0.5) * 52.0 * macro.roadElevationVariation
   const passClimbGate = Math.max(0.0, Math.min(1.0, (macro.roadElevationVariation - 0.15) / 0.65))
 
   // 2. Valley slopes, ridges and downhill drops (wavelength ~580m, elevation delta +-9m)
-  const valleyWave = Math.sin(z * 0.0108 + 1.2) * 9.0 * macro.roadElevationVariation
+  const valleyWave = Math.sin(z * 0.0108 + 1.2 + phase * 0.35) * 9.0 * macro.roadElevationVariation
 
   // 3. Winding switchback descent steps (wavelength ~260m, elevation delta +-3.2m)
   // Each switchback hairpin loop steps the road down realistically down the mountainside
-  const switchbackDrop = Math.sin(z * 0.0241 + 2.1) * 3.2 * macro.roadElevationVariation
+  const switchbackDrop = Math.sin(z * 0.0241 + 2.1 + phase * 0.45) * 3.2 * macro.roadElevationVariation
 
   // 4. Subtle highway undulations (wavelength ~110m, amplitude +-0.8m)
-  const microWave = Math.sin(z * 0.057 + 0.8) * 0.8 * macro.roadElevationVariation
+  const microWave = Math.sin(z * 0.057 + 0.8 + phase * 0.15) * 0.8 * macro.roadElevationVariation
 
   // Combined smooth continuous elevation profile
   const rawElevation =

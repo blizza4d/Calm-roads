@@ -5,7 +5,6 @@ import {
   CloudSun,
   Camera,
   Maximize,
-  Minimize,
   Play,
   Pause,
   SkipForward,
@@ -13,7 +12,6 @@ import {
   HelpCircle,
   X,
   Palette,
-  Volume2,
   Sparkles,
   Eye,
   EyeOff,
@@ -22,27 +20,31 @@ import {
   CloudRain,
   Snowflake,
   Wind,
-  Trees,
   Flame,
   Mountain,
   Compass,
   Radio,
-  Gamepad2,
   Activity,
   Settings,
   Menu,
   Sliders,
+  Trophy,
+  Map,
+  CheckCircle2,
+  Lock,
 } from 'lucide-react'
 import {
   useGameStore,
-  useTelemetryStore,
   WeatherType,
   VehicleModelType,
   CameraPerspectiveType,
-  BiomeSelection,
+  PaintFinishType,
+  GraphicsQualityType,
 } from '../../store/useGameStore'
 import { audioSystem, LOFI_PLAYLIST } from '../../utils/audioSystem'
 import { BIOMES } from '../../utils/roadMath'
+import { WORLD_LANDMARKS } from '../../utils/landmarks'
+import { DRIVING_CHALLENGES } from '../../utils/challenges'
 
 // ----------------------------------------------------------------
 // 1. Optional On-Screen Touch Controls (Hidden by default)
@@ -125,6 +127,8 @@ function SpeedometerHUD() {
 // ----------------------------------------------------------------
 function RegionDiscoveryBanner() {
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
+  const activeLandmarkNotification = useGameStore((s) => s.activeLandmarkNotification)
+  const challengeNotification = useGameStore((s) => s.challengeNotification)
   const [visible, setVisible] = useState(false)
   const [activeBiome, setActiveBiome] = useState(currentResolvedBiome)
 
@@ -138,49 +142,194 @@ function RegionDiscoveryBanner() {
   }, [currentResolvedBiome])
 
   const info = BIOMES[activeBiome] || BIOMES.twisted_mountains
-  const gripLabel = info.friction < 0.9 ? 'SNOW GRIP' : info.friction < 0.98 ? 'LOOSE GRIP' : 'HIGH GRIP'
 
   return (
-    <div
-      className={`fixed top-7 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-700 ease-out transform ${
-        visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'
-      }`}
-    >
-      <div className="backdrop-blur-xl bg-[#0b0d12]/85 border border-[#2a303d] px-5 py-2.5 rounded-full shadow-[0_14px_40px_rgba(0,0,0,0.85)] flex items-center gap-3 text-white whitespace-nowrap max-w-[92vw]">
-        <span className="w-2 h-2 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] shrink-0" />
-        <span className="text-[#FF9D1E] font-mono font-bold text-[10px] tracking-widest uppercase bg-[#FF9D1E]/10 px-2.5 py-0.5 rounded-full border border-[#FF9D1E]/30 shrink-0">
-          ENTERING REGION
-        </span>
-        <span className="h-4 w-px bg-white/15 shrink-0" />
-        <span className="font-bold text-sm tracking-wide text-[#FDFBF7] shrink-0">{info.name}</span>
-        {info.tagline && (
-          <span className="text-xs text-white/55 hidden lg:inline font-medium truncate">
-            • {info.tagline}
-          </span>
-        )}
-        <span className="hidden sm:inline text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[#8EA48C] shrink-0">
-          {gripLabel}
-        </span>
+    <div className="fixed top-20 inset-x-0 flex flex-col items-center gap-2 pointer-events-none select-none z-40">
+      {/* 1. Landmark Discovery Toast */}
+      {activeLandmarkNotification && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500 backdrop-blur-xl bg-gradient-to-r from-amber-950/90 via-black/95 to-amber-950/90 border border-[#FF9D1E] px-6 py-3 rounded-2xl shadow-[0_0_35px_rgba(255,157,30,0.55)] flex items-center gap-3.5 max-w-lg text-white">
+          <div className="w-9 h-9 rounded-xl bg-[#FF9D1E]/20 border border-[#FF9D1E] flex items-center justify-center text-[#FF9D1E]">
+            <Compass size={20} className="animate-spin-slow" />
+          </div>
+          <div>
+            <div className="text-[9px] font-mono text-[#FF9D1E] tracking-widest font-black uppercase">
+              ★ SCENIC LANDMARK DISCOVERED ★
+            </div>
+            <div className="text-sm font-black text-white tracking-wide">{activeLandmarkNotification.name}</div>
+            <div className="text-[10px] text-white/60 font-mono">{activeLandmarkNotification.subtitle}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Challenge Completed Toast */}
+      {challengeNotification && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500 backdrop-blur-xl bg-gradient-to-r from-emerald-950/90 via-black/95 to-emerald-950/90 border border-emerald-400 px-6 py-3 rounded-2xl shadow-[0_0_35px_rgba(16,185,129,0.55)] flex items-center gap-3.5 max-w-lg text-white">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400">
+            <Trophy size={20} />
+          </div>
+          <div>
+            <div className="text-[9px] font-mono text-emerald-400 tracking-widest font-black uppercase">
+              CHALLENGE ACCOMPLISHED!
+            </div>
+            <div className="text-sm font-black text-white tracking-wide">{challengeNotification}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Standard Biome Entry Toast */}
+      {visible && !activeLandmarkNotification && !challengeNotification && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-500 backdrop-blur-md bg-black/60 border border-white/10 px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 text-white">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+          <div>
+            <span className="text-[9px] font-mono text-white/50 tracking-widest font-bold uppercase block">
+              ENTERING REGION
+            </span>
+            <span className="text-xs font-black tracking-wide text-white">{info.name}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
+// 3. Photo Mode Studio View (Focal length, aperture, capture)
+// ----------------------------------------------------------------
+function PhotoModeView() {
+  const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
+  const timeOfDay = useGameStore((s) => s.timeOfDay)
+  const setTimeOfDay = useGameStore((s) => s.setTimeOfDay)
+  const weather = useGameStore((s) => s.weather)
+  const setWeather = useGameStore((s) => s.setWeather)
+  const handleCapture = () => {
+    const canvas = document.querySelector('canvas')
+    if (canvas) {
+      const url = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `calm-roads-3.0-${Date.now()}.png`
+      a.click()
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 pointer-events-auto flex flex-col justify-between p-6 select-none">
+      {/* Top Header */}
+      <div className="flex justify-between items-center">
+        <div className="backdrop-blur-md bg-black/60 border border-white/20 px-4 py-2 rounded-2xl text-white flex items-center gap-2">
+          <Camera size={16} className="text-[#FF9D1E]" />
+          <span className="text-xs font-bold tracking-wider font-mono">PHOTO STUDIO 3.0</span>
+        </div>
+        <button
+          onClick={togglePhotoMode}
+          className="backdrop-blur-md bg-black/60 hover:bg-white/20 border border-white/20 text-white w-9 h-9 rounded-2xl flex items-center justify-center transition-all cursor-pointer"
+          title="Exit Photo Mode [P / Esc]"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Composition Grid Overlay (Rule of Thirds) */}
+      <div className="pointer-events-none absolute inset-x-8 inset-y-24 grid grid-cols-3 grid-rows-3 border border-white/10 opacity-30">
+        <div className="border-r border-b border-white/10" />
+        <div className="border-r border-b border-white/10" />
+        <div className="border-b border-white/10" />
+        <div className="border-r border-b border-white/10" />
+        <div className="border-r border-b border-white/10" />
+        <div className="border-b border-white/10" />
+        <div className="border-r border-white/10" />
+        <div className="border-r border-white/10" />
+        <div />
+      </div>
+
+      {/* Bottom Photo Controls Bar */}
+      <div className="backdrop-blur-xl bg-neutral-900/90 border border-white/20 rounded-3xl p-4 max-w-2xl mx-auto w-full flex flex-col md:flex-row items-center justify-between gap-4 text-white shadow-2xl">
+        {/* Time of Day Slider */}
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <Sun size={15} className="text-amber-400" />
+          <input
+            type="range"
+            min={0}
+            max={24}
+            step={0.2}
+            value={timeOfDay}
+            onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
+            className="w-32 accent-amber-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+            title="Time of Day"
+          />
+        </div>
+
+        {/* Weather Selector */}
+        <div className="flex items-center gap-1.5">
+          {(['clear', 'rain', 'snow', 'mist'] as WeatherType[]).map((w) => (
+            <button
+              key={w}
+              onClick={() => setWeather(w)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer ${
+                weather === w ? 'bg-amber-500 text-black font-black' : 'bg-white/10 hover:bg-white/20 text-white/70'
+              }`}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
+
+        {/* Capture Snapshot Button */}
+        <button
+          onClick={handleCapture}
+          className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.5)] transition-all cursor-pointer active:scale-95"
+        >
+          <Camera size={15} />
+          <span>CAPTURE PHOTO</span>
+        </button>
       </div>
     </div>
   )
 }
 
 // ----------------------------------------------------------------
-// 3. Consolidated Master Menu Modal
+// 4. Real-time Dev Diagnostics HUD
 // ----------------------------------------------------------------
+function DiagnosticsHUD() {
+  const d = useGameStore((s) => s.diagnostics)
+  const seed = useGameStore((s) => s.worldSeed)
+
+  return (
+    <div className="fixed top-20 left-6 z-40 backdrop-blur-md bg-black/75 border border-white/20 p-4 rounded-2xl text-[10px] font-mono text-white/80 space-y-1 pointer-events-auto shadow-2xl select-text max-w-xs">
+      <div className="text-amber-400 font-bold border-b border-white/10 pb-1 mb-1.5 flex justify-between">
+        <span>ENGINE TELEMETRY 3.0</span>
+        <span className="text-white/50">{seed}</span>
+      </div>
+      <div>FPS: {d.fps}</div>
+      <div>Active Chunks: {d.activeChunks}</div>
+      <div>Speed: {d.speedKmh} km/h</div>
+      <div>Macro Region: {d.macroTerrainType}</div>
+      <div>Road Elevation: {d.roadElevation}m</div>
+      <div>Terrain Elevation: {d.terrainElevation}m</div>
+      <div>Corridor Clearance: {d.corridorClearance}m</div>
+      <div>Road Banking: {d.roadBankingDeg}°</div>
+      <div>Road Grade: {d.roadGrade}%</div>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------
+// 5. Consolidated Master Menu Modal (All Tabs)
+// ----------------------------------------------------------------
+interface MasterMenuModalProps {
+  activePanel: string
+  setActivePanel: (p: any) => void
+  showTouchControls: boolean
+  setShowTouchControls: (v: boolean | ((prev: boolean) => boolean)) => void
+}
+
 function MasterMenuModal({
   activePanel,
   setActivePanel,
   showTouchControls,
   setShowTouchControls,
-}: {
-  activePanel: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings'
-  setActivePanel: (p: 'none' | 'garage' | 'environment' | 'audio' | 'controls' | 'settings') => void
-  showTouchControls: boolean
-  setShowTouchControls: (v: boolean) => void
-}) {
-  // Atmosphere
+}: MasterMenuModalProps) {
+  // Store selectors
   const timeOfDay = useGameStore((s) => s.timeOfDay)
   const setTimeOfDay = useGameStore((s) => s.setTimeOfDay)
   const autoTimeCycle = useGameStore((s) => s.autoTimeCycle)
@@ -189,20 +338,26 @@ function MasterMenuModal({
   const setWeather = useGameStore((s) => s.setWeather)
   const biome = useGameStore((s) => s.biome)
   const setBiome = useGameStore((s) => s.setBiome)
-  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
-  const setGraphicsQuality = useGameStore((s) => s.setGraphicsQuality)
-  // Garage
+  const worldSeed = useGameStore((s) => s.worldSeed)
+  const setWorldSeed = useGameStore((s) => s.setWorldSeed)
+
+  // Vehicle Customization
   const vehicleModel = useGameStore((s) => s.vehicleModel)
   const setVehicleModel = useGameStore((s) => s.setVehicleModel)
   const paintColor = useGameStore((s) => s.paintColor)
   const setPaintColor = useGameStore((s) => s.setPaintColor)
-  const metallic = useGameStore((s) => s.metallic)
-  const setMetallic = useGameStore((s) => s.setMetallic)
-  const roughness = useGameStore((s) => s.roughness)
-  const setRoughness = useGameStore((s) => s.setRoughness)
+  const paintFinish = useGameStore((s) => s.paintFinish)
+  const setPaintFinish = useGameStore((s) => s.setPaintFinish)
+  const caliperColor = useGameStore((s) => s.caliperColor)
+  const setCaliperColor = useGameStore((s) => s.setCaliperColor)
+  const rimColor = useGameStore((s) => s.rimColor)
+  const setRimColor = useGameStore((s) => s.setRimColor)
+  const spoilerType = useGameStore((s) => s.spoilerType)
+  const setSpoilerType = useGameStore((s) => s.setSpoilerType)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const toggleHoverMode = useGameStore((s) => s.toggleHoverMode)
-  // Radio & Audio
+
+  // Audio
   const isMusicPlaying = useGameStore((s) => s.isMusicPlaying)
   const toggleMusic = useGameStore((s) => s.toggleMusic)
   const currentTrackIndex = useGameStore((s) => s.currentTrackIndex)
@@ -212,25 +367,29 @@ function MasterMenuModal({
   const setMusicVolume = useGameStore((s) => s.setMusicVolume)
   const sfxVolume = useGameStore((s) => s.sfxVolume)
   const setSfxVolume = useGameStore((s) => s.setSfxVolume)
-  // Tools
-  const autoDrive = useGameStore((s) => s.autoDrive)
-  const toggleAutoDrive = useGameStore((s) => s.toggleAutoDrive)
+
+  // Discoveries & Challenges
+  const discoveries = useGameStore((s) => s.discoveries)
+  const completedChallenges = useGameStore((s) => s.completedChallenges)
+  const drivingStats = useGameStore((s) => s.drivingStats)
+
+  // Settings
+  const speedUnit = useGameStore((s) => s.speedUnit)
+  const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
+  const graphicsQuality = useGameStore((s) => s.graphicsQuality)
+  const setGraphicsQuality = useGameStore((s) => s.setGraphicsQuality)
+  const isFullscreen = useGameStore((s) => s.isFullscreen)
+  const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
   const headlights = useGameStore((s) => s.headlights)
   const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
   const cleanHud = useGameStore((s) => s.cleanHud)
   const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
   const transmissionMode = useGameStore((s) => s.transmissionMode)
   const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
-  const speedUnit = useGameStore((s) => s.speedUnit)
-  const toggleSpeedUnit = useGameStore((s) => s.toggleSpeedUnit)
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
   const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
-  const isFullscreen = useGameStore((s) => s.isFullscreen)
-  const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
-  const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
-  const toggleZenMode = useGameStore((s) => s.toggleZenMode)
-  const peakSpeed = useTelemetryStore((s) => s.peakSpeed)
-  const tripDistance = useTelemetryStore((s) => s.distance)
+
+  const [seedInput, setSeedInput] = useState(worldSeed)
 
   const formatTime = (t: number) => {
     const hours = Math.floor(t)
@@ -240,67 +399,62 @@ function MasterMenuModal({
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
   }
 
-  const biomes: { id: BiomeSelection; name: string; icon: React.ReactNode }[] = [
-    { id: 'dynamic', name: 'Dynamic (Cycle)', icon: <Sparkles size={14} /> },
-    { id: 'twisted_mountains', name: 'Twisted Mountains', icon: <Snowflake size={14} /> },
-    { id: 'alpine', name: 'Alpine Highlands', icon: <Mountain size={14} /> },
-    { id: 'enchanted_forest', name: 'Enchanted Forest', icon: <Trees size={14} /> },
-    { id: 'coastal', name: 'Coastal Highlands', icon: <Compass size={14} /> },
-    { id: 'autumn', name: 'Autumn Valley', icon: <Flame size={14} /> },
-    { id: 'desert', name: 'Desert Canyon', icon: <Sun size={14} /> },
-    { id: 'tundra', name: 'Snowy Tundra', icon: <Wind size={14} /> },
-    { id: 'forest', name: 'Lush Forest', icon: <Trees size={14} /> },
-  ]
-
-  const weathers: { id: WeatherType; name: string; icon: React.ReactNode }[] = [
-    { id: 'clear', name: 'Clear Sky', icon: <Sun size={14} /> },
-    { id: 'rain', name: 'Soft Rain', icon: <CloudRain size={14} /> },
-    { id: 'snow', name: 'Gentle Snow', icon: <Snowflake size={14} /> },
-    { id: 'mist', name: 'Morning Mist', icon: <Wind size={14} /> },
-  ]
-
-  const vehicles: { id: VehicleModelType; name: string; tag: string; desc: string }[] = [
+  const vehicles: { id: VehicleModelType; name: string; tag: string; desc: string; topSpeed: string; drive: string }[] = [
     {
       id: 'bmw_m3',
       name: "BMW M3 GTR '05",
       tag: 'Flagship GT V8',
       desc: 'High-revving P60B40 racing V8 with Hewland straight-cut transmission whine, widebody aerodynamics, and BBS wheels.',
+      topSpeed: '275 km/h',
+      drive: 'RWD Sequential',
     },
     {
       id: 'supercar',
       name: 'Veloce GT Supercar',
       tag: '5.2L Exotic V10',
       desc: 'Naturally aspirated 90° V10 supercar with screaming high harmonics, dual-clutch transmission, and active track aero.',
+      topSpeed: '282 km/h',
+      drive: 'RWD 7-Speed DCT',
     },
     {
       id: 'modern_supercar',
       name: 'Modern Exotic V12 Hypercar',
       tag: '6.5L Screaming V12',
       desc: '9,500 RPM 60° V12 engine with F1-style howl, dual-intake acoustic resonance, and lightning-fast DCT shift snaps.',
+      topSpeed: '320 km/h',
+      drive: 'AWD 7-Speed DCT',
     },
     {
       id: 'hovercraft',
       name: 'AeroGlide Repulsorcraft',
       tag: 'Sci-Fi Levitation',
       desc: 'Glides frictionless above the road with dual-phase magnetic levitation coils and twin micro-ion turbines.',
+      topSpeed: '310 km/h',
+      drive: 'Dual Flux Ion',
     },
     {
       id: 'camper',
       name: 'Classic Camper Van',
       tag: '3.0L Heavy Diesel',
       desc: 'Torquey inline-6 turbo diesel with compression knock, split windshield, and pneumatic air brake relief hiss.',
+      topSpeed: '145 km/h',
+      drive: 'RWD 5-Speed Manual',
     },
     {
       id: 'hatchback',
       name: 'Rallye Turbo Group B',
-      tag: '2.1L 5-Cylinder Turbo',
+      tag: '2.1L 5-Cyl Turbo',
       desc: 'Uneven 5-cylinder warble, sequential dog-box bang, explosive turbo spool, and compressor surge wastegate flutter (stututu).',
+      topSpeed: '225 km/h',
+      drive: 'AWD Dog-Box',
     },
     {
       id: 'vintage_hatch',
       name: 'Vintage Raspy Hot Hatch',
-      tag: '1.8L Turbo Boxer Flat-4',
+      tag: '1.8L Turbo Boxer',
       desc: 'Iconic unequal-length header boxer burble, throaty intake rasp, dog-box gate snick-clack, and aggressive pop-and-bang overrun.',
+      topSpeed: '215 km/h',
+      drive: 'FWD 5-Speed Manual',
     },
   ]
 
@@ -315,46 +469,43 @@ function MasterMenuModal({
     { name: 'Cyber Purple', hex: '#9333ea' },
   ]
 
-  const keyBindings = [
-    { key: 'W / ↑', action: 'Accelerate / Throttle' },
-    { key: 'S / ↓', action: 'Brake / Reverse' },
-    { key: 'A / D (← / →)', action: 'Steer Left / Right' },
-    { key: 'B / Space + W', action: 'Burnout (Tire Spin, Smoke & Skid Marks)' },
-    { key: 'Space', action: 'Handbrake / Drift' },
-    { key: 'G', action: 'Sound Horn' },
-    { key: 'Shift L / R', action: 'Manual Upshift / Downshift' },
-    { key: 'M', action: 'Toggle Transmission Mode (Auto / Manual)' },
-    { key: 'N', action: 'Toggle Neutral Gear (Free-Rev Stationary)' },
-    { key: 'L', action: 'Toggle Headlights On / Off' },
-    { key: 'K', action: 'Toggle Lo-Fi Ambient Radio' },
-    { key: 'R', action: 'Instant Reset to Road Centerline' },
-    { key: 'C', action: 'Cycle Camera View (Chase, Cockpit, Bumper, Drone)' },
-    { key: 'H', action: 'Toggle Antigravity Hover Mode' },
-    { key: 'V', action: 'Switch Vehicle' },
-    { key: 'T', action: 'Cycle Weather' },
-    { key: 'U', action: 'Toggle Clean / Minimal HUD' },
-    { key: 'P', action: 'Photo Mode (Studio View)' },
-    { key: 'Z', action: 'Zen Mode (Pure Driving, HUD Hidden)' },
-    { key: 'F', action: 'Toggle Fullscreen' },
-    { key: 'F3', action: 'Toggle Telemetry & Diagnostics HUD' },
-    { key: 'F4', action: 'Toggle Real-Time Engine & GPU Profiler HUD' },
-    { key: 'Esc', action: 'Close / Open Menu' },
+  const caliperPresets = [
+    { name: 'Brembo Gold', hex: '#d97706' },
+    { name: 'Racing Red', hex: '#dc2626' },
+    { name: 'Acid Green', hex: '#10b981' },
+    { name: 'Electric Blue', hex: '#3b82f6' },
+    { name: 'Slate Silver', hex: '#94a3b8' },
+  ]
+
+  const rimPresets = [
+    { name: 'Satin Silver', hex: '#cbd5e1' },
+    { name: 'Gloss Onyx', hex: '#0f172a' },
+    { name: 'Racing Bronze', hex: '#92400e' },
+    { name: 'Gunmetal Grey', hex: '#475569' },
+  ]
+
+  const seedPresets = [
+    { id: 'ALPINE_PASS', label: 'Alpine Switchbacks' },
+    { id: 'COASTAL_HIGHWAY', label: 'Pacific Ocean Headlands' },
+    { id: 'DESERT_CANYON', label: 'Sandstone Mesas' },
+    { id: 'AUTUMN_VALLEY', label: 'Golden Covered Bridges' },
+    { id: 'CALM_ROADS_3', label: 'Grand Tour 2026' },
   ]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md pointer-events-auto">
-      <div className="backdrop-blur-xl bg-neutral-900/95 border border-white/20 max-w-2xl w-full p-6 rounded-3xl shadow-2xl relative text-white max-h-[85vh] flex flex-col">
+      <div className="backdrop-blur-xl bg-neutral-900/95 border border-white/20 max-w-3xl w-full p-6 rounded-3xl shadow-2xl relative text-white max-h-[88vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse" />
             <div>
               <h2 className="text-sm font-black tracking-widest text-white leading-none uppercase">
-                CALM ROADS 2.0
+                CALM ROADS 3.0 • MASTER CONSOLE
               </h2>
               <span className="text-[10px] text-white/50 font-mono">
-                Trip: {(speedUnit === 'mph' ? tripDistance * 0.621371 : tripDistance).toFixed(2)} {speedUnit === 'mph' ? 'mi' : 'km'} • Peak:{' '}
-                {Math.round(speedUnit === 'mph' ? peakSpeed * 0.621371 : peakSpeed)} {speedUnit.toUpperCase()}
+                {discoveries.length} / {WORLD_LANDMARKS.length} Landmarks • {completedChallenges.length} /{' '}
+                {DRIVING_CHALLENGES.length} Challenges • Seed: {worldSeed}
               </span>
             </div>
           </div>
@@ -370,17 +521,20 @@ function MasterMenuModal({
         <div className="flex flex-wrap gap-1.5 py-3 border-b border-white/10 text-xs font-bold">
           {[
             { id: 'environment', label: 'Atmosphere', icon: <CloudSun size={14} /> },
-            { id: 'garage', label: 'Garage', icon: <Palette size={14} /> },
-            { id: 'audio', label: 'Radio & Audio', icon: <Radio size={14} /> },
-            { id: 'settings', label: 'Driving & Tools', icon: <Settings size={14} /> },
-            { id: 'controls', label: 'Driver Manual', icon: <HelpCircle size={14} /> },
+            { id: 'garage', label: 'Garage 3.0', icon: <Palette size={14} /> },
+            { id: 'discoveries', label: 'Journal', icon: <Compass size={14} /> },
+            { id: 'challenges', label: 'Challenges', icon: <Trophy size={14} /> },
+            { id: 'map', label: 'World Map', icon: <Map size={14} /> },
+            { id: 'audio', label: 'Radio', icon: <Radio size={14} /> },
+            { id: 'settings', label: 'Settings', icon: <Settings size={14} /> },
+            { id: 'controls', label: 'Manual', icon: <HelpCircle size={14} /> },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActivePanel(tab.id as any)}
               className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
                 activePanel === tab.id
-                  ? 'bg-emerald-600 text-white shadow-md border border-emerald-400/50'
+                  ? 'bg-[#FF9D1E] text-black shadow-[0_0_12px_rgba(255,157,30,0.4)]'
                   : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-white'
               }`}
             >
@@ -395,7 +549,6 @@ function MasterMenuModal({
           {/* TAB 1: ATMOSPHERE & WEATHER */}
           {activePanel === 'environment' && (
             <div className="space-y-4">
-              {/* Time of Day Slider */}
               <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
                 <div className="flex justify-between items-center mb-2.5">
                   <span className="text-xs uppercase tracking-wider font-bold text-white/80 flex items-center gap-2">
@@ -404,12 +557,12 @@ function MasterMenuModal({
                     ) : (
                       <Moon size={15} className="text-blue-300" />
                     )}
-                    Time of Day: <span className="text-emerald-400 font-mono font-bold">{formatTime(timeOfDay)}</span>
+                    Time of Day: <span className="text-amber-400 font-mono font-bold">{formatTime(timeOfDay)}</span>
                   </span>
                   <button
                     onClick={toggleAutoTimeCycle}
                     className={`text-[10px] px-2.5 py-1 rounded-lg font-mono font-bold cursor-pointer transition-colors ${
-                      autoTimeCycle ? 'bg-emerald-600 text-white' : 'bg-white/10 text-white/60 hover:text-white'
+                      autoTimeCycle ? 'bg-amber-500 text-black font-black' : 'bg-white/10 text-white/60 hover:text-white'
                     }`}
                   >
                     Auto-Cycle: {autoTimeCycle ? 'ON' : 'OFF'}
@@ -422,23 +575,27 @@ function MasterMenuModal({
                   step={0.1}
                   value={timeOfDay}
                   onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                  className="w-full accent-amber-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
                 />
               </div>
 
-              {/* Weather Presets */}
               <div>
                 <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
-                  Weather Condition
+                  Weather Simulation
                 </span>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {weathers.map((w) => (
+                  {[
+                    { id: 'clear', name: 'Clear Sky', icon: <Sun size={15} /> },
+                    { id: 'rain', name: 'Gentle Rain', icon: <CloudRain size={15} /> },
+                    { id: 'snow', name: 'Alpine Snow', icon: <Snowflake size={15} /> },
+                    { id: 'mist', name: 'Mountain Mist', icon: <Wind size={15} /> },
+                  ].map((w) => (
                     <button
                       key={w.id}
-                      onClick={() => setWeather(w.id)}
+                      onClick={() => setWeather(w.id as any)}
                       className={`p-3 rounded-2xl flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
                         weather === w.id
-                          ? 'bg-emerald-600 text-white shadow-md border border-emerald-400'
+                          ? 'bg-[#FF9D1E] text-black shadow-md border border-amber-300 font-black'
                           : 'bg-white/5 hover:bg-white/10 text-white/70'
                       }`}
                     >
@@ -448,20 +605,338 @@ function MasterMenuModal({
                   ))}
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Biome Selection */}
+          {/* TAB 2: GARAGE 3.0 & CUSTOMIZATION */}
+          {activePanel === 'garage' && (
+            <div className="space-y-4">
               <div>
                 <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
-                  Procedural Biome Transition
+                  Choose Machine
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {vehicles.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => setVehicleModel(v.id)}
+                      className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer ${
+                        vehicleModel === v.id
+                          ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
+                          : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/70'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-sm text-white">{v.name}</span>
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-amber-300 font-bold">
+                          {v.topSpeed} • {v.drive}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-white/60 leading-tight">{v.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Paint & Finish Customization */}
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs uppercase tracking-wider font-bold text-white/80">
+                    Automotive Paint Color
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {(['metallic', 'gloss', 'matte', 'pearl'] as PaintFinishType[]).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setPaintFinish(f)}
+                        className={`text-[9px] px-2 py-0.5 rounded font-mono uppercase font-bold cursor-pointer transition-all ${
+                          paintFinish === f ? 'bg-[#FF9D1E] text-black' : 'bg-white/10 text-white/60'
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {colorPresets.map((c) => (
+                    <button
+                      key={c.hex}
+                      onClick={() => setPaintColor(c.hex)}
+                      className={`w-7 h-7 rounded-full border-2 transition-all cursor-pointer ${
+                        paintColor.toLowerCase() === c.hex.toLowerCase()
+                          ? 'scale-110 border-white shadow-lg'
+                          : 'border-transparent opacity-80 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                    />
+                  ))}
+                </div>
+
+                {/* Caliper Color & Rim Finish */}
+                <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-white/70 block mb-1.5">
+                      Brake Calipers
+                    </span>
+                    <div className="flex gap-2">
+                      {caliperPresets.map((c) => (
+                        <button
+                          key={c.hex}
+                          onClick={() => setCaliperColor(c.hex)}
+                          className={`w-6 h-6 rounded-full border-2 transition-all cursor-pointer ${
+                            caliperColor.toLowerCase() === c.hex.toLowerCase()
+                              ? 'scale-110 border-white'
+                              : 'border-transparent opacity-70'
+                          }`}
+                          style={{ backgroundColor: c.hex }}
+                          title={c.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-white/70 block mb-1.5">
+                      Wheel Rims
+                    </span>
+                    <div className="flex gap-2">
+                      {rimPresets.map((r) => (
+                        <button
+                          key={r.hex}
+                          onClick={() => setRimColor(r.hex)}
+                          className={`w-6 h-6 rounded-full border-2 transition-all cursor-pointer ${
+                            rimColor.toLowerCase() === r.hex.toLowerCase()
+                              ? 'scale-110 border-white'
+                              : 'border-transparent opacity-70'
+                          }`}
+                          style={{ backgroundColor: r.hex }}
+                          title={r.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Spoiler Wing Configuration */}
+                <div className="pt-2 border-t border-white/10">
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-white/70 block mb-1.5">
+                    Rear Aero / Wing
+                  </span>
+                  <div className="flex gap-1.5">
+                    {[
+                      { id: 'stock', label: 'Stock Wing' },
+                      { id: 'gt_wing', label: 'Carbon GT Wing' },
+                      { id: 'ducktail', label: 'Ducktail Lip' },
+                      { id: 'none', label: 'Wingless' },
+                    ].map((sp) => (
+                      <button
+                        key={sp.id}
+                        onClick={() => setSpoilerType(sp.id as any)}
+                        className={`text-xs px-3 py-1 rounded-xl font-bold cursor-pointer transition-all ${
+                          spoilerType === sp.id
+                            ? 'bg-[#FF9D1E] text-black font-black'
+                            : 'bg-white/5 hover:bg-white/10 text-white/70'
+                        }`}
+                      >
+                        {sp.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: SCENIC DISCOVERIES JOURNAL */}
+          {activePanel === 'discoveries' && (
+            <div className="space-y-3">
+              <div className="flex justify-between items-center p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                <div className="flex items-center gap-2">
+                  <Compass size={18} />
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    Scenic Landmarks Discovered: {discoveries.length} / {WORLD_LANDMARKS.length}
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold">
+                  {Math.round((discoveries.length / WORLD_LANDMARKS.length) * 100)}% EXPLORED
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {WORLD_LANDMARKS.map((lm) => {
+                  const isFound = discoveries.includes(lm.id)
+                  return (
+                    <div
+                      key={lm.id}
+                      className={`p-3.5 rounded-2xl border transition-all ${
+                        isFound
+                          ? 'bg-neutral-800/80 border-amber-500/50 text-white'
+                          : 'bg-white/5 border-white/5 opacity-55 text-white/60'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-1">
+                        <div className="flex items-center gap-2">
+                          {isFound ? (
+                            <CheckCircle2 size={16} className="text-emerald-400" />
+                          ) : (
+                            <Lock size={15} className="text-white/40" />
+                          )}
+                          <span className="text-xs font-bold text-white">{isFound ? lm.name : 'Unknown Landmark'}</span>
+                        </div>
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-amber-300">
+                          {isFound ? `Z: ${lm.targetZ}m` : lm.biome.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-white/60 leading-tight">
+                        {isFound ? lm.description : `Drive through ${lm.biome.replace('_', ' ')} to discover this landmark.`}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: DRIVING CHALLENGES & PROGRESSION */}
+          {activePanel === 'challenges' && (
+            <div className="space-y-3">
+              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Trophy size={18} />
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    Accomplishments: {completedChallenges.length} / {DRIVING_CHALLENGES.length}
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold">
+                  {Math.round((completedChallenges.length / DRIVING_CHALLENGES.length) * 100)}% COMPLETED
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {DRIVING_CHALLENGES.map((ch) => {
+                  const isDone = completedChallenges.includes(ch.id)
+                  let progress = 0
+                  if (ch.id === 'alpine_velocity') progress = Math.min(100, (drivingStats.topSpeedKmh / ch.targetValue) * 100)
+                  else if (ch.id === 'grand_tourer') progress = Math.min(100, (drivingStats.totalDistanceKm / ch.targetValue) * 100)
+                  else if (ch.id === 'master_of_slip') progress = Math.min(100, (drivingStats.totalDriftDistanceM / ch.targetValue) * 100)
+                  else if (ch.id === 'asphalt_purist') progress = Math.min(100, (drivingStats.cleanAsphaltDistanceM / 2000) * 100)
+                  else if (ch.id === 'scenic_explorer') progress = Math.min(100, (discoveries.length / ch.targetValue) * 100)
+                  else if (ch.id === 'redline_virtuoso') progress = Math.min(100, (drivingStats.redlineShiftsCount / ch.targetValue) * 100)
+                  if (isDone) progress = 100
+
+                  return (
+                    <div
+                      key={ch.id}
+                      className={`p-3.5 rounded-2xl border transition-all ${
+                        isDone
+                          ? 'bg-emerald-950/30 border-emerald-500/50 text-white'
+                          : 'bg-white/5 border-white/10 text-white/80'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-2">
+                          {isDone ? (
+                            <CheckCircle2 size={16} className="text-emerald-400" />
+                          ) : (
+                            <Trophy size={15} className="text-white/40" />
+                          )}
+                          <span className="text-xs font-bold text-white">{ch.title}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-amber-300 font-bold">
+                          Reward: {ch.reward}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-white/60 mb-2">{ch.description}</p>
+                      {/* Progress Bar */}
+                      <div className="w-full h-1.5 bg-black/50 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            isDone ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: WORLD MAP & SEED TRAVEL */}
+          {activePanel === 'map' && (
+            <div className="space-y-4">
+              {/* World Seed Input */}
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                <span className="text-xs uppercase tracking-wider font-bold text-white/80 block">
+                  Deterministic Procedural Seed
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={seedInput}
+                    onChange={(e) => setSeedInput(e.target.value.toUpperCase())}
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/20 text-white font-mono text-xs focus:border-amber-400 outline-none"
+                    placeholder="ENTER WORLD SEED"
+                  />
+                  <button
+                    onClick={() => setWorldSeed(seedInput || 'CALM_ROADS_3')}
+                    className="px-4 py-1.5 rounded-xl bg-amber-500 text-black font-black text-xs cursor-pointer hover:bg-amber-400 transition-colors"
+                  >
+                    APPLY SEED
+                  </button>
+                  <button
+                    onClick={() => {
+                      const rand = `SEED_${Math.floor(Math.random() * 90000 + 10000)}`
+                      setSeedInput(rand)
+                      setWorldSeed(rand)
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs cursor-pointer font-bold transition-colors"
+                  >
+                    RANDOM
+                  </button>
+                </div>
+
+                {/* Seed Presets */}
+                <div className="flex flex-wrap gap-1.5 pt-2">
+                  {seedPresets.map((sp) => (
+                    <button
+                      key={sp.id}
+                      onClick={() => {
+                        setSeedInput(sp.id)
+                        setWorldSeed(sp.id)
+                      }}
+                      className="text-[10px] px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white font-mono cursor-pointer transition-colors"
+                    >
+                      {sp.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Biome Travel Cards */}
+              <div>
+                <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
+                  Travel to Biome
                 </span>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {biomes.map((b) => (
+                  {[
+                    { id: 'dynamic', name: 'Continuous Grand Tour', icon: <Sparkles size={14} /> },
+                    { id: 'twisted_mountains', name: 'Twisted Mountains', icon: <Snowflake size={14} /> },
+                    { id: 'alpine', name: 'Alpine Highlands', icon: <Mountain size={14} /> },
+                    { id: 'desert', name: 'Desert Canyon', icon: <Sun size={14} /> },
+                    { id: 'coastal', name: 'Coastal Beach', icon: <Compass size={14} /> },
+                    { id: 'autumn', name: 'Autumn Valley', icon: <Flame size={14} /> },
+                  ].map((b) => (
                     <button
                       key={b.id}
-                      onClick={() => setBiome(b.id)}
-                      className={`p-3 rounded-2xl flex items-center gap-2.5 text-xs font-bold cursor-pointer transition-all ${
+                      onClick={() => setBiome(b.id as any)}
+                      className={`p-3 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all ${
                         biome === b.id
-                          ? 'bg-emerald-600 text-white shadow-md border border-emerald-400'
+                          ? 'bg-[#FF9D1E] text-black font-black shadow-md'
                           : 'bg-white/5 hover:bg-white/10 text-white/70'
                       }`}
                     >
@@ -474,102 +949,12 @@ function MasterMenuModal({
             </div>
           )}
 
-          {/* TAB 2: GARAGE & CUSTOMIZATION */}
-          {activePanel === 'garage' && (
-            <div className="space-y-4">
-              {/* Vehicle Model Selector */}
-              <div>
-                <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
-                  Select Vehicle
-                </span>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {vehicles.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => setVehicleModel(v.id)}
-                      className={`p-3.5 rounded-2xl text-left border transition-all cursor-pointer ${
-                        vehicleModel === v.id
-                          ? 'bg-emerald-600/30 border-emerald-400 text-white shadow-md'
-                          : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/70'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-sm text-white">{v.name}</span>
-                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-emerald-300 font-bold">
-                          {v.tag}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-white/60 leading-tight">{v.desc}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Paint Color Swatches */}
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                <span className="text-xs uppercase tracking-wider font-bold text-white/80 block mb-2.5">
-                  Automotive Paint Finish
-                </span>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {colorPresets.map((c) => (
-                    <button
-                      key={c.hex}
-                      onClick={() => setPaintColor(c.hex)}
-                      className={`w-8 h-8 rounded-full border-2 transition-all cursor-pointer ${
-                        paintColor.toLowerCase() === c.hex.toLowerCase()
-                          ? 'scale-110 border-white shadow-lg'
-                          : 'border-transparent opacity-80 hover:opacity-100'
-                      }`}
-                      style={{ backgroundColor: c.hex }}
-                      title={c.name}
-                    />
-                  ))}
-                </div>
-
-                {/* Metallic & Roughness Sliders */}
-                <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
-                  <div>
-                    <div className="flex justify-between text-xs font-bold text-white/70 mb-1">
-                      <span>Metallic Sheen</span>
-                      <span className="font-mono text-emerald-400">{(metallic * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={metallic}
-                      onChange={(e) => setMetallic(parseFloat(e.target.value))}
-                      className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs font-bold text-white/70 mb-1">
-                      <span>Clearcoat Polish</span>
-                      <span className="font-mono text-emerald-400">{((1 - roughness) * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0.05}
-                      max={0.9}
-                      step={0.05}
-                      value={roughness}
-                      onChange={(e) => setRoughness(parseFloat(e.target.value))}
-                      className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: RADIO & AUDIO */}
+          {/* TAB 6: RADIO & AUDIO */}
           {activePanel === 'audio' && (
             <div className="space-y-4">
-              {/* Currently Playing Track Widget */}
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex justify-between items-center">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
                     <Radio size={20} />
                   </div>
                   <div>
@@ -577,34 +962,25 @@ function MasterMenuModal({
                       {LOFI_PLAYLIST[currentTrackIndex]?.title || 'Lo-Fi Chill'}
                     </div>
                     <div className="text-[11px] text-white/50">
-                      {LOFI_PLAYLIST[currentTrackIndex]?.artist} • {LOFI_PLAYLIST[currentTrackIndex]?.vibe}
+                      {LOFI_PLAYLIST[currentTrackIndex]?.artist}
                     </div>
                   </div>
                 </div>
 
-                {/* Player Controls */}
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={prevTrack}
-                    className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-                    title="Previous Track"
-                  >
+                  <button onClick={prevTrack} className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer">
                     <SkipBack size={15} />
                   </button>
                   <button
                     onClick={toggleMusic}
                     className={`px-4 h-9 rounded-xl flex items-center gap-2 font-bold text-xs transition-all cursor-pointer ${
-                      isMusicPlaying ? 'bg-emerald-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'
+                      isMusicPlaying ? 'bg-amber-500 text-black font-black' : 'bg-white/10 text-white hover:bg-white/20'
                     }`}
                   >
                     {isMusicPlaying ? <Pause size={14} /> : <Play size={14} />}
                     <span>{isMusicPlaying ? 'PAUSE' : 'PLAY'}</span>
                   </button>
-                  <button
-                    onClick={nextTrack}
-                    className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-                    title="Next Track"
-                  >
+                  <button onClick={nextTrack} className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer">
                     <SkipForward size={15} />
                   </button>
                 </div>
@@ -614,10 +990,8 @@ function MasterMenuModal({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10">
                   <div className="flex justify-between text-xs font-bold text-white/80 mb-2">
-                    <span className="flex items-center gap-1.5">
-                      <Volume2 size={14} className="text-emerald-400" /> Music Radio Volume
-                    </span>
-                    <span className="font-mono text-emerald-400">{(musicVolume * 100).toFixed(0)}%</span>
+                    <span>Music Volume</span>
+                    <span className="font-mono text-amber-400">{(musicVolume * 100).toFixed(0)}%</span>
                   </div>
                   <input
                     type="range"
@@ -626,16 +1000,14 @@ function MasterMenuModal({
                     step={0.05}
                     value={musicVolume}
                     onChange={(e) => setMusicVolume(parseFloat(e.target.value))}
-                    className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                    className="w-full accent-amber-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
                   />
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10">
                   <div className="flex justify-between text-xs font-bold text-white/80 mb-2">
-                    <span className="flex items-center gap-1.5">
-                      <Volume2 size={14} className="text-cyan-400" /> Engine & SFX Volume
-                    </span>
-                    <span className="font-mono text-cyan-400">{(sfxVolume * 100).toFixed(0)}%</span>
+                    <span>Engine & Exhaust SFX</span>
+                    <span className="font-mono text-amber-400">{(sfxVolume * 100).toFixed(0)}%</span>
                   </div>
                   <input
                     type="range"
@@ -644,234 +1016,119 @@ function MasterMenuModal({
                     step={0.05}
                     value={sfxVolume}
                     onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
-                    className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
+                    className="w-full accent-amber-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
                   />
-                </div>
-              </div>
-
-              {/* Playlist Tracks */}
-              <div>
-                <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
-                  Station Tracklist
-                </span>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {LOFI_PLAYLIST.map((t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => {
-                        useGameStore.setState({ currentTrackIndex: t.id, isMusicPlaying: true })
-                      }}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                        currentTrackIndex === t.id
-                          ? 'bg-emerald-600/30 border-emerald-400 text-white'
-                          : 'bg-white/5 hover:bg-white/10 border-white/5 text-white/70'
-                      }`}
-                    >
-                      <div>
-                        <div className="text-xs font-bold">{t.title}</div>
-                        <div className="text-[10px] text-white/50">{t.artist}</div>
-                      </div>
-                      <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-white/70">
-                        {t.vibe}
-                      </span>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: DRIVING & PREFERENCES */}
+          {/* TAB 7: SETTINGS & TOOLS */}
           {activePanel === 'settings' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2.5">
-                {/* Antigravity Hover Mode */}
-                <button
-                  onClick={toggleHoverMode}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    isHoverMode
-                      ? 'bg-indigo-600/30 border-indigo-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
-                >
-                  <Sparkles size={18} className={isHoverMode ? 'text-indigo-400' : 'text-white/60'} />
-                  <div>
-                    <div className="text-xs font-bold">Antigravity Hover</div>
-                    <div className="text-[10px] text-white/40 font-mono">
-                      {isHoverMode ? 'Active [H]' : 'Inactive [H]'}
-                    </div>
-                  </div>
-                </button>
-
-                {/* Auto-Drive Cruise */}
-                <button
-                  onClick={toggleAutoDrive}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    autoDrive
-                      ? 'bg-emerald-600/30 border-emerald-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
-                >
-                  <Sliders size={18} className={autoDrive ? 'text-emerald-400' : 'text-white/60'} />
-                  <div>
-                    <div className="text-xs font-bold">Cruise Control</div>
-                    <div className="text-[10px] text-white/40 font-mono">{autoDrive ? 'Cruising' : 'Manual'}</div>
-                  </div>
-                </button>
-
-                {/* Headlights Toggle */}
-                <button
-                  onClick={toggleHeadlights}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    headlights
-                      ? 'bg-amber-600/25 border-amber-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
-                >
-                  <Sun size={18} className={headlights ? 'text-amber-400' : 'text-white/60'} />
-                  <div>
-                    <div className="text-xs font-bold">Headlights</div>
-                    <div className="text-[10px] text-white/40 font-mono">{headlights ? 'ON [L]' : 'OFF [L]'}</div>
-                  </div>
-                </button>
-
-                {/* Transmission Mode */}
                 <button
                   onClick={toggleTransmissionMode}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    transmissionMode === 'manual'
-                      ? 'bg-amber-600/25 border-amber-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <Sliders size={18} className={transmissionMode === 'manual' ? 'text-amber-400' : 'text-emerald-400'} />
+                  <Activity size={18} className="text-amber-400" />
                   <div>
-                    <div className="text-xs font-bold">Transmission</div>
-                    <div className="text-[10px] text-white/40 font-mono uppercase">{transmissionMode} [M]</div>
+                    <div className="text-xs font-bold">Transmission Mode</div>
+                    <div className="text-[10px] text-white/50 uppercase">{transmissionMode} [M]</div>
                   </div>
                 </button>
 
-                {/* Clean HUD Mode */}
-                <button
-                  onClick={toggleCleanHud}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    cleanHud
-                      ? 'bg-emerald-600/30 border-emerald-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
-                >
-                  <Eye size={18} className={cleanHud ? 'text-emerald-400' : 'text-white/60'} />
-                  <div>
-                    <div className="text-xs font-bold">Clean HUD</div>
-                    <div className="text-[10px] text-white/40 font-mono">{cleanHud ? 'Minimal [U]' : 'Full GT [U]'}</div>
-                  </div>
-                </button>
-
-                {/* Speedometer Unit */}
                 <button
                   onClick={toggleSpeedUnit}
-                  className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <Activity size={18} className="text-emerald-400" />
+                  <Sliders size={18} className="text-amber-400" />
                   <div>
-                    <div className="text-xs font-bold">Speed Unit</div>
-                    <div className="text-[10px] text-emerald-400 font-mono font-bold uppercase">{speedUnit}</div>
+                    <div className="text-xs font-bold">Speed Units</div>
+                    <div className="text-[10px] text-white/50 uppercase">{speedUnit.toUpperCase()}</div>
                   </div>
                 </button>
 
-                {/* Touch Pedals */}
                 <button
-                  onClick={() => setShowTouchControls(!showTouchControls)}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    showTouchControls
-                      ? 'bg-emerald-600/30 border-emerald-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
+                  onClick={toggleHoverMode}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <Gamepad2 size={18} className={showTouchControls ? 'text-emerald-400' : 'text-white/60'} />
+                  <Sparkles size={18} className="text-indigo-400" />
                   <div>
-                    <div className="text-xs font-bold">Touch Pedals</div>
-                    <div className="text-[10px] text-white/40 font-mono">{showTouchControls ? 'Visible' : 'Hidden'}</div>
+                    <div className="text-xs font-bold">Antigravity Mode</div>
+                    <div className="text-[10px] text-white/50">{isHoverMode ? 'Active [H]' : 'Standard [H]'}</div>
                   </div>
                 </button>
 
-                {/* Photo Mode */}
                 <button
-                  onClick={() => {
-                    togglePhotoMode()
-                    setActivePanel('none')
-                  }}
-                  className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+                  onClick={toggleHeadlights}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <Camera size={18} className="text-amber-400" />
+                  <Sun size={18} className="text-amber-300" />
                   <div>
-                    <div className="text-xs font-bold">Photo Mode</div>
-                    <div className="text-[10px] text-white/40 font-mono">Framing Tool [P]</div>
+                    <div className="text-xs font-bold">Headlights</div>
+                    <div className="text-[10px] text-white/50">{headlights ? 'ON [L]' : 'OFF [L]'}</div>
                   </div>
                 </button>
 
-                {/* Zen Mode */}
                 <button
-                  onClick={() => {
-                    toggleZenMode()
-                    setActivePanel('none')
-                  }}
-                  className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+                  onClick={toggleCleanHud}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <EyeOff size={18} className="text-indigo-400" />
+                  <EyeOff size={18} className="text-emerald-400" />
                   <div>
-                    <div className="text-xs font-bold">Zen Mode</div>
-                    <div className="text-[10px] text-white/40 font-mono">Hide HUD [Z]</div>
+                    <div className="text-xs font-bold">Clean Minimal HUD</div>
+                    <div className="text-[10px] text-white/50">{cleanHud ? 'Active [U]' : 'Standard [U]'}</div>
                   </div>
                 </button>
 
-                {/* Fullscreen */}
                 <button
                   onClick={toggleFullscreen}
-                  className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-3 transition-all text-left cursor-pointer"
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  {isFullscreen ? <Minimize size={18} className="text-cyan-400" /> : <Maximize size={18} className="text-cyan-400" />}
+                  <Maximize size={18} className="text-blue-400" />
                   <div>
-                    <div className="text-xs font-bold">{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</div>
-                    <div className="text-[10px] text-white/40 font-mono">[F]</div>
+                    <div className="text-xs font-bold">Fullscreen</div>
+                    <div className="text-[10px] text-white/50">{isFullscreen ? 'Windowed [F]' : 'Fullscreen [F]'}</div>
                   </div>
                 </button>
 
-                {/* Diagnostics Telemetry HUD */}
                 <button
                   onClick={toggleDiagnostics}
-                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
-                    showDiagnostics
-                      ? 'bg-emerald-600/30 border-emerald-400 text-white'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
-                  }`}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
-                  <Activity size={18} className={showDiagnostics ? 'text-emerald-400' : 'text-white/60'} />
+                  <Activity size={18} className="text-pink-400" />
                   <div>
-                    <div className="text-xs font-bold">Diagnostics HUD</div>
-                    <div className="text-[10px] text-white/40 font-mono">[F3]</div>
+                    <div className="text-xs font-bold">Dev Diagnostics</div>
+                    <div className="text-[10px] text-white/50">{showDiagnostics ? 'Visible [F2]' : 'Hidden [F2]'}</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setShowTouchControls((prev) => !prev)}
+                  className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
+                >
+                  <Sparkles size={18} className="text-cyan-400" />
+                  <div>
+                    <div className="text-xs font-bold">Touch Pedals</div>
+                    <div className="text-[10px] text-white/50">{showTouchControls ? 'Active' : 'Hidden'}</div>
                   </div>
                 </button>
               </div>
 
-              {/* Graphics Quality */}
-              <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs uppercase tracking-wider font-bold text-white/80">
-                    Graphics Quality Preset
-                  </span>
-                  <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase">
-                    {graphicsQuality}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['low', 'medium', 'high'] as const).map((q) => (
+              {/* Graphics Quality Preset */}
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+                <span className="text-xs uppercase tracking-wider font-bold text-white/80 block mb-2">
+                  Graphics Engine Quality
+                </span>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['low', 'medium', 'high', 'ultra'] as GraphicsQualityType[]).map((q) => (
                     <button
                       key={q}
                       onClick={() => setGraphicsQuality(q)}
-                      className={`py-2 rounded-xl text-xs font-mono font-bold uppercase cursor-pointer transition-all ${
+                      className={`p-2.5 rounded-xl text-center text-xs font-bold uppercase transition-all cursor-pointer ${
                         graphicsQuality === q
-                          ? 'bg-emerald-600 text-white shadow-md'
+                          ? 'bg-[#FF9D1E] text-black font-black shadow-md'
                           : 'bg-white/5 hover:bg-white/10 text-white/60'
                       }`}
                     >
@@ -883,330 +1140,41 @@ function MasterMenuModal({
             </div>
           )}
 
-          {/* TAB 5: DRIVER MANUAL & SHORTCUTS */}
+          {/* TAB 8: DRIVER MANUAL & KEYBINDINGS */}
           {activePanel === 'controls' && (
-            <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
-              {keyBindings.map((k) => (
-                <div
-                  key={k.key}
-                  className="flex justify-between items-center py-2 px-3 rounded-xl bg-white/5 border border-white/5"
-                >
-                  <span className="px-2.5 py-0.5 bg-white/10 rounded-lg text-xs font-mono font-bold text-emerald-400">
-                    {k.key}
-                  </span>
-                  <span className="text-xs text-white/80 font-medium text-right">{k.action}</span>
-                </div>
-              ))}
+            <div className="space-y-2">
+              <span className="text-xs uppercase tracking-wider font-bold text-white/70 block mb-2">
+                Flight & Ground Controls
+              </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono">
+                {[
+                  { k: 'W / ↑', d: 'Accelerate Throttle' },
+                  { k: 'S / ↓', d: 'Brake / Hold to Reverse' },
+                  { k: 'A / D (← / →)', d: 'Steer Left / Right' },
+                  { k: 'Space', d: 'Emergency Handbrake / Drift' },
+                  { k: 'B / Space + W', d: 'Burnout Mode (Redline Tire Smoke)' },
+                  { k: 'Shift L / R', d: 'Manual Gear Upshift / Downshift' },
+                  { k: 'M', d: 'Toggle Auto / Manual Transmission' },
+                  { k: 'N', d: 'Toggle Neutral Gear (Free-Rev)' },
+                  { k: 'C', d: 'Cycle Cameras (Chase, Close, Cockpit, Bumper, Drone, Cinematic)' },
+                  { k: 'L', d: 'Toggle Headlight Beams' },
+                  { k: 'U', d: 'Clean Minimal HUD' },
+                  { k: 'P', d: 'Photo Studio 3.0' },
+                  { k: 'Z', d: 'Zen Mode' },
+                  { k: 'R', d: 'Reset Vehicle to Road Center' },
+                  { k: 'G', d: 'Sound Horn' },
+                  { k: 'K', d: 'Play / Pause Lo-Fi Radio' },
+                  { k: 'F', d: 'Toggle Fullscreen' },
+                  { k: 'F3 / F4', d: 'Toggle Engine Telemetry / GPU Profiler' },
+                ].map((row, idx) => (
+                  <div key={idx} className="p-2 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-amber-300 font-bold">{row.k}</span>
+                    <span className="text-white/70 text-[11px]">{row.d}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ----------------------------------------------------------------
-// 4. Real-Time Diagnostics & Telemetry HUD [F3]
-// ----------------------------------------------------------------
-function DiagnosticsHUD() {
-  const speed = useTelemetryStore((s) => s.speed)
-  const gear = useTelemetryStore((s) => s.gear)
-  const rpm = useTelemetryStore((s) => s.rpm)
-  const pitch = useTelemetryStore((s) => s.pitch ?? 0)
-  const roll = useTelemetryStore((s) => s.roll ?? 0)
-  const suspension = useTelemetryStore((s) => s.suspension ?? [0, 0, 0, 0])
-  const roadClearance = useTelemetryStore((s) => s.roadClearance ?? 116)
-  const onRoad = useTelemetryStore((s) => s.onRoad ?? true)
-  const distFromRoad = useTelemetryStore((s) => s.distFromRoad ?? 0)
-  const isGrounded = useTelemetryStore((s) => s.isGrounded ?? true)
-  const verticalVel = useTelemetryStore((s) => s.verticalVel ?? 0)
-  const reflectionPreset = useTelemetryStore((s) => s.reflectionPreset ?? 'forest')
-  const vehicleModel = useGameStore((s) => s.vehicleModel)
-  const speedUnit = useGameStore((s) => s.speedUnit)
-  const diagnostics = useGameStore((s) => s.diagnostics)
-  const [fps, setFps] = useState(60)
-
-  useEffect(() => {
-    let frameCount = 0
-    let lastTime = performance.now()
-    let animationFrameId: number
-
-    const tick = (now: number) => {
-      frameCount++
-      if (now - lastTime >= 350) {
-        setFps(Math.round((frameCount * 1000) / (now - lastTime)))
-        frameCount = 0
-        lastTime = now
-      }
-      animationFrameId = requestAnimationFrame(tick)
-    }
-
-    animationFrameId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(animationFrameId)
-  }, [])
-
-  const displaySpeed = speedUnit === 'mph' ? Math.round(speed * 0.621371) : Math.round(speed)
-  const unitLabel = speedUnit === 'mph' ? 'MPH' : 'KM/H'
-  const fpsColor = fps >= 55 ? 'text-emerald-400' : fps >= 30 ? 'text-amber-400' : 'text-red-400'
-
-  return (
-    <div className="fixed top-20 left-6 z-40 pointer-events-none select-none font-mono text-[11px] leading-tight">
-      <div className="bg-black/90 backdrop-blur-md border border-white/20 rounded-2xl p-4 shadow-2xl text-white/90 w-84 space-y-2.5">
-        <div className="flex items-center justify-between border-b border-white/10 pb-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-bold tracking-wider text-xs text-white">ENGINE TELEMETRY</span>
-          </div>
-          <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">F3 HUD</span>
-        </div>
-
-        {/* Frame Performance & Speed */}
-        <div className="grid grid-cols-2 gap-2 text-[10px]">
-          <div className="bg-white/5 p-2 rounded-xl">
-            <div className="text-white/50 text-[9px]">FRAME RATE</div>
-            <div className={`text-base font-black ${fpsColor}`}>
-              {fps} <span className="text-[10px] font-normal text-white/60">FPS</span>
-            </div>
-            <div className="text-[9px] text-white/40">{(1000 / Math.max(1, fps)).toFixed(1)} ms pacing</div>
-          </div>
-          <div className="bg-white/5 p-2 rounded-xl">
-            <div className="text-white/50 text-[9px]">SPEED & GEAR</div>
-            <div className="text-base font-black text-cyan-300">
-              {displaySpeed} <span className="text-[10px] font-normal text-white/60">{unitLabel}</span>
-            </div>
-            <div className="text-[9px] text-white/40">Gear {gear} • {Math.round(rpm)} RPM</div>
-          </div>
-        </div>
-
-        {/* Macro Terrain System Telemetry */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-purple-400 font-bold flex justify-between">
-            <span>MACRO TERRAIN SYSTEM</span>
-            <span
-              className={
-                diagnostics.macroTerrainType === 'TWISTED CLIMB'
-                  ? 'text-rose-400 font-black'
-                  : diagnostics.macroTerrainType === 'ROLLING HILLS'
-                  ? 'text-amber-300 font-black'
-                  : 'text-emerald-300 font-black'
-              }
-            >
-              {diagnostics.macroTerrainType ?? 'PLAINS'}
-            </span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Macro Noise M(z):</span>
-            <span className="text-white font-bold">{diagnostics.macroNoise?.toFixed(2) ?? '0.00'}</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Weights (P / H / T):</span>
-            <span className="text-cyan-300 font-bold">
-              {Math.round((diagnostics.plainsWeight ?? 1) * 100)}% / {Math.round((diagnostics.rollingHillsWeight ?? 0) * 100)}% / {Math.round((diagnostics.twistedClimbWeight ?? 0) * 100)}%
-            </span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Terrain Amplitude / Curve:</span>
-            <span className="text-white font-bold">
-              {diagnostics.macroAmplitude?.toFixed(1) ?? '3.2'}m / {Math.round((diagnostics.roadCurvature ?? 0.12) * 100)}%
-            </span>
-          </div>
-        </div>
-
-        {/* Road & Corridor Clearance */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-amber-400 font-bold flex justify-between">
-            <span>BULLDOZER ROAD MASK</span>
-            <span className={onRoad ? 'text-emerald-400' : 'text-amber-400'}>
-              {onRoad ? 'ON ASPHALT' : 'OFF-ROAD'}
-            </span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Protected Corridor:</span>
-            <span className="text-white font-bold">12.0m (Floor -0.28m)</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Transition Zone:</span>
-            <span className="text-white font-bold">50.0m (C¹ Hermite)</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Centerline Offset:</span>
-            <span className="text-white font-bold">{distFromRoad}m</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Road Banking:</span>
-            <span className="text-cyan-300 font-bold">{diagnostics.roadBankingDeg ?? 0}°</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Road Grade:</span>
-            <span className={
-              (diagnostics.roadGrade ?? 0) < -1.5
-                ? 'text-cyan-300 font-bold'
-                : (diagnostics.roadGrade ?? 0) > 1.5
-                ? 'text-amber-300 font-bold'
-                : 'text-white font-bold'
-            }>
-              {diagnostics.roadGrade != null ? `${diagnostics.roadGrade > 0 ? '+' : ''}${diagnostics.roadGrade}%` : '0.0%'}
-              {' '}
-              {(diagnostics.roadGrade ?? 0) < -2.0 ? '(DESCENDING)' : (diagnostics.roadGrade ?? 0) > 2.0 ? '(CLIMBING)' : '(LEVEL)'}
-            </span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Ground Clearance:</span>
-            <span className="text-emerald-300 font-bold">{roadClearance} mm</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Submersion Status:</span>
-            <span className="text-emerald-400 font-bold">0.00m (PROTECTED)</span>
-          </div>
-        </div>
-
-        {/* Scenery Visibility & Bounding Volume Telemetry */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-emerald-400 font-bold flex justify-between">
-            <span>SCENERY VISIBILITY & BOUNDS</span>
-            <span className="text-emerald-400 font-mono">STABLE & VISIBLE</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Approach Culling:</span>
-            <span className="text-emerald-300 font-bold">Protected (0% Drop)</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>LOD Gating:</span>
-            <span className="text-emerald-300 font-bold">100% Near-Field Fidelity</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Draw Distance Buffer:</span>
-            <span className="text-white font-bold">{diagnostics.drawDistance}m Active Pool</span>
-          </div>
-        </div>
-
-        {/* Vehicle Suspension & Dynamics */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-sky-400 font-bold flex justify-between">
-            <span>CHASSIS & SUSPENSION</span>
-            <span className={isGrounded ? 'text-emerald-400' : 'text-amber-400 font-black'}>
-              {isGrounded ? 'GROUNDED' : `AIRBORNE (${verticalVel > 0 ? '+' : ''}${verticalVel} m/s)`}
-            </span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Body Roll / Pitch:</span>
-            <span className="text-white font-bold">{roll > 0 ? `+${roll}` : roll}° / {pitch > 0 ? `+${pitch}` : pitch}°</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Front Axle (L/R):</span>
-            <span className="text-sky-300 font-bold">{suspension[0]}mm / {suspension[1]}mm</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Rear Axle (L/R):</span>
-            <span className="text-sky-300 font-bold">{suspension[2]}mm / {suspension[3]}mm</span>
-          </div>
-        </div>
-
-        {/* 3D Model & Real-Time Environment Presets */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-pink-400 font-bold flex justify-between">
-            <span>MODEL & LIGHTING RIG</span>
-            <span className="text-pink-300 font-mono">CALIBRATED</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Rear Wing Spoiler:</span>
-            <span className="text-white font-bold">{vehicleModel === 'bmw_m3' ? '1.38m (Deck Flush)' : 'Factory Integrated'}</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Reflection Preset:</span>
-            <span className="text-emerald-300 font-bold">{reflectionPreset.toUpperCase()}</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Road Mesh Winding:</span>
-            <span className="text-emerald-300 font-bold">CCW (+Y Normals)</span>
-          </div>
-        </div>
-
-        {/* Road Continuity & Chunk Boundary Diagnostics */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-amber-400 font-bold flex justify-between">
-            <span>ROAD CONTINUITY & BOUNDARIES</span>
-            <span className="text-emerald-400 font-mono">CONTINUOUS</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Chunk Boundaries:</span>
-            <span className="text-emerald-300 font-bold">Matched C¹ Cross-Sections</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Centerline Markings:</span>
-            <span className="text-emerald-300 font-bold">14m Global Grid (Seamless)</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Collision Sync:</span>
-            <span className="text-emerald-300 font-bold">100% Exact to Mesh Floor</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Mechanical Odometer:</span>
-            <span className="text-amber-300 font-bold">NFS Drum Cascade Carry</span>
-          </div>
-        </div>
-
-        {/* Predictive Streaming Buffer */}
-        <div className="bg-white/5 p-2.5 rounded-xl space-y-1 text-[10px]">
-          <div className="text-emerald-400 font-bold flex justify-between">
-            <span>PREDICTIVE STREAMING</span>
-            <span>NOMINAL</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Active Road Chunks:</span>
-            <span className="text-white font-bold">{diagnostics.activeChunks} / 28 ({diagnostics.drawDistance}m pool)</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Forward Horizon Buffer:</span>
-            <span className="text-emerald-300 font-bold">+{diagnostics.frontierBuffer}m ahead</span>
-          </div>
-          <div className="flex justify-between text-white/70">
-            <span>Scenery Props Grounded:</span>
-            <span className="text-emerald-300 font-bold">Anchored (0 Floating)</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ----------------------------------------------------------------
-// 5. Specialized Photo Mode View
-// ----------------------------------------------------------------
-function PhotoModeView() {
-  const togglePhotoMode = useGameStore((s) => s.togglePhotoMode)
-  const [filter, setFilter] = useState<'normal' | 'warm' | 'cool' | 'dramatic'>('normal')
-
-  return (
-    <div className="w-full h-full pointer-events-none flex flex-col justify-between p-6 select-none font-sans">
-      <div className="flex justify-between items-center pointer-events-auto">
-        <div className="backdrop-blur-md bg-black/50 border border-white/20 text-white px-4 py-2 rounded-2xl flex items-center gap-2">
-          <Camera size={16} className="text-emerald-400" />
-          <span className="font-bold text-xs uppercase tracking-wider">Photo Studio Mode</span>
-        </div>
-        <button
-          onClick={togglePhotoMode}
-          className="backdrop-blur-md bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          <X size={15} /> Exit [P]
-        </button>
-      </div>
-
-      <div className="flex justify-center items-center pointer-events-auto">
-        <div className="backdrop-blur-xl bg-black/60 border border-white/20 px-6 py-3 rounded-3xl flex items-center gap-3 text-white">
-          {(['normal', 'warm', 'cool', 'dramatic'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono uppercase font-bold cursor-pointer transition-all ${
-                filter === f
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'bg-white/5 hover:bg-white/10 text-white/60'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
         </div>
       </div>
     </div>
@@ -1239,12 +1207,13 @@ export default function Overlay() {
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
   const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
 
-  // Camera display names
   const camLabels: Record<CameraPerspectiveType, string> = {
     chase: 'Chase',
+    close_chase: 'Close Chase',
     dashboard: 'Cockpit',
     drone: 'Drone',
     bumper: 'Bumper',
+    cinematic: 'Cinematic',
   }
 
   // Global Keyboard Shortcuts
@@ -1265,6 +1234,10 @@ export default function Overlay() {
       if (e.key === 'u' || e.key === 'U') toggleCleanHud()
       if (e.key === 'k' || e.key === 'K') toggleMusic()
       if (e.key === 'f' || e.key === 'F') toggleFullscreen()
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        setActivePanel(activePanel === 'none' ? 'environment' : 'none')
+      }
       if (e.key === 'Escape') setActivePanel('none')
       if (e.key === 'F3') {
         e.preventDefault()
@@ -1294,12 +1267,10 @@ export default function Overlay() {
     setActivePanel,
   ])
 
-  // If in Photo Mode, render the specialized photo framing view
   if (photoMode) {
     return <PhotoModeView />
   }
 
-  // If in Zen Mode, hide all HUD elements and show only subtle exit hint
   if (zenMode) {
     return (
       <div
@@ -1315,38 +1286,34 @@ export default function Overlay() {
 
   return (
     <div className="w-full h-full p-4 md:p-6 flex flex-col justify-between pointer-events-none select-none font-sans">
-      {/* ----------------- REGION DISCOVERY BANNER ----------------- */}
       <RegionDiscoveryBanner />
 
-      {/* ----------------- TOP NAVBAR: DECLUTTERED & STREAMLINED ----------------- */}
+      {/* Top Navbar */}
       <div className="flex items-center justify-between w-full pointer-events-auto">
-        {/* Brand Badge */}
-        <div className="backdrop-blur-md bg-[#0d1016]/80 border border-[#262c38] px-4 py-2 rounded-2xl flex items-center gap-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.75)] text-white">
-          <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse"></div>
+        <div className="backdrop-blur-md bg-[#0d1016]/80 border border-[#262c38] px-4 py-2 rounded-2xl flex items-center gap-2.5 shadow-2xl text-white">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#FF9D1E] shadow-[0_0_8px_#FF9D1E] animate-pulse" />
           <div>
             <h1 className="text-sm font-black tracking-widest text-[#FDFBF7] leading-none">
-              CALM ROADS
+              CALM ROADS 3.0
             </h1>
-            <span className="text-[9px] tracking-wider text-[#8EA48C] font-mono font-bold">
-              GT DRIVING • 2.0
+            <span className="text-[9px] tracking-wider text-[#FF9D1E] font-mono font-bold">
+              OPEN-WORLD SIMULATOR
             </span>
           </div>
         </div>
 
-        {/* Streamlined Right Controls: Camera Quick-Toggle & Master Menu */}
-        <div className="flex items-center gap-2.5">
-          {/* Camera Perspective Toggle */}
+        {/* Quick Actions */}
+        <div className="flex items-center gap-2">
           <button
             onClick={cycleCameraPerspective}
-            className="backdrop-blur-md bg-[#0d1016]/80 hover:bg-[#161b24] text-white/85 hover:text-white border border-[#262c38] hover:border-[#8EA48C]/50 px-3.5 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all shadow-lg"
+            className="backdrop-blur-md bg-[#0d1016]/80 hover:bg-[#161b24] text-white/85 hover:text-white border border-[#262c38] px-3.5 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all shadow-lg"
             title="Cycle Camera View [C]"
           >
             <Camera size={15} className="text-[#8EA48C]" />
-            <span className="font-mono">{camLabels[cameraPerspective]}</span>
+            <span className="font-mono">{camLabels[cameraPerspective] || 'Chase'}</span>
             <span className="text-[9px] text-white/40 font-mono">[C]</span>
           </button>
 
-          {/* Master Menu Button */}
           <button
             onClick={() => setActivePanel(activePanel === 'none' ? 'environment' : 'none')}
             className={`backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer transition-all border shadow-lg ${
@@ -1362,19 +1329,12 @@ export default function Overlay() {
         </div>
       </div>
 
-      {/* ----------------- OPTIONAL TOUCH PEDALS ----------------- */}
       {showTouchControls && <TouchPedals />}
-
-      {/* ----------------- REAL-TIME DEV TELEMETRY HUD ----------------- */}
       {showDiagnostics && <DiagnosticsHUD />}
-
-      {/* ----------------- REAL-TIME ENGINE PROFILER HUD ----------------- */}
       {showProfiler && <PerformanceProfiler onClose={() => setShowProfiler(false)} />}
 
-      {/* ----------------- BOTTOM HUD / SPEEDOMETER ----------------- */}
       <SpeedometerHUD />
 
-      {/* ----------------- CONSOLIDATED MASTER MENU MODAL ----------------- */}
       {activePanel !== 'none' && (
         <MasterMenuModal
           activePanel={activePanel}

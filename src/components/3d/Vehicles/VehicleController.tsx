@@ -22,6 +22,7 @@ import {
   getInterpolatedMacroProfile,
 } from '../../../utils/roadMath'
 import { audioSystem } from '../../../utils/audioSystem'
+import { getLandmarkNearZ } from '../../../utils/landmarks'
 
 export interface VehicleConfig {
   name: string
@@ -423,6 +424,10 @@ export default function VehicleController() {
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const headlights = useGameStore((s) => s.headlights)
   const photoMode = useGameStore((s) => s.photoMode)
+  const paintFinish = useGameStore((s) => s.paintFinish)
+  const caliperColor = useGameStore((s) => s.caliperColor)
+  const rimColor = useGameStore((s) => s.rimColor)
+  const spoilerType = useGameStore((s) => s.spoilerType)
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
@@ -450,6 +455,12 @@ export default function VehicleController() {
   const [isReversingVisual, setIsReversingVisual] = useState(false)
   const peakSpeedRef = useRef(0)
   const lastTerrainPitchRef = useRef(0)
+  const prevForwardVelRef = useRef(0)
+  const accumulatedDriftDist = useRef(0)
+  const cleanDriveStreak = useRef(0)
+  const manualRedlineShifts = useRef(0)
+  const lastActualYawRateRef = useRef(0)
+  const lastMaxYawRateRef = useRef(1.0)
 
   // Dynamic Tire Skid Mark Tracking Refs
   const skidQuadCount = useRef(0)
@@ -1075,12 +1086,17 @@ export default function VehicleController() {
             lateralVel.current += -Math.sign(steerAngle) * excessDemand * 0.28 * dt
           }
 
+          lastActualYawRateRef.current = actualYawRate
+          lastMaxYawRateRef.current = maxYawRate
+
           yawAngle.current += actualYawRate * dt
           // Tire lateral scrub damping
           lateralVel.current *= Math.pow(0.72, dt * 60)
         } else {
           // Vehicle is at rest: complete damping of any lateral slide, zero yaw angular velocity
           lateralVel.current = 0
+          lastActualYawRateRef.current = 0
+          lastMaxYawRateRef.current = 1.0
         }
       }
 
@@ -1485,6 +1501,24 @@ export default function VehicleController() {
     if (telemetryCounter.current % 3 === 0) {
       const closestRoad = getClosestRoadPoint(pos.current.x, pos.current.z)
       const groundClearanceMm = Math.round((pos.current.y - groundY) * 1000)
+      const accelMps2 = (forwardVel.current - prevForwardVelRef.current) / Math.max(0.001, frameDelta)
+      prevForwardVelRef.current = forwardVel.current
+      const longG = +(accelMps2 / 9.81).toFixed(2)
+      const latG = +((forwardVel.current * lastActualYawRateRef.current) / 9.81).toFixed(2)
+      const slipAngleRad = Math.atan2(lateralVel.current, Math.max(1.0, Math.abs(forwardVel.current)))
+      const slipAngleDeg = +(slipAngleRad * (180 / Math.PI)).toFixed(1)
+      const gripPct = Math.round(Math.max(0, Math.min(100, (1.0 - Math.min(1.0, Math.abs(lastActualYawRateRef.current) / (lastMaxYawRateRef.current + 0.001))) * 100)))
+
+      const isDrift = !isBurnoutActive && currentSpeedKmh > 24 && Math.abs(slipAngleRad) > 0.12
+      if (isDrift) {
+        accumulatedDriftDist.current += (Math.abs(forwardVel.current) * frameDelta)
+      }
+      if (isSurfaceRoad && currentSpeedKmh > 10) {
+        cleanDriveStreak.current += (Math.abs(forwardVel.current) * frameDelta)
+      } else if (!isSurfaceRoad) {
+        cleanDriveStreak.current = 0
+      }
+
       useTelemetryStore.getState().setTelemetry({
         speed: roundedSpeedKmh,
         peakSpeed: peakSpeedRef.current,
@@ -1513,7 +1547,63 @@ export default function VehicleController() {
         distFromRoad: +closestRoad.dist.toFixed(2),
         isGrounded: isGrounded.current,
         verticalVel: +verticalVel.current.toFixed(2),
+        gForceLateral: latG,
+        gForceLongitudinal: longG,
+        slipAngle: slipAngleDeg,
+        tireGripPercent: gripPct,
+        isDrifting: isDrift,
+        driftDistance: Math.round(accumulatedDriftDist.current),
       })
+
+      // Landmark Discovery & Driving Challenge Detection (every ~15 frames)
+      if (telemetryCounter.current % 15 === 0) {
+        const nearLm = getLandmarkNearZ(pos.current.z)
+        if (nearLm) {
+          const discList = useGameStore.getState().discoveries
+          if (!discList.includes(nearLm.id)) {
+            useGameStore.getState().addDiscovery(nearLm.id)
+            useGameStore.getState().setActiveLandmarkNotification({
+              id: nearLm.id,
+              name: nearLm.name,
+              subtitle: nearLm.subtitle,
+              biome: nearLm.biome,
+            })
+            audioSystem.playDiscoveryChime()
+            setTimeout(() => {
+              useGameStore.getState().setActiveLandmarkNotification(null)
+            }, 5000)
+          }
+        }
+
+        // Check Driving Challenges
+        const store = useGameStore.getState()
+        const completed = store.completedChallenges
+        const triggerChallenge = (id: string, name: string) => {
+          if (!completed.includes(id)) {
+            store.addCompletedChallenge(id)
+            store.setChallengeNotification(`CHALLENGE COMPLETED: ${name}!`)
+            audioSystem.playChallengeFanfare()
+            setTimeout(() => {
+              useGameStore.getState().setChallengeNotification(null)
+            }, 6000)
+          }
+        }
+
+        if (roundedSpeedKmh >= 180) triggerChallenge('alpine_velocity', 'Alpine Velocity')
+        if (accumulatedDistance.current >= 5.0) triggerChallenge('grand_tourer', 'Grand Tourer')
+        if (accumulatedDriftDist.current >= 150) triggerChallenge('master_of_slip', 'Master of Slip')
+        if (cleanDriveStreak.current >= 2000) triggerChallenge('asphalt_purist', 'Asphalt Purist')
+        if (store.discoveries.length >= 4) triggerChallenge('scenic_explorer', 'Scenic Explorer')
+        if (manualRedlineShifts.current >= 5) triggerChallenge('redline_virtuoso', 'Redline Virtuoso')
+
+        store.updateDrivingStats({
+          totalDistanceKm: accumulatedDistance.current,
+          topSpeedKmh: peakSpeedRef.current,
+          totalDriftDistanceM: accumulatedDriftDist.current,
+          cleanAsphaltDistanceM: cleanDriveStreak.current,
+          redlineShiftsCount: manualRedlineShifts.current,
+        })
+      }
       if (telemetryCounter.current % 30 === 0) {
         const macroProfile = getInterpolatedMacroProfile(pos.current.z)
         const macroWeights = getMacroTerrainWeights(pos.current.z)
@@ -1878,6 +1968,11 @@ export default function VehicleController() {
       _tempCamOffset.x += engineVibe * 0.30
 
       followSpeed = 7.5
+    } else if (cameraPerspective === 'close_chase') {
+      const lookAhead = Math.min(18, Math.max(0, forwardVel.current * 0.2))
+      _tempCamOffset.set(0, 1.45, 3.6).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.72, -lookAhead - 2.0).applyQuaternion(carQuat).add(carPos)
+      followSpeed = 10.0
     } else if (cameraPerspective === 'dashboard') {
       _tempCamOffset.set(0, 0.76, 0.12).applyQuaternion(carQuat).add(carPos)
       _tempCamLookAt.set(0, 0.72, -30).applyQuaternion(carQuat).add(carPos)
@@ -1892,6 +1987,12 @@ export default function VehicleController() {
       _tempCamOffset.set(lateralShift, 5.8, 11.5).applyQuaternion(carQuat).add(carPos)
       _tempCamLookAt.set(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
       followSpeed = 3.5
+    } else if (cameraPerspective === 'cinematic') {
+      const orbitAngle = state.clock.getElapsedTime() * 0.35
+      const orbitRadius = 7.5
+      _tempCamOffset.set(Math.sin(orbitAngle) * orbitRadius, 2.4, Math.cos(orbitAngle) * orbitRadius).applyQuaternion(carQuat).add(carPos)
+      _tempCamLookAt.set(0, 0.65, 0).applyQuaternion(carQuat).add(carPos)
+      followSpeed = 4.0
     }
 
     // Snap camera on initialization or perspective toggle to avoid 1-frame jump
@@ -1914,8 +2015,12 @@ export default function VehicleController() {
           <ActiveCarModel
             type={vehicleModel}
             paintColor={paintColor}
+            paintFinish={paintFinish}
             metallic={metallic}
             roughness={roughness}
+            caliperColor={caliperColor}
+            rimColor={rimColor}
+            spoilerType={spoilerType}
             steeringAngle={steeringVisual.current}
             wheelRotation={wheelSpin.current}
             isBraking={isBrakingVisual}
