@@ -68,6 +68,13 @@ interface GameState {
   setTimeOfDay: (t: number) => void
   autoTimeCycle: boolean
   toggleAutoTimeCycle: () => void
+  timeSpeed: number
+  setTimeSpeed: (s: number) => void
+  skipToTime: (t: number) => void
+  skipToSunrise: () => void
+  skipToMidday: () => void
+  skipToSunset: () => void
+  skipToMidnight: () => void
   weather: WeatherType
   setWeather: (w: WeatherType) => void
   cycleWeather: () => void
@@ -119,6 +126,10 @@ interface GameState {
   toggleAutoDrive: () => void
   headlights: boolean
   toggleHeadlights: () => void
+  setHeadlights: (headlights: boolean) => void
+  headlightBeam: 'low' | 'high'
+  toggleHeadlightBeam: () => void
+  setHeadlightBeam: (b: 'low' | 'high') => void
 
   // On-screen / Touch Controls
   virtualThrottle: boolean
@@ -307,10 +318,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Time & Weather
-  timeOfDay: 15.8, // Crisp sunlit late-afternoon golden light with vivid skies & dramatic shadows
+  timeOfDay: loadStoredJson<number>('time_of_day', 15.8),
   setTimeOfDay: (timeOfDay) => set({ timeOfDay }),
   autoTimeCycle: true,
   toggleAutoTimeCycle: () => set((s) => ({ autoTimeCycle: !s.autoTimeCycle })),
+  timeSpeed: 1.0,
+  setTimeSpeed: (timeSpeed) => set({ timeSpeed }),
+  skipToTime: (hours) => set({ timeOfDay: ((hours % 24) + 24) % 24 }),
+  skipToSunrise: () => set({ timeOfDay: 6.3 }),
+  skipToMidday: () => set({ timeOfDay: 12.0 }),
+  skipToSunset: () => set({ timeOfDay: 18.6 }),
+  skipToMidnight: () => set({ timeOfDay: 0.0 }),
   weather: 'clear',
   setWeather: (weather) => set({ weather }),
   cycleWeather: () => {
@@ -390,6 +408,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleAutoDrive: () => set((s) => ({ autoDrive: !s.autoDrive })),
   headlights: true,
   toggleHeadlights: () => set((s) => ({ headlights: !s.headlights })),
+  setHeadlights: (headlights) => set({ headlights }),
+  headlightBeam: 'low',
+  toggleHeadlightBeam: () => set((s) => ({ headlightBeam: s.headlightBeam === 'low' ? 'high' : 'low' })),
+  setHeadlightBeam: (headlightBeam) => set({ headlightBeam }),
 
   // On-screen / Touch Controls
   virtualThrottle: false,
@@ -598,3 +620,8 @@ export const useTelemetryStore = create<TelemetryState>((set) => ({
   driftDistance: 0,
   setTelemetry: (data) => set((s) => ({ ...s, ...data })),
 }))
+
+if (typeof window !== 'undefined') {
+  ;(window as any).__GAME_STORE__ = useGameStore
+  ;(window as any).__TELEMETRY_STORE__ = useTelemetryStore
+}

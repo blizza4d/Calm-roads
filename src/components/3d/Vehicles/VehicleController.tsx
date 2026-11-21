@@ -423,6 +423,7 @@ export default function VehicleController() {
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const headlights = useGameStore((s) => s.headlights)
+  const headlightBeam = useGameStore((s) => s.headlightBeam)
   const photoMode = useGameStore((s) => s.photoMode)
   const paintFinish = useGameStore((s) => s.paintFinish)
   const caliperColor = useGameStore((s) => s.caliperColor)
@@ -2026,6 +2027,7 @@ export default function VehicleController() {
             isBraking={isBrakingVisual}
             isReversing={isReversingVisual}
             headlightsOn={headlights}
+            headlightBeam={headlightBeam}
             isHoverMode={isHoverMode}
             wheelSuspensions={wheelSuspensions.current}
           />

@@ -120,3 +120,7 @@ export const useLoadingStore = create<LoadingState>((set, get) => ({
     }))
   },
 }))
+
+if (typeof window !== 'undefined') {
+  ;(window as any).__LOADING_STORE__ = useLoadingStore
+}

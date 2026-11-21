@@ -20,6 +20,7 @@ interface CarModelProps {
   rimColor?: string
   paintFinish?: string
   spoilerType?: string
+  headlightBeam?: 'low' | 'high'
 }
 
 // Reusable Forward Dual-Beam Headlight Projector (Gentle Road & Shoulder Illumination)
@@ -29,107 +30,106 @@ function HeadlightBeams({
   z,
   color = '#fffbeb',
   intensity = 26,
+  beam = 'low',
 }: {
   x: number
   y: number
   z: number
   color?: string
   intensity?: number
+  beam?: 'low' | 'high'
 }) {
   const timeOfDay = useGameStore((s) => s.timeOfDay)
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
-  // Dynamic shadow casting: Only cast headlight spotlight shadows at night/sunset (hours < 6.5 or > 18.5)
-  // when graphics is High, completely eliminating 2 redundant 512x512 shadow passes during daytime and on medium/low presets.
+  const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const isDark = timeOfDay < 6.5 || timeOfDay > 18.5
-  const shouldCastShadow = graphicsQuality === 'high' && isDark
+  const shouldCastShadow = (graphicsQuality === 'high' || graphicsQuality === 'ultra') && isDark
+
+  const isHighBeam = beam === 'high'
+  const beamDist = isHighBeam ? 160 : 85
+  const beamIntensity = isHighBeam ? intensity * 1.55 : intensity
+  const beamAngle = isHighBeam ? Math.PI / 7 : Math.PI / 6
 
   // Low-beam targets (spread outward to illuminate shoulders and pavement)
   const targetLowL = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(-x * 1.3, y - 0.28, -38)
+    o.position.set(-x * 1.3, y - 0.28, -beamDist * 0.5)
     return o
-  }, [x, y])
+  }, [x, y, beamDist])
 
   const targetLowR = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(x * 1.3, y - 0.28, -38)
+    o.position.set(x * 1.3, y - 0.28, -beamDist * 0.5)
     return o
-  }, [x, y])
+  }, [x, y, beamDist])
 
-  // High-beam targets (focused down the forward horizon)
-  const targetHighL = useMemo(() => {
+  const targetHigh = useMemo(() => {
     const o = new THREE.Object3D()
-    o.position.set(-x * 0.35, y - 0.08, -75)
+    o.position.set(0, y - 0.05, -beamDist)
     return o
-  }, [x, y])
-
-  const targetHighR = useMemo(() => {
-    const o = new THREE.Object3D()
-    o.position.set(x * 0.35, y - 0.08, -75)
-    return o
-  }, [x, y])
+  }, [y, beamDist])
 
   return (
     <>
       <primitive object={targetLowL} />
       <primitive object={targetLowR} />
-      <primitive object={targetHighL} />
-      <primitive object={targetHighR} />
+      {isHighBeam && <primitive object={targetHigh} />}
 
-      {/* 1. Low-Beam Wide Road & Shoulder Spread: penumbra=1.0, decay=2.0, angle=Math.PI / 6 */}
+      {/* Primary Left Low-Beam Projector */}
       <spotLight
         position={[-x, y, z]}
         target={targetLowL}
-        angle={Math.PI / 6}
+        angle={beamAngle}
         penumbra={1.0}
         decay={2.0}
-        distance={75}
-        intensity={intensity}
+        distance={beamDist}
+        intensity={beamIntensity}
         color={color}
         castShadow={shouldCastShadow}
-        shadow-bias={-0.002}
-        shadow-mapSize={[512, 512]}
+        shadow-bias={-0.0015}
+        shadow-mapSize={graphicsQuality === 'ultra' ? [1024, 1024] : [512, 512]}
       />
+
+      {/* Primary Right Low-Beam Projector */}
       <spotLight
         position={[x, y, z]}
         target={targetLowR}
-        angle={Math.PI / 6}
+        angle={beamAngle}
         penumbra={1.0}
         decay={2.0}
-        distance={75}
-        intensity={intensity}
-        color={color}
-        castShadow={shouldCastShadow}
-        shadow-bias={-0.002}
-        shadow-mapSize={[512, 512]}
-      />
-
-      {/* 2. High-Beam Long-Distance Horizon Projector */}
-      <spotLight
-        position={[-x, y, z]}
-        target={targetHighL}
-        angle={Math.PI / 8}
-        penumbra={1.0}
-        decay={2.0}
-        distance={130}
-        intensity={intensity * 1.15}
-        color={color}
-        castShadow={false}
-      />
-      <spotLight
-        position={[x, y, z]}
-        target={targetHighR}
-        angle={Math.PI / 8}
-        penumbra={1.0}
-        decay={2.0}
-        distance={130}
-        intensity={intensity * 1.15}
+        distance={beamDist}
+        intensity={beamIntensity}
         color={color}
         castShadow={false}
       />
 
-      {/* 3. Subtle Forward Near-Field Ground Fill */}
-      <pointLight position={[0, y - 0.1, z - 0.8]} distance={12} intensity={0.25} color={color} />
+      {/* High-Beam Long-Distance Horizon Projector */}
+      {isHighBeam && (
+        <spotLight
+          position={[0, y, z]}
+          target={targetHigh}
+          angle={Math.PI / 10}
+          penumbra={0.8}
+          decay={1.8}
+          distance={beamDist * 1.15}
+          intensity={beamIntensity * 1.2}
+          color={color}
+          castShadow={false}
+        />
+      )}
+
+      {/* Subtle Forward Near-Field Ground Fill */}
+      <pointLight position={[0, y - 0.1, z - 0.8]} distance={14} intensity={0.3} color={color} />
+
+      {/* Cockpit / Dashboard Interior Night Glow */}
+      {isDark && (
+        <pointLight
+          position={[0, y + 0.35, z + 1.2]}
+          distance={2.8}
+          intensity={cameraPerspective === 'dashboard' ? 0.65 : 0.28}
+          color="#38bdf8"
+        />
+      )}
     </>
   )
 }
@@ -331,6 +331,7 @@ export function BmwM3GtrModel({
   isBraking,
   isReversing = false,
   headlightsOn,
+  headlightBeam = 'low',
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
   caliperColor,
@@ -573,7 +574,7 @@ export function BmwM3GtrModel({
       )}
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.65} y={0.58} z={-2.38} color="#fffbeb" intensity={26} />}
+      {headlightsOn && <HeadlightBeams x={0.65} y={0.58} z={-2.38} color="#fffbeb" intensity={26} beam={headlightBeam} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -623,6 +624,7 @@ export function SupercarModel({
   isBraking,
   isReversing = false,
   headlightsOn,
+  headlightBeam = 'low',
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
   rimColor,
@@ -901,7 +903,7 @@ export function SupercarModel({
       )}
 
       {/* Dynamic Headlight Projectors */}
-      {headlightsOn && <HeadlightBeams x={0.68} y={0.54} z={-2.35} color="#fffbeb" intensity={26} />}
+      {headlightsOn && <HeadlightBeams x={0.68} y={0.54} z={-2.35} color="#fffbeb" intensity={26} beam={headlightBeam} />}
 
       {/* Antigravity Repulsor Glow Emitters under Wheel Arches */}
       {isHoverMode && (
@@ -931,6 +933,7 @@ export function CamperVanModel({
   isBraking,
   isReversing = false,
   headlightsOn,
+  headlightBeam = 'low',
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
@@ -1127,7 +1130,7 @@ export function CamperVanModel({
         </>
       )}
 
-      {headlightsOn && <HeadlightBeams x={0.64} y={0.82} z={-2.35} color="#fef3c7" intensity={24} />}
+      {headlightsOn && <HeadlightBeams x={0.64} y={0.82} z={-2.35} color="#fef3c7" intensity={24} beam={headlightBeam} />}
 
       <group position={[-0.92, 0.38 + (wheelSuspensions[0] || 0), -1.3]}>{renderVanWheel(true, true)}</group>
       <group position={[0.92, 0.38 + (wheelSuspensions[1] || 0), -1.3]}>{renderVanWheel(true, false)}</group>
@@ -1146,6 +1149,7 @@ export function HovercraftModel({
   roughness,
   steeringAngle,
   headlightsOn,
+  headlightBeam = 'low',
   wheelSuspensions = [0, 0, 0, 0],
 }: CarModelProps) {
   const hullMat = (
@@ -1272,7 +1276,7 @@ export function HovercraftModel({
         {darkAero}
       </mesh>
 
-      {headlightsOn && <HeadlightBeams x={0.55} y={0.52} z={-2.45} color="#e0f2fe" intensity={26} />}
+      {headlightsOn && <HeadlightBeams x={0.55} y={0.52} z={-2.45} color="#e0f2fe" intensity={26} beam={headlightBeam} />}
     </group>
   )
 }
@@ -1289,6 +1293,7 @@ export function VintageHatchbackModel({
   isBraking,
   isReversing = false,
   headlightsOn,
+  headlightBeam = 'low',
   isHoverMode,
   wheelSuspensions = [0, 0, 0, 0],
   caliperColor,
@@ -1515,7 +1520,7 @@ export function VintageHatchbackModel({
         </>
       )}
 
-      {headlightsOn && <HeadlightBeams x={0.62} y={0.58} z={-2.25} color="#fff" intensity={24} />}
+      {headlightsOn && <HeadlightBeams x={0.62} y={0.58} z={-2.25} color="#fff" intensity={24} beam={headlightBeam} />}
 
       <group position={[-0.86, 0.34 + (wheelSuspensions[0] || 0), -1.15]}>{renderHatchWheel(true, true)}</group>
       <group position={[0.86, 0.34 + (wheelSuspensions[1] || 0), -1.15]}>{renderHatchWheel(true, false)}</group>

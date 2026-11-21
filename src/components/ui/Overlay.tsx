@@ -32,6 +32,7 @@ import {
   Map,
   CheckCircle2,
   Lock,
+  Zap,
 } from 'lucide-react'
 import {
   useGameStore,
@@ -382,6 +383,14 @@ function MasterMenuModal({
   const toggleFullscreen = useGameStore((s) => s.toggleFullscreen)
   const headlights = useGameStore((s) => s.headlights)
   const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
+  const headlightBeam = useGameStore((s) => s.headlightBeam)
+  const toggleHeadlightBeam = useGameStore((s) => s.toggleHeadlightBeam)
+  const timeSpeed = useGameStore((s) => s.timeSpeed)
+  const setTimeSpeed = useGameStore((s) => s.setTimeSpeed)
+  const skipToSunrise = useGameStore((s) => s.skipToSunrise)
+  const skipToMidday = useGameStore((s) => s.skipToMidday)
+  const skipToSunset = useGameStore((s) => s.skipToSunset)
+  const skipToMidnight = useGameStore((s) => s.skipToMidnight)
   const cleanHud = useGameStore((s) => s.cleanHud)
   const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
   const transmissionMode = useGameStore((s) => s.transmissionMode)
@@ -577,6 +586,46 @@ function MasterMenuModal({
                   onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
                   className="w-full accent-amber-500 cursor-pointer h-1.5 bg-white/20 rounded-lg appearance-none"
                 />
+
+                {/* Quick Celestial Time Presets */}
+                <div className="grid grid-cols-4 gap-1.5 mt-3">
+                  {[
+                    { label: 'Sunrise', time: '06:18', action: skipToSunrise, icon: '🌅' },
+                    { label: 'Midday', time: '12:00', action: skipToMidday, icon: '☀️' },
+                    { label: 'Sunset', time: '18:36', action: skipToSunset, icon: '🌇' },
+                    { label: 'Midnight', time: '00:00', action: skipToMidnight, icon: '🌙' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      onClick={preset.action}
+                      className="px-2 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] font-mono flex flex-col items-center gap-0.5 cursor-pointer transition-all"
+                    >
+                      <span className="text-xs">{preset.icon}</span>
+                      <span className="font-bold text-white/90">{preset.label}</span>
+                      <span className="text-[9px] text-white/40">{preset.time}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Time Speed Multiplier */}
+                <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-bold text-white/60">Time Speed</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 5, 10].map((spd) => (
+                      <button
+                        key={spd}
+                        onClick={() => setTimeSpeed(spd)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold cursor-pointer transition-colors ${
+                          timeSpeed === spd
+                            ? 'bg-amber-500 text-black font-black'
+                            : 'bg-white/5 text-white/60 hover:text-white'
+                        }`}
+                      >
+                        {spd}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -1072,6 +1121,22 @@ function MasterMenuModal({
                 </button>
 
                 <button
+                  onClick={toggleHeadlightBeam}
+                  disabled={!headlights}
+                  className={`p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer transition-opacity ${
+                    !headlights ? 'opacity-40 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <Zap size={18} className={headlightBeam === 'high' ? 'text-amber-400' : 'text-blue-300'} />
+                  <div>
+                    <div className="text-xs font-bold">Beam Mode</div>
+                    <div className="text-[10px] text-white/50">
+                      {headlightBeam === 'high' ? 'HIGH BEAM [J]' : 'LOW BEAM [J]'}
+                    </div>
+                  </div>
+                </button>
+
+                <button
                   onClick={toggleCleanHud}
                   className="p-3.5 rounded-2xl border bg-white/5 hover:bg-white/10 border-white/10 flex items-center gap-3 text-left cursor-pointer"
                 >
@@ -1157,7 +1222,8 @@ function MasterMenuModal({
                   { k: 'M', d: 'Toggle Auto / Manual Transmission' },
                   { k: 'N', d: 'Toggle Neutral Gear (Free-Rev)' },
                   { k: 'C', d: 'Cycle Cameras (Chase, Close, Cockpit, Bumper, Drone, Cinematic)' },
-                  { k: 'L', d: 'Toggle Headlight Beams' },
+                  { k: 'L', d: 'Toggle Headlight On / Off' },
+                  { k: 'J', d: 'Toggle Headlight High / Low Beam' },
                   { k: 'U', d: 'Clean Minimal HUD' },
                   { k: 'P', d: 'Photo Studio 3.0' },
                   { k: 'Z', d: 'Zen Mode' },
@@ -1203,6 +1269,7 @@ export default function Overlay() {
   const toggleMusic = useGameStore((s) => s.toggleMusic)
   const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
   const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
+  const toggleHeadlightBeam = useGameStore((s) => s.toggleHeadlightBeam)
   const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
   const showDiagnostics = useGameStore((s) => s.showDiagnostics)
   const toggleDiagnostics = useGameStore((s) => s.toggleDiagnostics)
@@ -1231,6 +1298,7 @@ export default function Overlay() {
       if (e.key === 'z' || e.key === 'Z') toggleZenMode()
       if (e.key === 'm' || e.key === 'M') toggleTransmissionMode()
       if (e.key === 'l' || e.key === 'L') toggleHeadlights()
+      if (e.key === 'j' || e.key === 'J') toggleHeadlightBeam()
       if (e.key === 'u' || e.key === 'U') toggleCleanHud()
       if (e.key === 'k' || e.key === 'K') toggleMusic()
       if (e.key === 'f' || e.key === 'F') toggleFullscreen()
@@ -1260,6 +1328,7 @@ export default function Overlay() {
     toggleZenMode,
     toggleTransmissionMode,
     toggleHeadlights,
+    toggleHeadlightBeam,
     toggleCleanHud,
     toggleMusic,
     toggleFullscreen,

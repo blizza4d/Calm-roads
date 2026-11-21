@@ -435,10 +435,10 @@ export const BIOMES: Record<BiomeType, BiomeConfig> = {
     shoulderColor: '#a15c15',
     treeFoliageColor: '#15803d', // Saguaro & scrub
     treeTrunkColor: '#78350f',
-    skyHemiSky: '#fef3c7',
+    skyHemiSky: '#0284c7', // Deep vivid desert sky
     skyHemiGround: '#8c5930',
-    fogColor: '#edd8aa',
-    fogDensity: 0.00055,
+    fogColor: '#fed7aa',
+    fogDensity: 0.00032,
     hillHeightMultiplier: 1.15,
     roughness: 0.96,
     friction: 0.97,

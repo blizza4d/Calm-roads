@@ -203,6 +203,10 @@ export default function HUD() {
   const toggleTransmissionMode = useGameStore((s) => s.toggleTransmissionMode)
   const cleanHud = useGameStore((s) => s.cleanHud)
   const toggleCleanHud = useGameStore((s) => s.toggleCleanHud)
+  const headlights = useGameStore((s) => s.headlights)
+  const toggleHeadlights = useGameStore((s) => s.toggleHeadlights)
+  const headlightBeam = useGameStore((s) => s.headlightBeam)
+  const toggleHeadlightBeam = useGameStore((s) => s.toggleHeadlightBeam)
   const vehicleModel = useGameStore((s) => s.vehicleModel)
   const isHoverMode = useGameStore((s) => s.isHoverMode)
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
@@ -478,6 +482,19 @@ export default function HUD() {
             </button>
           </div>
           <button
+            onClick={headlights ? toggleHeadlightBeam : toggleHeadlights}
+            className={`text-[8px] font-mono border px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
+              headlights
+                ? headlightBeam === 'high'
+                  ? 'border-blue-400 text-blue-300'
+                  : 'border-amber-400 text-amber-300'
+                : 'border-white/10 text-[#FDFBF7]/40'
+            }`}
+            title={headlights ? 'Toggle Beam [J]' : 'Turn Headlights On [L]'}
+          >
+            {headlights ? (headlightBeam === 'high' ? 'HI [J]' : 'LO [J]') : 'OFF [L]'}
+          </button>
+          <button
             onClick={toggleCleanHud}
             className="text-[8px] font-mono text-[#FDFBF7]/50 hover:text-[#FF9D1E] border border-white/10 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
             title="Expand Full GT Cockpit [U]"
@@ -491,8 +508,23 @@ export default function HUD() {
 
   return (
     <div className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 pointer-events-auto select-none z-20 flex flex-col items-end gap-1.5">
-      {/* Compact Top Telemetry Strip: Peak Speed & Clean HUD Toggle */}
+      {/* Compact Top Telemetry Strip: Headlights Beam, Peak Speed & Clean HUD Toggle */}
       <div className="flex items-center gap-2 pr-1">
+        <button
+          onClick={headlights ? toggleHeadlightBeam : toggleHeadlights}
+          className={`backdrop-blur-md bg-[#0d1016]/80 hover:bg-[#161b24] border rounded-md px-2 py-0.5 text-[7.5px] font-mono transition-all cursor-pointer flex items-center gap-1 ${
+            headlights
+              ? headlightBeam === 'high'
+                ? 'border-blue-400 text-blue-300 shadow-[0_0_8px_rgba(96,165,250,0.5)]'
+                : 'border-amber-400 text-amber-300'
+              : 'border-[#262c38] text-[#FDFBF7]/40 hover:text-[#FDFBF7]'
+          }`}
+          title={headlights ? `Toggle High/Low Beam [J] (Currently ${headlightBeam.toUpperCase()})` : 'Turn Headlights On [L]'}
+        >
+          <span>{headlights ? (headlightBeam === 'high' ? 'BEAM: HIGH' : 'BEAM: LOW') : 'LIGHTS: OFF'}</span>
+          <span className="text-[6.5px] opacity-60">[{headlights ? 'J' : 'L'}]</span>
+        </button>
+
         <div className="backdrop-blur-md bg-[#0d1016]/80 border border-[#262c38] rounded-md px-2.5 py-0.5 flex items-center gap-1.5 shadow-lg">
           <span className="text-[7.5px] font-special-elite text-[#FDFBF7]/45 tracking-widest uppercase">PEAK</span>
           <span ref={peakSpeedRef} className="text-[10px] font-courier font-black text-[#FF9D1E]">
