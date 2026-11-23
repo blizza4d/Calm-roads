@@ -20,6 +20,8 @@ import {
   getMacroTerrainWeights,
   getMacroNoise,
   getInterpolatedMacroProfile,
+  isInsideTunnel,
+  getScenicRouteAt,
 } from '../../../utils/roadMath'
 import { audioSystem } from '../../../utils/audioSystem'
 import { getLandmarkNearZ } from '../../../utils/landmarks'
@@ -429,6 +431,7 @@ export default function VehicleController() {
   const caliperColor = useGameStore((s) => s.caliperColor)
   const rimColor = useGameStore((s) => s.rimColor)
   const spoilerType = useGameStore((s) => s.spoilerType)
+  const weather = useGameStore((s) => s.weather)
 
   const config = VEHICLE_CONFIGS[vehicleModel] || VEHICLE_CONFIGS.bmw_m3
 
@@ -1489,6 +1492,9 @@ export default function VehicleController() {
       lateralSlip: isBurnoutActive ? 1.0 : lateralSlip,
       isBurnout: isBurnoutActive,
       drivenWheelSpeed: isBurnoutActive ? config.redlineRpm * 0.85 : (currentSpeedKmh / 3.6) / 0.33,
+      isInsideTunnel: isInsideTunnel(pos.current.z),
+      biome: activeBiomeConfig.id,
+      weather,
     })
 
     // Track session peak speed record (km/h)
@@ -1574,6 +1580,12 @@ export default function VehicleController() {
               useGameStore.getState().setActiveLandmarkNotification(null)
             }, 5000)
           }
+        }
+
+        // Active Scenic Route Exploration Detection
+        const activeRoute = getScenicRouteAt(pos.current.z)
+        if (activeRoute && useGameStore.getState().activeScenicRoute?.id !== activeRoute.id) {
+          useGameStore.getState().setActiveScenicRoute(activeRoute.id, activeRoute.name, activeRoute.subtitle)
         }
 
         // Check Driving Challenges
@@ -1714,13 +1726,23 @@ export default function VehicleController() {
             -forwardVel.current * 0.18 + (Math.random() - 0.5) * 0.6
           )
         } else if (!onRoad) {
-          bestP.maxLife = 0.9
-          bestP.size = 1.1
+          bestP.maxLife = 0.95
+          bestP.size = 1.35
           bestP.color.set(activeBiomeConfig.id === 'desert' ? '#d4a373' : '#8d7b68')
           bestP.vel.set(
-            (Math.random() - 0.5) * 1.2,
-            Math.random() * 0.9 + 0.3,
-            -forwardVel.current * 0.16 + (Math.random() - 0.5) * 0.6
+            (Math.random() - 0.5) * 1.6,
+            Math.random() * 1.2 + 0.45,
+            -forwardVel.current * 0.22 + (Math.random() - 0.5) * 0.8
+          )
+        } else if ((weather === 'rain' || weather === 'mist') && Math.abs(forwardVel.current) > 4.5) {
+          // Dynamic Wet Road Tire Spray Plume
+          bestP.maxLife = 0.80
+          bestP.size = 1.25
+          bestP.color.set('#cbd5e1')
+          bestP.vel.set(
+            (Math.random() - 0.5) * 1.5,
+            Math.random() * 1.2 + 0.5,
+            -forwardVel.current * 0.28 + (Math.random() - 0.5) * 0.7
           )
         } else {
           bestP.maxLife = 0.7
@@ -1989,11 +2011,30 @@ export default function VehicleController() {
       _tempCamLookAt.set(0, 0.8, -4).applyQuaternion(carQuat).add(carPos)
       followSpeed = 3.5
     } else if (cameraPerspective === 'cinematic') {
-      const orbitAngle = state.clock.getElapsedTime() * 0.35
-      const orbitRadius = 7.5
-      _tempCamOffset.set(Math.sin(orbitAngle) * orbitRadius, 2.4, Math.cos(orbitAngle) * orbitRadius).applyQuaternion(carQuat).add(carPos)
-      _tempCamLookAt.set(0, 0.65, 0).applyQuaternion(carQuat).add(carPos)
-      followSpeed = 4.0
+      const absSpeed = Math.abs(forwardVel.current)
+      if (absSpeed < 1.2) {
+        // Slow cinematic showcase orbit when stopped or parked
+        const orbitAngle = state.clock.getElapsedTime() * 0.28
+        const orbitRadius = 6.2
+        _tempCamOffset.set(Math.sin(orbitAngle) * orbitRadius, 1.85, Math.cos(orbitAngle) * orbitRadius).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(0, 0.75, 0).applyQuaternion(carQuat).add(carPos)
+        followSpeed = 3.5
+      } else {
+        // Intelligent dynamic cinematic driving camera:
+        // Adjusts distance with velocity, frames through road curvature, and frames descents
+        const speedNorm = Math.min(1.0, absSpeed / 48.0)
+        const camDistance = 5.4 + speedNorm * 3.6
+        const curveOffset = Math.max(-2.5, Math.min(2.5, lateralVel.current * 0.35 + (currentSteerAngle.current * 3.2)))
+        const lookAheadDist = 12.0 + speedNorm * 22.0
+
+        // Elevation grade compensation: lift camera slightly during steep downhill descents for panoramic vista
+        const roadPitchLift = Math.max(0.0, -bodyPitch.current * 4.5)
+        const camHeight = 1.75 + roadPitchLift * 0.85
+
+        _tempCamOffset.set(curveOffset, camHeight, camDistance).applyQuaternion(carQuat).add(carPos)
+        _tempCamLookAt.set(-curveOffset * 0.8, 0.78, -lookAheadDist).applyQuaternion(carQuat).add(carPos)
+        followSpeed = 6.5 + speedNorm * 4.5
+      }
     }
 
     // Snap camera on initialization or perspective toggle to avoid 1-frame jump

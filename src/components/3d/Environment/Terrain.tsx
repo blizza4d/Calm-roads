@@ -4,6 +4,10 @@ import * as THREE from 'three'
 import { useGameStore, useTelemetryStore, GraphicsQualityType } from '../../../store/useGameStore'
 import { HighwaySigns } from './HighwaySigns'
 import { Landmarks3D } from './Landmarks3D'
+import { Bridges3D } from './Bridges3D'
+import { Tunnels3D } from './Tunnels3D'
+import { MicrodetailScenery } from './MicrodetailScenery'
+import { applyAtmosphericMaterialExtension } from '../../../utils/atmosphericShader'
 import {
   getRoadCenter,
   getRoadElevation,
@@ -361,9 +365,12 @@ const AUTUMN_CANOPY_PALETTE = [
 ]
 
 // ------------------------------------------------------------------------
-// Module-level Shared Triplanar Shader & Biome Materials Cache
-// Eliminates 240+ redundant WebGL materials and maximizes Three.js state sorting
+// Module-level Shared Triplanar Shader, Wind Uniforms & Biome Materials Cache
 // ------------------------------------------------------------------------
+const sharedFoliageUniforms = {
+  uTime: { value: 0 },
+}
+
 function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
   shader.vertexShader = shader.vertexShader.replace(
     '#include <common>',
@@ -391,7 +398,24 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
      float bSum = triWeight.x + triWeight.y + triWeight.z;
      triWeight /= bSum;
 
-     // Continuous per-pixel altitude-based alpine snow blending on mountain peaks
+     // 1. Slope-dependent exposed rock crags with sedimentary striated layering
+     float slope = vCustomWorldNorm.y;
+     if (slope < 0.72) {
+       float rockBlend = smoothstep(0.72, 0.40, slope);
+       float striation = sin(vCustomWorldPos.y * 1.8 + vCustomWorldPos.x * 0.08) * 0.05;
+       vec3 rockTint = vec3(0.24, 0.28, 0.34) + striation;
+       diffuseColor.rgb = mix(diffuseColor.rgb, rockTint, rockBlend * 0.85);
+       roughnessFactor = mix(roughnessFactor, 0.94, rockBlend * 0.85);
+     }
+
+     // 2. Low-elevation valley moisture and rich fertile forest floor
+     if (vCustomWorldPos.y < 14.0) {
+       float valleyMoist = smoothstep(14.0, 4.0, vCustomWorldPos.y);
+       vec3 soilTint = vec3(0.18, 0.16, 0.12);
+       diffuseColor.rgb = mix(diffuseColor.rgb, soilTint, valleyMoist * 0.35);
+     }
+
+     // 3. Continuous per-pixel altitude-based alpine snow blending on mountain peaks
      float snowLine = 48.0;
      float snowCeiling = 82.0;
      float altT = clamp((vCustomWorldPos.y - snowLine) / (snowCeiling - snowLine), 0.0, 1.0);
@@ -402,6 +426,52 @@ function onTerrainMaterialCompile(shader: THREE.WebGLProgramParametersWithUnifor
      diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnow, finalSnow * 0.82);
      roughnessFactor = mix(roughnessFactor, 0.58, finalSnow * 0.82);`
   )
+  applyAtmosphericMaterialExtension(shader)
+}
+
+function onFoliageMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
+  shader.uniforms.uTime = sharedFoliageUniforms.uTime
+
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+     uniform float uTime;`
+  )
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+     float folY = max(0.0, position.y);
+     float wPhase = uTime * 2.2 + position.x * 0.35 + position.z * 0.28;
+     float sway = sin(wPhase) * cos(wPhase * 0.65) * (folY * 0.038);
+     transformed.x += sway * 0.85;
+     transformed.z += sway * 0.52;`
+  )
+  applyAtmosphericMaterialExtension(shader)
+}
+
+function onRoadMaterialCompile(shader: THREE.WebGLProgramParametersWithUniforms) {
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+     varying vec3 vRoadWorldPos;`
+  )
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <worldpos_vertex>',
+    `#include <worldpos_vertex>
+     vRoadWorldPos = worldPosition.xyz;`
+  )
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <common>',
+    `#include <common>
+     varying vec3 vRoadWorldPos;`
+  )
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <roughnessmap_fragment>',
+    `#include <roughnessmap_fragment>
+     float asphaltNoise = sin(vRoadWorldPos.x * 4.0) * sin(vRoadWorldPos.z * 4.0) * 0.04;
+     diffuseColor.rgb += asphaltNoise;`
+  )
+  applyAtmosphericMaterialExtension(shader)
 }
 
 interface BiomeMaterials {
@@ -452,6 +522,7 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   })
+  roadMat.onBeforeCompile = onRoadMaterialCompile
 
   const shoulderMat = new THREE.MeshStandardMaterial({
     color: biomeConfig.shoulderColor,
@@ -511,6 +582,11 @@ function getBiomeMaterials(biomeConfig: BiomeConfig, isRaining: boolean): BiomeM
     depthWrite: true,
     side: THREE.DoubleSide,
   })
+
+  pineCanopyMat.onBeforeCompile = onFoliageMaterialCompile
+  broadleafCanopyMat.onBeforeCompile = onFoliageMaterialCompile
+  shrubMat.onBeforeCompile = onFoliageMaterialCompile
+  grassMat.onBeforeCompile = onFoliageMaterialCompile
 
   const mats: BiomeMaterials = {
     terrainMat,
@@ -1984,6 +2060,15 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 
       {/* 12 Signature Discoverable Environmental Landmarks */}
       <Landmarks3D chunkZ={chunkZ} />
+
+      {/* Procedural Highway Bridges, Viaducts & Overpasses */}
+      <Bridges3D chunkZ={chunkZ} />
+
+      {/* Mountain Tunnels, Vaulted Ceilings & Overhead Sodium Lamps */}
+      <Tunnels3D chunkZ={chunkZ} />
+
+      {/* Procedural Environmental Microdetails (Pebbles, Branches, Wildflowers) */}
+      <MicrodetailScenery chunkZ={chunkZ} biomeId={biomeConfig.id} graphicsQuality={graphicsQuality} />
     </group>
   )
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)
@@ -2017,7 +2102,8 @@ export default function Terrain() {
   slotsRef.current = chunkSlots
   const lastCamZ = useRef<number>(camera.position.z)
 
-  useFrame(() => {
+  useFrame((state) => {
+    sharedFoliageUniforms.uTime.value = state.clock.getElapsedTime()
     const camZ = camera.position.z
 
     // 1. Detect Vehicle Reset or Teleport (camZ jump > 150m)

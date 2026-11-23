@@ -45,6 +45,13 @@ export interface EnvironmentalLightingState {
   dashboardGlowIntensity: number
   headlightsRecommended: boolean
   roadWetness: number
+  puddleCoverage: number
+  windSpeed: number
+  windDirection: [number, number]
+  windGustFactor: number
+  heightFogBase: number
+  heightFogFalloff: number
+  lightningFlash: number
 }
 
 // Scratch reusable Color and Vector3 instances to prevent per-frame garbage collections
@@ -321,7 +328,34 @@ export function calculateEnvironmentalLighting(
   const dashboardGlowIntensity = isNight ? 1.0 : t < 6.8 || t > 18.2 ? 0.65 : 0.0
   const headlightsRecommended = isNight || t < 6.5 || t > 18.5 || weather === 'rain' || weather === 'mist'
 
-  // 11. Reflection Environment Map Preset
+  // 11. Environmental Wind & Atmospheric Elevation Fog
+  let windSpeed = 3.8
+  if (biomeId === 'coastal') windSpeed = 6.2
+  else if (biomeId === 'twisted_mountains') windSpeed = 5.4
+  else if (biomeId === 'desert') windSpeed = 4.6
+  if (weather === 'rain') windSpeed += 3.5
+
+  const windDirAngle = 0.62 // Radians (~35 degrees)
+  const windDirection: [number, number] = [Math.cos(windDirAngle), Math.sin(windDirAngle)]
+  const windGustFactor = weather === 'rain' ? 0.65 : 0.25
+
+  let heightFogBase = 6.0
+  let heightFogFalloff = 0.026
+  if (weather === 'mist') {
+    heightFogBase = 12.0
+    heightFogFalloff = 0.016
+  } else if (biomeId === 'twisted_mountains' || biomeId === 'alpine') {
+    heightFogBase = 10.0
+    heightFogFalloff = 0.034
+  } else if (biomeId === 'desert') {
+    heightFogBase = 4.0
+    heightFogFalloff = 0.018 // Warm desert haze across elevations
+  }
+
+  const puddleCoverage = weather === 'rain' ? 0.65 : weather === 'mist' ? 0.15 : weather === 'snow' ? 0.20 : 0.0
+  const lightningFlash = 0.0
+
+  // 12. Reflection Environment Map Preset
   let reflectionPreset: 'forest' | 'sunset' | 'dawn' | 'night' | 'park' = 'forest'
   if (isNight) {
     reflectionPreset = 'night'
@@ -376,5 +410,12 @@ export function calculateEnvironmentalLighting(
     dashboardGlowIntensity,
     headlightsRecommended,
     roadWetness,
+    puddleCoverage,
+    windSpeed,
+    windDirection,
+    windGustFactor,
+    heightFogBase,
+    heightFogFalloff,
+    lightningFlash,
   }
 }

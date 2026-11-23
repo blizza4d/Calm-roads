@@ -43,7 +43,7 @@ import {
   GraphicsQualityType,
 } from '../../store/useGameStore'
 import { audioSystem, LOFI_PLAYLIST } from '../../utils/audioSystem'
-import { BIOMES } from '../../utils/roadMath'
+import { BIOMES, SCENIC_ROUTES } from '../../utils/roadMath'
 import { WORLD_LANDMARKS } from '../../utils/landmarks'
 import { DRIVING_CHALLENGES } from '../../utils/challenges'
 
@@ -130,6 +130,7 @@ function RegionDiscoveryBanner() {
   const currentResolvedBiome = useGameStore((s) => s.currentResolvedBiome)
   const activeLandmarkNotification = useGameStore((s) => s.activeLandmarkNotification)
   const challengeNotification = useGameStore((s) => s.challengeNotification)
+  const scenicRouteNotification = useGameStore((s) => s.scenicRouteNotification)
   const [visible, setVisible] = useState(false)
   const [activeBiome, setActiveBiome] = useState(currentResolvedBiome)
 
@@ -162,7 +163,23 @@ function RegionDiscoveryBanner() {
         </div>
       )}
 
-      {/* 2. Challenge Completed Toast */}
+      {/* 2. Scenic Route Entered Toast */}
+      {scenicRouteNotification && !activeLandmarkNotification && !challengeNotification && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500 backdrop-blur-xl bg-gradient-to-r from-sky-950/90 via-black/95 to-sky-950/90 border border-sky-400 px-6 py-3 rounded-2xl shadow-[0_0_35px_rgba(56,189,248,0.55)] flex items-center gap-3.5 max-w-lg text-white">
+          <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400 flex items-center justify-center text-sky-400">
+            <Compass size={20} className="animate-spin-slow" />
+          </div>
+          <div>
+            <div className="text-[9px] font-mono text-sky-400 tracking-widest font-black uppercase">
+              ★ SCENIC BYWAY ENTERED ★
+            </div>
+            <div className="text-sm font-black text-white tracking-wide">{scenicRouteNotification.name}</div>
+            <div className="text-[10px] text-white/60 font-mono">{scenicRouteNotification.subtitle}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Challenge Completed Toast */}
       {challengeNotification && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-500 backdrop-blur-xl bg-gradient-to-r from-emerald-950/90 via-black/95 to-emerald-950/90 border border-emerald-400 px-6 py-3 rounded-2xl shadow-[0_0_35px_rgba(16,185,129,0.55)] flex items-center gap-3.5 max-w-lg text-white">
           <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400">
@@ -177,8 +194,8 @@ function RegionDiscoveryBanner() {
         </div>
       )}
 
-      {/* 3. Standard Biome Entry Toast */}
-      {visible && !activeLandmarkNotification && !challengeNotification && (
+      {/* 4. Standard Biome Entry Toast */}
+      {visible && !activeLandmarkNotification && !challengeNotification && !scenicRouteNotification && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-500 backdrop-blur-md bg-black/60 border border-white/10 px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 text-white">
           <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
           <div>
@@ -373,6 +390,8 @@ function MasterMenuModal({
   const discoveries = useGameStore((s) => s.discoveries)
   const completedChallenges = useGameStore((s) => s.completedChallenges)
   const drivingStats = useGameStore((s) => s.drivingStats)
+  const discoveredScenicRoutes = useGameStore((s) => s.discoveredScenicRoutes)
+  const activeScenicRoute = useGameStore((s) => s.activeScenicRoute)
 
   // Settings
   const speedUnit = useGameStore((s) => s.speedUnit)
@@ -801,50 +820,147 @@ function MasterMenuModal({
 
           {/* TAB 3: SCENIC DISCOVERIES JOURNAL */}
           {activePanel === 'discoveries' && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-center p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                <div className="flex items-center gap-2">
-                  <Compass size={18} />
-                  <span className="text-xs font-bold uppercase tracking-wider">
-                    Scenic Landmarks Discovered: {discoveries.length} / {WORLD_LANDMARKS.length}
+            <div className="space-y-4">
+              {/* Overall Explorer Stats Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+                  <span className="text-[10px] text-white/50 uppercase tracking-widest font-mono block">Odometer</span>
+                  <span className="text-base font-black text-amber-400 font-mono">
+                    {drivingStats.totalDistanceKm.toFixed(1)} <span className="text-xs text-white/60">km</span>
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold">
-                  {Math.round((discoveries.length / WORLD_LANDMARKS.length) * 100)}% EXPLORED
-                </span>
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+                  <span className="text-[10px] text-white/50 uppercase tracking-widest font-mono block">Top Velocity</span>
+                  <span className="text-base font-black text-emerald-400 font-mono">
+                    {drivingStats.topSpeedKmh.toFixed(0)} <span className="text-xs text-white/60">km/h</span>
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+                  <span className="text-[10px] text-white/50 uppercase tracking-widest font-mono block">Drift Traveled</span>
+                  <span className="text-base font-black text-blue-400 font-mono">
+                    {drivingStats.totalDriftDistanceM.toFixed(0)} <span className="text-xs text-white/60">m</span>
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+                  <span className="text-[10px] text-white/50 uppercase tracking-widest font-mono block">Clean Asphalt</span>
+                  <span className="text-base font-black text-purple-400 font-mono">
+                    {drivingStats.cleanAsphaltDistanceM.toFixed(0)} <span className="text-xs text-white/60">m</span>
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {WORLD_LANDMARKS.map((lm) => {
-                  const isFound = discoveries.includes(lm.id)
-                  return (
-                    <div
-                      key={lm.id}
-                      className={`p-3.5 rounded-2xl border transition-all ${
-                        isFound
-                          ? 'bg-neutral-800/80 border-amber-500/50 text-white'
-                          : 'bg-white/5 border-white/5 opacity-55 text-white/60'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-1">
-                        <div className="flex items-center gap-2">
-                          {isFound ? (
-                            <CheckCircle2 size={16} className="text-emerald-400" />
+              {/* SECTION A: SCENIC ROUTES EXPEDITION */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center p-3 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-300">
+                  <div className="flex items-center gap-2">
+                    <Map size={18} />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Scenic Routes Mapped: {discoveredScenicRoutes.length} / {SCENIC_ROUTES.length}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono font-bold">
+                    {Math.round((discoveredScenicRoutes.length / SCENIC_ROUTES.length) * 100)}% MAPPED
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {SCENIC_ROUTES.map((sr) => {
+                    const isFound = discoveredScenicRoutes.includes(sr.id)
+                    const isCurrent = activeScenicRoute?.id === sr.id
+                    return (
+                      <div
+                        key={sr.id}
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          isCurrent
+                            ? 'bg-blue-950/40 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-white'
+                            : isFound
+                            ? 'bg-neutral-800/80 border-blue-500/40 text-white'
+                            : 'bg-white/5 border-white/5 opacity-55 text-white/60'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="flex items-center gap-2">
+                            {isFound ? (
+                              <CheckCircle2 size={16} className={isCurrent ? 'text-amber-400 animate-pulse' : 'text-blue-400'} />
+                            ) : (
+                              <Lock size={15} className="text-white/40" />
+                            )}
+                            <div>
+                              <span className="text-xs font-bold text-white block">
+                                {isFound ? sr.name : 'Undiscovered Route'}
+                              </span>
+                              {isFound && (
+                                <span className="text-[10px] text-blue-300/80 block">{sr.subtitle}</span>
+                              )}
+                            </div>
+                          </div>
+                          {isCurrent ? (
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-blue-500 text-black font-black uppercase">
+                              Active
+                            </span>
                           ) : (
-                            <Lock size={15} className="text-white/40" />
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-blue-300 capitalize">
+                              {sr.biome.replace('_', ' ')}
+                            </span>
                           )}
-                          <span className="text-xs font-bold text-white">{isFound ? lm.name : 'Unknown Landmark'}</span>
                         </div>
-                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-amber-300">
-                          {isFound ? `Z: ${lm.targetZ}m` : lm.biome.replace('_', ' ')}
-                        </span>
+                        <p className="text-[11px] text-white/60 leading-tight mt-1">
+                          {isFound
+                            ? `Route Length: ${sr.endDist - sr.startDist}m • Biome: ${sr.biome.replace('_', ' ')} (Dist: ${sr.startDist}m - ${sr.endDist}m)`
+                            : `Chart the highway between ${sr.startDist}m and ${sr.endDist}m to survey this route.`}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-white/60 leading-tight">
-                        {isFound ? lm.description : `Drive through ${lm.biome.replace('_', ' ')} to discover this landmark.`}
-                      </p>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION B: SCENIC LANDMARKS */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                  <div className="flex items-center gap-2">
+                    <Compass size={18} />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      World Landmarks Discovered: {discoveries.length} / {WORLD_LANDMARKS.length}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono font-bold">
+                    {Math.round((discoveries.length / WORLD_LANDMARKS.length) * 100)}% DISCOVERED
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {WORLD_LANDMARKS.map((lm) => {
+                    const isFound = discoveries.includes(lm.id)
+                    return (
+                      <div
+                        key={lm.id}
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          isFound
+                            ? 'bg-neutral-800/80 border-amber-500/50 text-white'
+                            : 'bg-white/5 border-white/5 opacity-55 text-white/60'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="flex items-center gap-2">
+                            {isFound ? (
+                              <CheckCircle2 size={16} className="text-emerald-400" />
+                            ) : (
+                              <Lock size={15} className="text-white/40" />
+                            )}
+                            <span className="text-xs font-bold text-white">{isFound ? lm.name : 'Unknown Landmark'}</span>
+                          </div>
+                          <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/10 text-amber-300">
+                            {isFound ? `Z: ${lm.targetZ}m` : lm.biome.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/60 leading-tight">
+                          {isFound ? lm.description : `Drive through ${lm.biome.replace('_', ' ')} to discover this landmark.`}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           )}

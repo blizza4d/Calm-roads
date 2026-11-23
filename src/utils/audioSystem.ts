@@ -48,6 +48,9 @@ export interface VehicleAudioTelemetry {
   lateralSlip?: number
   isBurnout?: boolean
   drivenWheelSpeed?: number
+  isInsideTunnel?: boolean
+  biome?: string
+  weather?: string
 }
 
 export type EngineAudioState = 'idle' | 'low_rpm' | 'mid_rpm' | 'high_rpm' | 'off_throttle'
@@ -368,6 +371,17 @@ export class RealisticVehicleAudioEngine {
   private gearWhineOsc: OscillatorNode | null = null
   private gearWhineGain: GainNode | null = null
   private gearWhineFilter: BiquadFilterNode | null = null
+
+  // Tunnel Reverb Slapback Echo & Enclosed Acoustic Resonance
+  private tunnelDelay: DelayNode | null = null
+  private tunnelFilter: BiquadFilterNode | null = null
+  private tunnelReverbGain: GainNode | null = null
+
+  // Biome-Specific Spatial Ambient Audio Layers
+  private ambientOceanGain: GainNode | null = null
+  private ambientOceanFilter: BiquadFilterNode | null = null
+  private ambientWindAmbGain: GainNode | null = null
+  private ambientRainGain: GainNode | null = null
 
   // Lo-Fi Synth Chord progressions
   private chordProgressions = [
@@ -1106,6 +1120,9 @@ export class RealisticVehicleAudioEngine {
       lateralSlip = 0,
       isBurnout = false,
       drivenWheelSpeed = 0,
+      isInsideTunnel = false,
+      biome = 'forest',
+      weather = 'clear',
     } = params
 
     // Dynamic vehicle switching check
@@ -1198,13 +1215,34 @@ export class RealisticVehicleAudioEngine {
       }
     }
 
-    // 5. Aerodynamic High-Speed Wind Rush mapped directly to vehicle speed
+    // 5. Aerodynamic High-Speed Wind Rush mapped directly to vehicle speed (ducked inside tunnels)
     if (this.windRushGain && this.windRushFilter) {
       const speedNorm = Math.min(1.2, speedKmh / 240)
-      const targetWindGain = Math.pow(speedNorm, 1.4) * 0.38
+      let targetWindGain = Math.pow(speedNorm, 1.4) * 0.38
+      if (isInsideTunnel) targetWindGain *= 0.22
       this.windRushGain.gain.setTargetAtTime(Math.max(0.0001, targetWindGain), now, 0.05)
       const windFreq = 280 + speedNorm * 1500
       this.windRushFilter.frequency.setTargetAtTime(windFreq, now, 0.05)
+    }
+
+    // 5b. Tunnel Acoustic Reverberation
+    if (this.tunnelReverbGain) {
+      const targetTunnelGain = isInsideTunnel ? 0.65 : 0.0001
+      this.tunnelReverbGain.gain.setTargetAtTime(targetTunnelGain, now, isInsideTunnel ? 0.08 : 0.18)
+    }
+
+    // 5c. Biome & Weather Environmental Ambience Layers
+    if (this.ambientOceanGain) {
+      const isCoast = biome === 'coastal'
+      this.ambientOceanGain.gain.setTargetAtTime(isCoast ? 0.22 : 0.0001, now, 0.35)
+    }
+    if (this.ambientWindAmbGain) {
+      const isMtn = biome === 'twisted_mountains' || biome === 'alpine' || biome === 'desert'
+      this.ambientWindAmbGain.gain.setTargetAtTime(isMtn ? 0.16 : 0.0001, now, 0.35)
+    }
+    if (this.ambientRainGain) {
+      const isRain = weather === 'rain'
+      this.ambientRainGain.gain.setTargetAtTime(isRain ? 0.28 : 0.0001, now, 0.25)
     }
 
     // 6. Chase Camera Stereo Drift Panning: shifts slightly as car drifts left or right
@@ -1509,6 +1547,77 @@ export class RealisticVehicleAudioEngine {
       this.windRushFilter.connect(this.windRushGain)
       this.windRushGain.connect(this.sfxMaster!)
       windSource.start()
+
+      // D. Tunnel Acoustic Slapback Reverb & Resonant Peaking
+      if (this.engineMaster) {
+        this.tunnelDelay = ctx.createDelay()
+        this.tunnelDelay.delayTime.value = 0.048
+        this.tunnelFilter = ctx.createBiquadFilter()
+        this.tunnelFilter.type = 'peaking'
+        this.tunnelFilter.frequency.value = 240
+        this.tunnelFilter.Q.value = 2.4
+        this.tunnelFilter.gain.value = 7.0
+
+        this.tunnelReverbGain = ctx.createGain()
+        this.tunnelReverbGain.gain.value = 0.0001
+
+        this.engineMaster.connect(this.tunnelDelay)
+        this.tunnelDelay.connect(this.tunnelFilter)
+        this.tunnelFilter.connect(this.tunnelReverbGain)
+        this.tunnelReverbGain.connect(this.sfxMaster!)
+      }
+
+      // E. Coastal Ocean Breaker Swells
+      const oceanSource = ctx.createBufferSource()
+      oceanSource.buffer = noiseBuffer
+      oceanSource.loop = true
+
+      this.ambientOceanFilter = ctx.createBiquadFilter()
+      this.ambientOceanFilter.type = 'lowpass'
+      this.ambientOceanFilter.frequency.value = 260
+      this.ambientOceanGain = ctx.createGain()
+      this.ambientOceanGain.gain.value = 0.0001
+
+      oceanSource.connect(this.ambientOceanFilter)
+      this.ambientOceanFilter.connect(this.ambientOceanGain)
+      this.ambientOceanGain.connect(this.sfxMaster!)
+      oceanSource.start()
+
+      // F. Mountain Wind Whispering
+      const mountainWindSource = ctx.createBufferSource()
+      mountainWindSource.buffer = noiseBuffer
+      mountainWindSource.loop = true
+
+      const mWindFilter = ctx.createBiquadFilter()
+      mWindFilter.type = 'bandpass'
+      mWindFilter.frequency.value = 750
+      mWindFilter.Q.value = 2.8
+
+      this.ambientWindAmbGain = ctx.createGain()
+      this.ambientWindAmbGain.gain.value = 0.0001
+
+      mountainWindSource.connect(mWindFilter)
+      mWindFilter.connect(this.ambientWindAmbGain)
+      this.ambientWindAmbGain.connect(this.sfxMaster!)
+      mountainWindSource.start()
+
+      // G. Rain Patter on Chassis
+      const rainSource = ctx.createBufferSource()
+      rainSource.buffer = noiseBuffer
+      rainSource.loop = true
+
+      const rainFilter = ctx.createBiquadFilter()
+      rainFilter.type = 'bandpass'
+      rainFilter.frequency.value = 3200
+      rainFilter.Q.value = 1.2
+
+      this.ambientRainGain = ctx.createGain()
+      this.ambientRainGain.gain.value = 0.0001
+
+      rainSource.connect(rainFilter)
+      rainFilter.connect(this.ambientRainGain)
+      this.ambientRainGain.connect(this.sfxMaster!)
+      rainSource.start()
     } catch {}
 
     // Antigravity repulsor hum

@@ -85,6 +85,95 @@ export interface MacroTerrainWeights {
   twistedClimb: number
 }
 
+// ------------------------------------------------------------------------
+// Bridge, Mountain Tunnel & Scenic Route Exploration Zones
+// ------------------------------------------------------------------------
+export interface TunnelZone {
+  id: string
+  name: string
+  startZ: number
+  endZ: number
+  length: number
+}
+
+export interface BridgeZone {
+  id: string
+  name: string
+  startZ: number
+  endZ: number
+  length: number
+  bridgeType: 'viaduct' | 'suspension' | 'timber' | 'stone'
+  depth: number
+}
+
+export interface ScenicRoute {
+  id: string
+  name: string
+  subtitle: string
+  startDist: number
+  endDist: number
+  biome: BiomeType
+}
+
+export const TUNNEL_ZONES: TunnelZone[] = [
+  { id: 'eagle_crest', name: 'Eagle Crest Tunnel', startZ: -1050, endZ: -1250, length: 200 },
+  { id: 'granite_pass', name: 'Granite Pass Tunnel', startZ: -3450, endZ: -3680, length: 230 },
+  { id: 'sunstone_gorge', name: 'Sunstone Gorge Tunnel', startZ: -6600, endZ: -6820, length: 220 },
+  { id: 'glacial_ridge', name: 'Glacial Ridge Tunnel', startZ: -9800, endZ: -10040, length: 240 },
+]
+
+export const BRIDGE_ZONES: BridgeZone[] = [
+  { id: 'pine_creek_viaduct', name: 'Pine Creek Viaduct', startZ: -520, endZ: -660, length: 140, bridgeType: 'viaduct', depth: 16.0 },
+  { id: 'emerald_valley_truss', name: 'Emerald Valley Truss Bridge', startZ: -2600, endZ: -2750, length: 150, bridgeType: 'stone', depth: 14.0 },
+  { id: 'pacific_ocean_bridge', name: 'Pacific Vista Ocean Bridge', startZ: -4400, endZ: -4620, length: 220, bridgeType: 'viaduct', depth: 18.0 },
+  { id: 'banded_mesa_gorge', name: 'Banded Mesa Gorge Bridge', startZ: -6050, endZ: -6220, length: 170, bridgeType: 'suspension', depth: 22.0 },
+  { id: 'frost_canyon_span', name: 'Frost Canyon High Span', startZ: -8900, endZ: -9080, length: 180, bridgeType: 'viaduct', depth: 18.0 },
+]
+
+export const SCENIC_ROUTES: ScenicRoute[] = [
+  { id: 'alpine_high_ridge', name: 'Alpine High Ridge Pass', subtitle: 'Twisted Mountain Ascents • Snow-Capped Crags', startDist: 0, endDist: 1400, biome: 'twisted_mountains' },
+  { id: 'primordial_redwood', name: 'Primordial Redwood Corridor', subtitle: 'Towering Ancient Canopies • Misty Sunbeams', startDist: 1400, endDist: 2800, biome: 'enchanted_forest' },
+  { id: 'golden_maple_byway', name: 'Golden Maple Valley Byway', subtitle: 'Amber Foliage • Historic Covered Bridge Runs', startDist: 2800, endDist: 4200, biome: 'autumn' },
+  { id: 'pacific_coastal_highway', name: 'Pacific Vista Coastal Highway', subtitle: 'Ocean Bluffs • Sea Breeze & Distant Breakers', startDist: 4200, endDist: 5600, biome: 'coastal' },
+  { id: 'red_sandstone_trail', name: 'Red Sandstone Canyon Trail', subtitle: 'Towering Mesas • Sun-Drenched Natural Arches', startDist: 5600, endDist: 7000, biome: 'desert' },
+  { id: 'glacial_tundra_expedition', name: 'Glacial Tundra Expedition', subtitle: 'Sub-Zero Vistas • Polar Twilight & Aurora', startDist: 7000, endDist: 8400, biome: 'tundra' },
+  { id: 'emerald_foothills', name: 'Emerald Foothills Parkway', subtitle: 'Lush Rolling Valleys • Winding Country Highways', startDist: 8400, endDist: 9800, biome: 'forest' },
+]
+
+export function getTunnelZoneAt(z: number): TunnelZone | null {
+  for (const t of TUNNEL_ZONES) {
+    const minZ = Math.min(t.startZ, t.endZ)
+    const maxZ = Math.max(t.startZ, t.endZ)
+    if (z >= minZ && z <= maxZ) return t
+  }
+  return null
+}
+
+export function isInsideTunnel(z: number): boolean {
+  return getTunnelZoneAt(z) !== null
+}
+
+export function getBridgeZoneAt(z: number): BridgeZone | null {
+  for (const b of BRIDGE_ZONES) {
+    const minZ = Math.min(b.startZ, b.endZ)
+    const maxZ = Math.max(b.startZ, b.endZ)
+    if (z >= minZ && z <= maxZ) return b
+  }
+  return null
+}
+
+export function isInsideBridge(z: number): boolean {
+  return getBridgeZoneAt(z) !== null
+}
+
+export function getScenicRouteAt(z: number): ScenicRoute {
+  const dist = Math.abs(z) % 9800
+  for (const r of SCENIC_ROUTES) {
+    if (dist >= r.startDist && dist < r.endDist) return r
+  }
+  return SCENIC_ROUTES[0]
+}
+
 export const MACRO_PROFILES: Record<MacroTerrainType, MacroTerrainProfile> = {
   plains: {
     id: 'plains',
@@ -1074,6 +1163,24 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   // Flat threshold depressed safely 0.28m below the banked roadbed
   // Guarantees that across the entire road width and shoulder, terrain NEVER pierces or z-fights
   if (dist <= ROAD_PROTECTED_RADIUS) {
+    const bridge = getBridgeZoneAt(closest.u)
+    if (bridge) {
+      const minZ = Math.min(bridge.startZ, bridge.endZ)
+      const bridgeT = (closest.u - minZ) / bridge.length
+      const bridgeSpanFactor = Math.sin(Math.max(0, Math.min(1, bridgeT)) * Math.PI)
+      const gorgeDrop = bridge.depth * bridgeSpanFactor
+      return (bankedCorridorBase - ROAD_CLEARANCE_BASE) - gorgeDrop
+    }
+
+    const tunnel = getTunnelZoneAt(closest.u)
+    if (tunnel) {
+      const minZ = Math.min(tunnel.startZ, tunnel.endZ)
+      const tunnelT = (closest.u - minZ) / tunnel.length
+      const tunnelArchFactor = Math.sin(Math.max(0, Math.min(1, tunnelT)) * Math.PI)
+      const mountainVault = 22.0 * tunnelArchFactor
+      return (bankedCorridorBase - ROAD_CLEARANCE_BASE) + mountainVault
+    }
+
     return bankedCorridorBase - ROAD_CLEARANCE_BASE
   }
 

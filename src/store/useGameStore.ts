@@ -212,6 +212,13 @@ interface GameState {
   drivingStats: DrivingStats
   updateDrivingStats: (s: Partial<DrivingStats>) => void
 
+  // 8c. Scenic Routes Exploration & Route Discovery
+  activeScenicRoute: { id: string; name: string; subtitle: string } | null
+  discoveredScenicRoutes: string[]
+  setActiveScenicRoute: (id: string, name: string, subtitle: string) => void
+  scenicRouteNotification: { name: string; subtitle: string } | null
+  setScenicRouteNotification: (n: { name: string; subtitle: string } | null) => void
+
   // 9. Diagnostics & Engine Telemetry
   showDiagnostics: boolean
   setShowDiagnostics: (s: boolean) => void
@@ -496,6 +503,25 @@ export const useGameStore = create<GameState>((set, get) => ({
   challengeNotification: null,
   setChallengeNotification: (challengeNotification) =>
     set({ challengeNotification }),
+  activeScenicRoute: null,
+  discoveredScenicRoutes: loadStoredJson<string[]>('scenic_routes', []),
+  scenicRouteNotification: null,
+  setActiveScenicRoute: (id, name, subtitle) => {
+    const s = get()
+    if (s.activeScenicRoute?.id === id) return
+    const isNew = !s.discoveredScenicRoutes.includes(id)
+    const updated = isNew ? [...s.discoveredScenicRoutes, id] : s.discoveredScenicRoutes
+    if (isNew) saveStoredJson('scenic_routes', updated)
+    set({
+      activeScenicRoute: { id, name, subtitle },
+      discoveredScenicRoutes: updated,
+      scenicRouteNotification: { name, subtitle },
+    })
+    setTimeout(() => {
+      set({ scenicRouteNotification: null })
+    }, 4500)
+  },
+  setScenicRouteNotification: (scenicRouteNotification) => set({ scenicRouteNotification }),
   drivingStats: loadStoredJson<DrivingStats>('driving_stats', {
     totalDistanceKm: 0,
     topSpeedKmh: 0,

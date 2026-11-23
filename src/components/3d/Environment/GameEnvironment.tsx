@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
 import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
 import { calculateEnvironmentalLighting } from '../../../utils/environmentalLighting'
+import { updateAtmosphericUniforms } from '../../../utils/atmosphericShader'
 import { VolumetricClouds } from './VolumetricClouds'
 
 // ------------------------------------------------------------------------
@@ -583,7 +584,7 @@ export default function GameEnvironment() {
   const biomeConfig = BIOMES[currentResolvedBiome] || BIOMES.forest
 
   // Frame Loop: Smooth Time-of-Day Progression & Direct Light/Fog Updates (Zero React Re-Renders)
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     // Detect external time changes (e.g. user selected preset, dragged slider, or called skipTo)
     if (Math.abs(timeOfDay - lastDispatchedTime.current) > 0.05) {
       timeOfDayRef.current = timeOfDay
@@ -638,23 +639,56 @@ export default function GameEnvironment() {
       dirLightRef.current.intensity = currentLighting.sunIntensity
     }
 
+    // Dynamic Distant Thunderstorm Lightning Simulation during rain
+    let lightningFlash = 0.0
+    if (weather === 'rain') {
+      const tClock = state.clock.getElapsedTime()
+      const cycle = tClock % 26.0
+      if (cycle > 0.0 && cycle < 0.32) {
+        lightningFlash = Math.sin((cycle / 0.32) * Math.PI) * 0.95
+      } else if (cycle > 0.44 && cycle < 0.68) {
+        lightningFlash = Math.sin(((cycle - 0.44) / 0.24) * Math.PI) * 0.72
+      }
+    }
+
     if (ambientLightRef.current) {
       ambientLightRef.current.color.copy(currentLighting.ambientColor)
-      ambientLightRef.current.intensity = currentLighting.ambientIntensity
+      let ambIntensity = currentLighting.ambientIntensity
+      if (lightningFlash > 0.01) {
+        ambIntensity += lightningFlash * 1.8
+      }
+      ambientLightRef.current.intensity = ambIntensity
     }
 
     if (hemiLightRef.current) {
       hemiLightRef.current.color.copy(currentLighting.hemiSkyColor)
       hemiLightRef.current.groundColor.copy(currentLighting.hemiGroundColor)
-      hemiLightRef.current.intensity = currentLighting.hemiIntensity
+      let hemiInt = currentLighting.hemiIntensity
+      if (lightningFlash > 0.01) {
+        hemiInt += lightningFlash * 1.5
+      }
+      hemiLightRef.current.intensity = hemiInt
     }
 
     // Direct scene background & fog updates
     scene.background = currentLighting.skyHorizonColor
     if (scene.fog) {
-      scene.fog.color.copy(currentLighting.fogColor)
+      let fogCol = currentLighting.fogColor
+      if (lightningFlash > 0.05) {
+        fogCol = fogCol.clone().lerp(new THREE.Color('#cbd5e1'), lightningFlash * 0.65)
+      }
+      scene.fog.color.copy(fogCol)
       ;(scene.fog as THREE.FogExp2).density = currentLighting.fogDensity
     }
+
+    // Update global atmospheric elevation fog and solar Mie scattering uniforms
+    updateAtmosphericUniforms(
+      currentLighting.sunDirection,
+      currentLighting.sunColor,
+      currentLighting.skyHorizonColor,
+      currentLighting.isNight ? 0.15 : 0.48,
+      lightningFlash
+    )
   })
 
   // Sync reflection preset into telemetry store for vehicle reflections
