@@ -1,10 +1,10 @@
-import { useRef, useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useMemo, useState, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
 import { useLoadingStore } from '../../../store/useLoadingStore'
-import { ActiveCarModel } from './CarModels'
+import { ActiveCarModel, ProceduralSportsCarFallback } from './CarModels'
 import {
   getRoadCenter,
   getRoadElevation,
@@ -2054,24 +2054,26 @@ export default function VehicleController() {
     <>
       <group ref={carGroupRef}>
         <group ref={chassisMeshRef}>
-          <ActiveCarModel
-            type={vehicleModel}
-            paintColor={paintColor}
-            paintFinish={paintFinish}
-            metallic={metallic}
-            roughness={roughness}
-            caliperColor={caliperColor}
-            rimColor={rimColor}
-            spoilerType={spoilerType}
-            steeringAngle={steeringVisual.current}
-            wheelRotation={wheelSpin.current}
-            isBraking={isBrakingVisual}
-            isReversing={isReversingVisual}
-            headlightsOn={headlights}
-            headlightBeam={headlightBeam}
-            isHoverMode={isHoverMode}
-            wheelSuspensions={wheelSuspensions.current}
-          />
+          <Suspense fallback={<ProceduralSportsCarFallback paintColor={paintColor} />}>
+            <ActiveCarModel
+              type={vehicleModel}
+              paintColor={paintColor}
+              paintFinish={paintFinish}
+              metallic={metallic}
+              roughness={roughness}
+              caliperColor={caliperColor}
+              rimColor={rimColor}
+              spoilerType={spoilerType}
+              steeringAngle={steeringVisual.current}
+              wheelRotation={wheelSpin.current}
+              isBraking={isBrakingVisual}
+              isReversing={isReversingVisual}
+              headlightsOn={headlights}
+              headlightBeam={headlightBeam}
+              isHoverMode={isHoverMode}
+              wheelSuspensions={wheelSuspensions.current}
+            />
+          </Suspense>
         </group>
       </group>
       <points

@@ -158,7 +158,7 @@ export default function PerformanceProfiler({ onClose }: { onClose?: () => void 
           </div>
           <div className="flex justify-between text-white/70">
             <span>Procedural Pipeline:</span>
-            <span className="text-emerald-300 font-bold">Bounded 28 Chunks</span>
+            <span className="text-emerald-300 font-bold">Staged 8-20 Chunks</span>
           </div>
         </div>
       </div>

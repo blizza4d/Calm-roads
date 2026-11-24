@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber'
-import { Suspense, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { KeyboardControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import Experience from './components/3d/Experience'
@@ -44,7 +44,7 @@ function GameLoader() {
 
   useEffect(() => {
     if (isReady) {
-      const timer = setTimeout(() => setFaded(true), 600)
+      const timer = setTimeout(() => setFaded(true), 250)
       return () => clearTimeout(timer)
     } else {
       setFaded(false)
@@ -57,7 +57,7 @@ function GameLoader() {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07090e] transition-opacity duration-700 select-none ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07090e] transition-opacity duration-300 select-none ${
         isReady ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
       }`}
     >
@@ -158,14 +158,12 @@ export default function App() {
               gl.toneMapping = THREE.ACESFilmicToneMapping
               gl.toneMappingExposure = 1.0
               gl.outputColorSpace = THREE.SRGBColorSpace
-              gl.shadowMap.enabled = true
+              gl.shadowMap.enabled = graphicsQuality !== 'low'
               gl.shadowMap.type = THREE.PCFSoftShadowMap
             }}
             style={{ width: '100%', height: '100%' }}
           >
-            <Suspense fallback={null}>
-              <Experience />
-            </Suspense>
+            <Experience />
           </Canvas>
         </div>
 

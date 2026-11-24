@@ -258,10 +258,45 @@ export function VolumetricClouds({
     return 0.18 // Sparse light puffs during clear weather
   }, [weather])
 
-  // Geometries for the 3 celestial dome tiers
-  const cirrusDomeGeo = useMemo(() => new THREE.SphereGeometry(2600, 36, 18, 0, Math.PI * 2, 0, Math.PI * 0.46), [])
-  const cumulusDomeGeo = useMemo(() => new THREE.SphereGeometry(2100, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.44), [])
-  const lowScudDomeGeo = useMemo(() => new THREE.SphereGeometry(1500, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.40), [])
+  // Geometries for the 3 celestial dome tiers (optimized tessellation)
+  const cirrusDomeGeo = useMemo(() => new THREE.SphereGeometry(2600, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.46), [])
+  const cumulusDomeGeo = useMemo(() => new THREE.SphereGeometry(2100, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.44), [])
+  const lowScudDomeGeo = useMemo(() => new THREE.SphereGeometry(1500, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.40), [])
+
+  // Stable memoized uniforms to avoid per-render allocations
+  const cirrusUniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uSunColor: { value: new THREE.Color().copy(sunColor) },
+      uShadowColor: { value: new THREE.Color().copy(shadowColor) },
+      uSunDir: { value: new THREE.Vector3(0.5, 0.7, -0.3).normalize() },
+      uOpacity: { value: opacity * 0.85 },
+    }),
+    []
+  )
+
+  const cumulusUniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uSunColor: { value: new THREE.Color().copy(sunColor) },
+      uShadowColor: { value: new THREE.Color().copy(shadowColor) },
+      uSunDir: { value: new THREE.Vector3(0.5, 0.7, -0.3).normalize() },
+      uOpacity: { value: opacity },
+      uCoverage: { value: cumulusCoverage },
+    }),
+    []
+  )
+
+  const lowScudUniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uSunColor: { value: new THREE.Color().copy(sunColor) },
+      uShadowColor: { value: new THREE.Color().copy(shadowColor) },
+      uOpacity: { value: 0.65 },
+      uCoverage: { value: scudCoverage },
+    }),
+    []
+  )
 
   useFrame((state) => {
     if (groupRef.current) {
@@ -305,13 +340,7 @@ export function VolumetricClouds({
           ref={cirrusMatRef}
           vertexShader={cirrusVertexShader}
           fragmentShader={cirrusFragmentShader}
-          uniforms={{
-            uTime: { value: 0 },
-            uSunColor: { value: new THREE.Color().copy(sunColor) },
-            uShadowColor: { value: new THREE.Color().copy(shadowColor) },
-            uSunDir: { value: new THREE.Vector3(0.5, 0.7, -0.3).normalize() },
-            uOpacity: { value: opacity * 0.85 },
-          }}
+          uniforms={cirrusUniforms}
           transparent
           depthWrite={false}
           side={THREE.BackSide}
@@ -324,14 +353,7 @@ export function VolumetricClouds({
           ref={cumulusMatRef}
           vertexShader={cumulusVertexShader}
           fragmentShader={cumulusFragmentShader}
-          uniforms={{
-            uTime: { value: 0 },
-            uSunColor: { value: new THREE.Color().copy(sunColor) },
-            uShadowColor: { value: new THREE.Color().copy(shadowColor) },
-            uSunDir: { value: new THREE.Vector3(0.5, 0.7, -0.3).normalize() },
-            uOpacity: { value: opacity },
-            uCoverage: { value: cumulusCoverage },
-          }}
+          uniforms={cumulusUniforms}
           transparent
           depthWrite={false}
           side={THREE.BackSide}
@@ -344,13 +366,7 @@ export function VolumetricClouds({
           ref={lowScudMatRef}
           vertexShader={lowScudVertexShader}
           fragmentShader={lowScudFragmentShader}
-          uniforms={{
-            uTime: { value: 0 },
-            uSunColor: { value: new THREE.Color().copy(sunColor) },
-            uShadowColor: { value: new THREE.Color().copy(shadowColor) },
-            uOpacity: { value: 0.65 },
-            uCoverage: { value: scudCoverage },
-          }}
+          uniforms={lowScudUniforms}
           transparent
           depthWrite={false}
           side={THREE.BackSide}

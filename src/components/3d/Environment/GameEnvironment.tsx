@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, Suspense } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
@@ -804,14 +804,18 @@ export default function GameEnvironment() {
         isNight={initialLighting.isNight}
       />
 
-      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces */}
-      <Suspense fallback={null}>
-        <Environment
-          preset={initialLighting.reflectionPreset}
-          background={false}
-          environmentIntensity={graphicsQuality === 'low' ? 0.45 : initialLighting.isNight ? 0.32 : 0.70}
-        />
-      </Suspense>
+      {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Instant Local Procedural Probe — 0 Network Lag) */}
+      <Environment
+        background={false}
+        environmentIntensity={graphicsQuality === 'low' ? 0.35 : initialLighting.isNight ? 0.30 : 0.65}
+      >
+        <mesh scale={100}>
+          <sphereGeometry args={[1, 16, 16]} />
+          <meshBasicMaterial side={THREE.BackSide} color={initialLighting.hemiSkyColor} />
+        </mesh>
+        <directionalLight position={initialLighting.sunPosition} color={initialLighting.sunColor} intensity={2.0} />
+        <ambientLight color={initialLighting.ambientColor} intensity={0.5} />
+      </Environment>
 
       {/* Directional Sun/Moon Light with Texel-Snapped Player-Centered Shadow Frustum */}
       <directionalLight
@@ -876,28 +880,38 @@ export default function GameEnvironment() {
       )}
 
       {/* Post-Processing Pipeline based on Graphics Quality Settings */}
-      {graphicsQuality !== 'low' && (
-        <EffectComposer multisampling={graphicsQuality === 'medium' ? 1 : 2}>
+      {graphicsQuality === 'ultra' ? (
+        <EffectComposer multisampling={2}>
           <SSAO
-            resolutionScale={graphicsQuality === 'ultra' ? 1.0 : 0.5}
-            radius={0.35}
-            intensity={22}
+            resolutionScale={0.5}
+            radius={0.30}
+            intensity={18}
             luminanceInfluence={0.5}
             color={SSAO_COLOR}
-            worldDistanceThreshold={100}
-            worldDistanceFalloff={10}
+            worldDistanceThreshold={75}
+            worldDistanceFalloff={8}
             worldProximityThreshold={0.5}
             worldProximityFalloff={0.1}
           />
           <Bloom
             luminanceThreshold={1.30}
             luminanceSmoothing={0.20}
-            intensity={graphicsQuality === 'medium' ? 0.18 : graphicsQuality === 'ultra' ? 0.28 : 0.22}
+            intensity={0.26}
             mipmapBlur
           />
           <Vignette eskil={false} offset={0.42} darkness={0.22} />
         </EffectComposer>
-      )}
+      ) : graphicsQuality !== 'low' ? (
+        <EffectComposer multisampling={0}>
+          <Bloom
+            luminanceThreshold={1.30}
+            luminanceSmoothing={0.20}
+            intensity={graphicsQuality === 'medium' ? 0.16 : 0.20}
+            mipmapBlur
+          />
+          <Vignette eskil={false} offset={0.42} darkness={0.22} />
+        </EffectComposer>
+      ) : null}
     </>
   )
 }

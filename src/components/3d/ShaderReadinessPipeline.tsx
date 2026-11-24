@@ -59,7 +59,7 @@ export default function ShaderReadinessPipeline() {
           'Generating terrain chunks and procedural track splines...'
         )
         // Yield one microtask to allow geometry binding
-        await new Promise((resolve) => setTimeout(resolve, 80))
+        await new Promise((resolve) => requestAnimationFrame(resolve))
         if (!isMounted) return
 
         // Stage 2: PREPARING_MATERIALS
@@ -69,24 +69,20 @@ export default function ShaderReadinessPipeline() {
           'Binding ACES Filmic tonemapping, environment probes & foliage alphas...'
         )
 
-        // Traverse scene to ensure materials are ready for compilation
+        // Count unique materials without resetting .needsUpdate (preserves WebGL program cache)
         let materialCount = 0
         scene.traverse((obj) => {
           if ((obj as THREE.Mesh).isMesh) {
             const mesh = obj as THREE.Mesh
             if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((mat) => {
-                mat.needsUpdate = true
-                materialCount++
-              })
+              materialCount += mesh.material.length
             } else if (mesh.material) {
-              mesh.material.needsUpdate = true
               materialCount++
             }
           }
         })
 
-        await new Promise((resolve) => setTimeout(resolve, 60))
+        await new Promise((resolve) => requestAnimationFrame(resolve))
         if (!isMounted) return
 
         // Stage 3: COMPILING_SHADERS
@@ -117,10 +113,7 @@ export default function ShaderReadinessPipeline() {
           'Executing off-screen warmup passes to eliminate runtime hitching...'
         )
 
-        // Perform 2 controlled warmup render passes
-        // This exercises shadow maps, tone mapping, post-processing, and initializes GPU pipeline state
-        gl.render(scene, camera)
-        await new Promise((resolve) => requestAnimationFrame(resolve))
+        // Perform 1 controlled warmup render pass
         gl.render(scene, camera)
 
         if (!isMounted) return
@@ -138,9 +131,6 @@ export default function ShaderReadinessPipeline() {
         if (glErr !== 0) {
           console.warn(`[ShaderReadinessPipeline] WebGL reported warning/error code: ${glErr}`)
         }
-
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (!isMounted) return
 
         // Stage 6: READY!
         setStage(

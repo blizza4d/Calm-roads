@@ -1896,19 +1896,19 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
   return (
     <group position={[0, 0, chunkZ]}>
       {/* 1. Terrain Surface Mesh with slope-based Rock/Grass Vertex Colors, Triplanar Strata & Micro-Relief */}
-      <mesh geometry={terrainGeo} material={mats.terrainMat} receiveShadow frustumCulled={false} />
+      <mesh geometry={terrainGeo} material={mats.terrainMat} receiveShadow frustumCulled={true} />
 
       {/* 2. Curved Asphalt Highway Ribbon with Calibrated PBR Texture & Camber */}
-      <mesh geometry={roadGeo} material={mats.roadMat} receiveShadow renderOrder={2} frustumCulled={false} />
+      <mesh geometry={roadGeo} material={mats.roadMat} receiveShadow renderOrder={2} frustumCulled={true} />
 
       {/* 3. Roadside Gravel Shoulder Strips */}
-      <mesh ref={shoulderMeshRef} geometry={shoulderGeo} material={mats.shoulderMat} receiveShadow renderOrder={1} frustumCulled={false} />
+      <mesh ref={shoulderMeshRef} geometry={shoulderGeo} material={mats.shoulderMat} receiveShadow renderOrder={1} frustumCulled={true} />
 
       {/* 4. Highway Markings: Yellow Dashed Centerline + Symmetrical Dual White Edge Lines */}
-      <mesh ref={markingsMeshRef} geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={false} />
+      <mesh ref={markingsMeshRef} geometry={markingsGeo} material={sharedMarkingsMat} renderOrder={3} frustumCulled={true} />
 
       {/* 5. Steel W-Beam Guardrails on Outer Highway Curves (Pooled & DrawRange controlled) */}
-      <mesh ref={guardrailMeshRef} geometry={guardrailGeo} material={sharedGuardrailMat} castShadow={false} receiveShadow frustumCulled={false} />
+      <mesh ref={guardrailMeshRef} geometry={guardrailGeo} material={sharedGuardrailMat} castShadow={false} receiveShadow frustumCulled={true} />
 
       {/* 6. Biome-Specific Instanced Scenery Group (Chunk-local Distance Culled) */}
       {/* Material passed as prop (NOT inside args) so weather/biome material swaps NEVER destroy & recreate InstancedMesh GPU buffers */}
@@ -1921,7 +1921,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
         <instancedMesh
           ref={pineCanopyRef}
@@ -1930,7 +1930,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.pines.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Organic Broadleaf / Mountain Maples */}
@@ -1941,7 +1941,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
         <instancedMesh
           ref={broadleafCanopyRef}
@@ -1950,7 +1950,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.broadleafs.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Desert Saguaro Cacti */}
@@ -1961,7 +1961,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.saguaros.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Mountain Shrubs & Roadside Bushes */}
@@ -1971,7 +1971,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           material={mats.shrubMat}
           count={sceneryData.shrubs.length}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Weathered Boulders & Rock Outcrops */}
@@ -1982,7 +1982,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.rocks.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Roadside Wild Grass Tufts */}
@@ -1992,7 +1992,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           material={mats.grassMat}
           count={sceneryData.grassTufts.length}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Roadside Highway Utility Poles with Timber Grain */}
@@ -2002,7 +2002,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           material={sharedPoleMat}
           count={sceneryData.poles.length}
           castShadow={false}
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Roadside Reflector Delineator Posts (Guide Posts) */}
@@ -2013,7 +2013,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.delineators.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Delineator Micro-Prismatic Retro-Reflectors (Headlight / Night Glow) */}
@@ -2022,7 +2022,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           args={[delineatorReflectorGeo, undefined, 32]}
           material={sharedDelineatorReflectorMat}
           count={sceneryData.delineators.length}
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Galvanized Steel Guardrail Support Posts */}
@@ -2033,7 +2033,7 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.guardrailPosts.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
 
         {/* Cozy Alpine Timber Cabins & Roadside Shelters */}
@@ -2044,14 +2044,14 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
           count={sceneryData.cabins.length}
           castShadow={false}
           receiveShadow
-          frustumCulled={false}
+          frustumCulled={true}
         />
         <instancedMesh
           ref={cabinWindowRef}
           args={[cabinWindowGeo, undefined, 4]}
           material={sharedCabinWindowMat}
           count={sceneryData.cabins.length}
-          frustumCulled={false}
+          frustumCulled={true}
         />
       </group>
 
@@ -2074,11 +2074,10 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)
 
 // Predictive High-Speed World Horizon Streaming Engine:
-// Pre-generates 28 active chunks (5.6 kilometers continuous highway coverage).
-// Guarantees >=4.8km forward horizon buffer ahead of the vehicle (far beyond 4,200m camera far plane).
-// High-speed adaptive buffer scales with vehicle velocity so the world can NEVER be outrun.
-const NUM_CHUNKS = 28
-const CHUNKS_BEHIND = 3
+// Instant Staged Loading: starts with 8 chunks (1,600m) for sub-second game startup,
+// then smoothly expands in the background up to targetChunkCount (12-20 chunks = 2.4km - 4.0km).
+const CHUNKS_BEHIND = 2
+const INITIAL_PLAYABLE_CHUNKS = 8
 
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
@@ -2087,11 +2086,14 @@ export default function Terrain() {
   const setDiagnostics = useGameStore((state) => state.setDiagnostics)
   const { camera } = useThree()
   const diagCounter = useRef(0)
+  const expandThrottle = useRef(0)
 
-  // Initial chunks spanning 600m behind down to -5000m ahead
+  const targetChunkCount = graphicsQuality === 'low' ? 12 : graphicsQuality === 'medium' ? 16 : 20
+
+  // Initial playable chunks (1,600m continuous road around player)
   const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
     const initial: number[] = []
-    for (let i = 0; i < NUM_CHUNKS; i++) {
+    for (let i = 0; i < INITIAL_PLAYABLE_CHUNKS; i++) {
       initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
     }
     return initial
@@ -2110,7 +2112,8 @@ export default function Terrain() {
     if (Math.abs(camZ - lastCamZ.current) > 150) {
       const centerChunkZ = Math.round(camZ / CHUNK_LEN) * CHUNK_LEN
       const recentered: number[] = []
-      for (let i = 0; i < NUM_CHUNKS; i++) {
+      const currentCount = slotsRef.current.length
+      for (let i = 0; i < currentCount; i++) {
         recentered.push(centerChunkZ + (CHUNKS_BEHIND - i) * CHUNK_LEN)
       }
       slotsRef.current = recentered
@@ -2120,58 +2123,53 @@ export default function Terrain() {
     }
     lastCamZ.current = camZ
 
-    // 2. High-Speed Predictive Forward Horizon Streaming
-    let minZ = slotsRef.current[0]
-    let maxZ = slotsRef.current[0]
-    for (let i = 1; i < NUM_CHUNKS; i++) {
+    // 1b. Staged Background Expansion: Progressively expand horizon in background without stutter
+    if (slotsRef.current.length < targetChunkCount) {
+      expandThrottle.current++
+      if (expandThrottle.current >= 4) {
+        expandThrottle.current = 0
+        let minZ = slotsRef.current[0]
+        for (let i = 1; i < slotsRef.current.length; i++) {
+          if (slotsRef.current[i] < minZ) minZ = slotsRef.current[i]
+        }
+        const nextSlots = [...slotsRef.current, minZ - CHUNK_LEN]
+        slotsRef.current = nextSlots
+        setChunkSlots(nextSlots)
+        return
+      }
+    }
+
+    // 2. High-Speed Predictive Forward Horizon Streaming (Max 1 chunk recycled per frame for silky 60fps)
+    const totalSlots = slotsRef.current.length
+    let rearmostIdx = 0
+    let rearmostZ = slotsRef.current[0]
+    let frontmostIdx = 0
+    let frontmostZ = slotsRef.current[0]
+
+    for (let i = 0; i < totalSlots; i++) {
       const z = slotsRef.current[i]
-      if (z < minZ) minZ = z
-      if (z > maxZ) maxZ = z
-    }
-
-    const currentBuffer = camZ - minZ
-    const telemetrySpeed = useTelemetryStore.getState().speed || 0
-
-    let recycledCount = 0
-    const currentSlots = [...slotsRef.current]
-
-    // Allow recycling up to 3 chunks per frame to guarantee the frontier is NEVER outrun
-    while (recycledCount < 3) {
-      let rearmostIdx = 0
-      let rearmostZ = currentSlots[0]
-      let frontmostIdx = 0
-      let frontmostZ = currentSlots[0]
-
-      for (let i = 0; i < NUM_CHUNKS; i++) {
-        const z = currentSlots[i]
-        if (z > rearmostZ) {
-          rearmostZ = z
-          rearmostIdx = i
-        }
-        if (z < frontmostZ) {
-          frontmostZ = z
-          frontmostIdx = i
-        }
+      if (z > rearmostZ) {
+        rearmostZ = z
+        rearmostIdx = i
       }
-
-      // Forward driving retire threshold: safely past chase camera and rear-view sightline
-      const retireRearThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
-      const retireFrontThreshold = camZ - (NUM_CHUNKS - CHUNKS_BEHIND - 0.25) * CHUNK_LEN
-
-      if (rearmostZ > retireRearThreshold) {
-        // Forward driving: safely recycle rearmost chunk to forward horizon
-        currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
-        recycledCount++
-      } else if (frontmostZ < retireFrontThreshold) {
-        // Reverse driving: safely recycle forward chunk to rear horizon
-        currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
-        recycledCount++
-      } else {
-        break
+      if (z < frontmostZ) {
+        frontmostZ = z
+        frontmostIdx = i
       }
     }
 
-    if (recycledCount > 0) {
+    // Forward driving retire threshold: safely past chase camera and rear-view sightline
+    const retireRearThreshold = camZ + (CHUNKS_BEHIND + 0.25) * CHUNK_LEN
+    const retireFrontThreshold = camZ - (totalSlots - CHUNKS_BEHIND - 0.25) * CHUNK_LEN
+
+    if (rearmostZ > retireRearThreshold) {
+      const currentSlots = [...slotsRef.current]
+      currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
+      slotsRef.current = currentSlots
+      setChunkSlots(currentSlots)
+    } else if (frontmostZ < retireFrontThreshold) {
+      const currentSlots = [...slotsRef.current]
+      currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
       slotsRef.current = currentSlots
       setChunkSlots(currentSlots)
     }
@@ -2179,14 +2177,16 @@ export default function Terrain() {
     // 3. Update Development Diagnostics (throttled every 12 frames)
     diagCounter.current++
     if (diagCounter.current % 12 === 0) {
-      const chunksAhead = Math.round((camZ - minZ) / CHUNK_LEN)
+      const currentBuffer = camZ - frontmostZ
+      const chunksAhead = Math.round((camZ - frontmostZ) / CHUNK_LEN)
+      const telemetrySpeed = useTelemetryStore.getState().speed || 0
       setDiagnostics({
-        activeChunks: NUM_CHUNKS,
+        activeChunks: totalSlots,
         frontierBuffer: Math.round(currentBuffer),
-        drawDistance: NUM_CHUNKS * CHUNK_LEN,
+        drawDistance: totalSlots * CHUNK_LEN,
         speedKmh: Math.round(telemetrySpeed),
         chunksAhead,
-        prepTimeMs: 1.2,
+        prepTimeMs: 0.8,
       })
     }
   })

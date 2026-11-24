@@ -148,14 +148,16 @@ export const Tunnels3D = memo(function Tunnels3D({ chunkZ }: { chunkZ: number })
                   <mesh position={[0, 0, 0]} material={sodiumLampBulbMat}>
                     <boxGeometry args={[1.3, 0.1, 0.25]} />
                   </mesh>
-                  {/* Downward Sodium Point Light */}
-                  <pointLight
-                    position={[0, -0.6, 0]}
-                    color="#f59e0b"
-                    intensity={4.2}
-                    distance={18.0}
-                    decay={2.0}
-                  />
+                  {/* Single Key Downward Sodium Light per tunnel cluster */}
+                  {lIdx === Math.floor(lampSamples.length / 2) && (
+                    <pointLight
+                      position={[0, -0.6, 0]}
+                      color="#f59e0b"
+                      intensity={5.5}
+                      distance={32.0}
+                      decay={1.8}
+                    />
+                  )}
                 </group>
               )
             })}

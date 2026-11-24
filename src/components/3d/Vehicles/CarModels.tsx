@@ -918,9 +918,6 @@ export function SupercarModel({
   )
 }
 
-useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
-useGLTF.preload('/models/tuner_wheel.glb')
-
 // ----------------------------------------------------
 // 2. Realistic Cozy Camper Van (Vintage Type 2 Style)
 // ----------------------------------------------------
@@ -1530,6 +1527,41 @@ export function VintageHatchbackModel({
   )
 }
 
+export function ProceduralSportsCarFallback({ paintColor }: { paintColor?: string }) {
+  return (
+    <group position={[0, 0, 0]}>
+      {/* Sleek GT Sports Monocoque Chassis */}
+      <mesh position={[0, 0.44, 0]}>
+        <boxGeometry args={[1.82, 0.52, 4.35]} />
+        <meshStandardMaterial color={paintColor || '#cbd5e1'} metalness={0.75} roughness={0.25} />
+      </mesh>
+      {/* Cockpit Canopy */}
+      <mesh position={[0, 0.86, -0.15]}>
+        <boxGeometry args={[1.48, 0.42, 2.15]} />
+        <meshStandardMaterial color="#0a1128" roughness={0.08} metalness={0.85} />
+      </mesh>
+      {/* Front Wheels */}
+      <mesh position={[-0.92, 0.32, -1.35]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.34, 0.34, 0.28, 16]} />
+        <meshStandardMaterial color="#111827" roughness={0.8} />
+      </mesh>
+      <mesh position={[0.92, 0.32, -1.35]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.34, 0.34, 0.28, 16]} />
+        <meshStandardMaterial color="#111827" roughness={0.8} />
+      </mesh>
+      {/* Rear Wheels */}
+      <mesh position={[-0.92, 0.34, 1.35]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.36, 0.36, 0.32, 16]} />
+        <meshStandardMaterial color="#111827" roughness={0.8} />
+      </mesh>
+      <mesh position={[0.92, 0.34, 1.35]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.36, 0.36, 0.32, 16]} />
+        <meshStandardMaterial color="#111827" roughness={0.8} />
+      </mesh>
+    </group>
+  )
+}
+
 export function ActiveCarModel(props: CarModelProps) {
   switch (props.type) {
     case 'hovercraft':
@@ -1549,5 +1581,6 @@ export function ActiveCarModel(props: CarModelProps) {
   }
 }
 
+// Preload external GLTF monocoques without duplicate registrations
 useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
 useGLTF.preload('/models/tuner_wheel.glb')

@@ -91,6 +91,9 @@ export default function PerformanceBridge() {
       performanceStats.textures = gl.info.memory.textures
       performanceStats.shaderPrograms = gl.info.programs?.length ?? 0
       performanceStats.jsHeapMb = +heapMb.toFixed(1)
+      if (typeof window !== 'undefined') {
+        ;(window as any).__PERFORMANCE_STATS__ = performanceStats
+      }
 
       // Slowly recover min FPS tracker so momentary hiccups don't permanently pin min FPS to low values
       if (frameCountRef.current % 180 === 0) {

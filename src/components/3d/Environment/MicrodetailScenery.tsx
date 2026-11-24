@@ -131,14 +131,17 @@ export const MicrodetailScenery = memo(function MicrodetailScenery({
     if (pebbleRef.current) {
       for (let i = pIdx; i < 24; i++) pebbleRef.current.setMatrixAt(i, _zeroMatrix)
       pebbleRef.current.instanceMatrix.needsUpdate = true
+      pebbleRef.current.computeBoundingSphere()
     }
     if (branchRef.current) {
       for (let i = bIdx; i < 16; i++) branchRef.current.setMatrixAt(i, _zeroMatrix)
       branchRef.current.instanceMatrix.needsUpdate = true
+      branchRef.current.computeBoundingSphere()
     }
     if (flowerRef.current) {
       for (let i = fIdx; i < 16; i++) flowerRef.current.setMatrixAt(i, _zeroMatrix)
       flowerRef.current.instanceMatrix.needsUpdate = true
+      flowerRef.current.computeBoundingSphere()
     }
   }, [items, count])
 
@@ -151,21 +154,21 @@ export const MicrodetailScenery = memo(function MicrodetailScenery({
         args={[pebbleGeo, pebbleMat, 24]}
         castShadow={false}
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       />
       <instancedMesh
         ref={branchRef}
         args={[branchGeo, branchMat, 16]}
         castShadow={false}
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       />
       <instancedMesh
         ref={flowerRef}
         args={[flowerGeo, flowerMat, 16]}
         castShadow={false}
         receiveShadow
-        frustumCulled={false}
+        frustumCulled={true}
       />
     </group>
   )
