@@ -66,6 +66,31 @@ const glowingWindowMat = new THREE.MeshBasicMaterial({
   color: '#fef08a',
 })
 
+const lighthouseBeamMat = new THREE.MeshBasicMaterial({
+  color: '#fef08a',
+  transparent: true,
+  opacity: 0.18,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+})
+
+const beaconBulbMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  emissive: new THREE.Color('#fef08a'),
+  emissiveIntensity: 5.5,
+  roughness: 0.1,
+  toneMapped: false,
+})
+
+const aviationStrobeMat = new THREE.MeshStandardMaterial({
+  color: '#ef4444',
+  emissive: new THREE.Color('#ef4444'),
+  emissiveIntensity: 5.5,
+  roughness: 0.15,
+  toneMapped: false,
+})
+
 // ------------------------------------------------------------------------
 // Procedural Landmark 3D Components
 // ------------------------------------------------------------------------
@@ -114,18 +139,17 @@ const LighthouseModel = memo(function LighthouseModel() {
         <coneGeometry args={[2.3, 1.8, 16]} />
       </mesh>
 
-      {/* Rotating Beacon Housing & Spotlight */}
+      {/* Rotating Beacon Housing & Volumetric Light Beams (constant scene light count) */}
       <group ref={beaconRef} position={[0, 19.5, 0]}>
-        <spotLight
-          position={[0, 0, 0.8]}
-          target-position={[0, -2, 120]}
-          color="#fef08a"
-          intensity={45}
-          distance={280}
-          angle={Math.PI / 7}
-          penumbra={0.4}
-        />
-        <pointLight position={[0, 0, 0]} color="#fef08a" intensity={8} distance={20} />
+        <mesh material={beaconBulbMat}>
+          <sphereGeometry args={[0.95, 12, 10]} />
+        </mesh>
+        <mesh position={[0, 0, 18]} rotation={[Math.PI / 2, 0, 0]} material={lighthouseBeamMat}>
+          <coneGeometry args={[5.5, 36, 12, 1, true]} />
+        </mesh>
+        <mesh position={[0, 0, -18]} rotation={[-Math.PI / 2, 0, 0]} material={lighthouseBeamMat}>
+          <coneGeometry args={[5.5, 36, 12, 1, true]} />
+        </mesh>
       </group>
     </group>
   )
@@ -262,8 +286,10 @@ const AlpineLodgeModel = memo(function AlpineLodgeModel() {
       <mesh position={[2.8, 6.8, -2.2]} material={stoneMat}>
         <boxGeometry args={[1.2, 4.5, 1.2]} />
       </mesh>
-      {/* Chimney Glow */}
-      <pointLight position={[0, 3.6, 4.5]} color="#fef08a" intensity={3} distance={15} />
+      {/* Warm Porch Lantern (zero dynamic pointLight shader recompilation) */}
+      <mesh position={[0, 3.6, 4.15]} material={beaconBulbMat}>
+        <sphereGeometry args={[0.25, 8, 8]} />
+      </mesh>
     </group>
   )
 })
@@ -355,8 +381,10 @@ const WindTurbineModel = memo(function WindTurbineModel() {
       <mesh position={[0, 36.5, 0.4]} material={turbineWhiteMat}>
         <boxGeometry args={[1.8, 1.6, 4.5]} />
       </mesh>
-      {/* Aviation Warning Strobe Light */}
-      <pointLight position={[0, 37.8, 0]} color="#ef4444" intensity={2.5} distance={35} />
+      {/* Aviation Warning Strobe Beacon */}
+      <mesh position={[0, 37.8, 0]} material={aviationStrobeMat}>
+        <sphereGeometry args={[0.42, 8, 8]} />
+      </mesh>
 
       {/* Hub & 3 Aerodynamic Rotor Blades */}
       <group position={[0, 36.5, 2.8]}>

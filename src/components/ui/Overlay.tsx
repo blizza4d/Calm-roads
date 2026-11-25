@@ -42,6 +42,7 @@ import {
   PaintFinishType,
   GraphicsQualityType,
 } from '../../store/useGameStore'
+import { useLoadingStore } from '../../store/useLoadingStore'
 import { audioSystem, LOFI_PLAYLIST } from '../../utils/audioSystem'
 import { BIOMES, SCENIC_ROUTES } from '../../utils/roadMath'
 import { WORLD_LANDMARKS } from '../../utils/landmarks'
@@ -1370,6 +1371,11 @@ export default function Overlay() {
   const [showTouchControls, setShowTouchControls] = useState(false)
   const [showProfiler, setShowProfiler] = useState(false)
 
+  const isLoadingReady = useLoadingStore((s) => s.isReady)
+  const isBackgroundLoading = useLoadingStore((s) => s.isBackgroundLoading)
+  const distantTask = useLoadingStore((s) => s.tasks.distant_world)
+  const audioTask = useLoadingStore((s) => s.tasks.audio)
+
   const cameraPerspective = useGameStore((s) => s.cameraPerspective)
   const cycleCameraPerspective = useGameStore((s) => s.cycleCameraPerspective)
   const activePanel = useGameStore((s) => s.activePanel)
@@ -1399,9 +1405,10 @@ export default function Overlay() {
     cinematic: 'Cinematic',
   }
 
-  // Global Keyboard Shortcuts
+  // Global Keyboard Shortcuts (strictly gated until staged world readiness passes)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!useLoadingStore.getState().isReady) return
       if (e.repeat) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
@@ -1452,6 +1459,10 @@ export default function Overlay() {
     setActivePanel,
   ])
 
+  if (!isLoadingReady) {
+    return null
+  }
+
   if (photoMode) {
     return <PhotoModeView />
   }
@@ -1472,6 +1483,18 @@ export default function Overlay() {
   return (
     <div className="w-full h-full p-4 md:p-6 flex flex-col justify-between pointer-events-none select-none font-sans">
       <RegionDiscoveryBanner />
+
+      {/* Subtle Non-Blocking Background Enhancement Status Indicator */}
+      {isBackgroundLoading && (
+        <div className="fixed top-20 right-6 z-30 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] font-mono text-white/70 shadow-lg">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#FF9D1E] animate-ping" />
+          <span>
+            {distantTask.status === 'in_progress'
+              ? `ENHANCING HORIZON • ${distantTask.detail}`
+              : `PREPARING AUDIO • ${audioTask.detail}`}
+          </span>
+        </div>
+      )}
 
       {/* Top Navbar */}
       <div className="flex items-center justify-between w-full pointer-events-auto">

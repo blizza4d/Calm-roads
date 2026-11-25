@@ -10,7 +10,9 @@ const CHUNK_LEN = 200
 
 // Shared Materials for Tunnels
 const tunnelLiningMat = new THREE.MeshStandardMaterial({
-  color: '#334155', // Dark reinforced concrete lining
+  color: '#334155', // Dark reinforced concrete lining with subtle sodium bounce
+  emissive: new THREE.Color('#2a1504'),
+  emissiveIntensity: 0.35,
   roughness: 0.86,
   metalness: 0.12,
   side: THREE.DoubleSide,
@@ -34,6 +36,16 @@ const sodiumLampBulbMat = new THREE.MeshStandardMaterial({
   emissiveIntensity: 3.8,
   roughness: 0.1,
   toneMapped: false,
+})
+
+// Soft additive sodium light wash cone (zero dynamic WebGL pointLight shader recompiles)
+const sodiumConeMat = new THREE.MeshBasicMaterial({
+  color: '#f59e0b',
+  transparent: true,
+  opacity: 0.12,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
 })
 
 export const Tunnels3D = memo(function Tunnels3D({ chunkZ }: { chunkZ: number }) {
@@ -148,16 +160,10 @@ export const Tunnels3D = memo(function Tunnels3D({ chunkZ }: { chunkZ: number })
                   <mesh position={[0, 0, 0]} material={sodiumLampBulbMat}>
                     <boxGeometry args={[1.3, 0.1, 0.25]} />
                   </mesh>
-                  {/* Single Key Downward Sodium Light per tunnel cluster */}
-                  {lIdx === Math.floor(lampSamples.length / 2) && (
-                    <pointLight
-                      position={[0, -0.6, 0]}
-                      color="#f59e0b"
-                      intensity={5.5}
-                      distance={32.0}
-                      decay={1.8}
-                    />
-                  )}
+                  {/* Soft Additive Downward Sodium Light Cone (keeps scene light count constant) */}
+                  <mesh position={[0, -2.9, 0]} material={sodiumConeMat}>
+                    <coneGeometry args={[3.4, 5.8, 10, 1, true]} />
+                  </mesh>
                 </group>
               )
             })}

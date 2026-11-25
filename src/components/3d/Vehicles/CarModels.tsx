@@ -1,8 +1,48 @@
-import { useMemo, useRef, useEffect } from 'react'
-import { useFrame } from '@react-three/fiber'
-import { useGLTF } from '@react-three/drei'
+import { useMemo, useRef, useEffect, useLayoutEffect } from 'react'
+import { useFrame, useLoader } from '@react-three/fiber'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import * as THREE from 'three'
 import { VehicleModelType, useGameStore } from '../../../store/useGameStore'
+import { worldReadinessRegistry } from '../../../utils/loadingRegistry'
+
+let sharedDracoLoader: DRACOLoader | null = null
+
+function extendVehicleGltfLoader(loader: GLTFLoader) {
+  if (!sharedDracoLoader) {
+    sharedDracoLoader = new DRACOLoader()
+    sharedDracoLoader.setDecoderPath('/draco/')
+    sharedDracoLoader.preload()
+  }
+  loader.setDRACOLoader(sharedDracoLoader)
+}
+
+function makeProgressHandler(url: string) {
+  return (event: ProgressEvent) => {
+    if (event.lengthComputable && event.total > 0) {
+      worldReadinessRegistry.vehicleByteProgress.set(url, {
+        loaded: event.loaded,
+        total: event.total,
+      })
+    }
+  }
+}
+
+function useVehicleGLTF(url: string) {
+  const handler = useMemo(() => makeProgressHandler(url), [url])
+  const gltf = useLoader(GLTFLoader, url, extendVehicleGltfLoader, handler)
+  useEffect(() => {
+    // Ensure cached hits mark 100% loaded in progress map
+    const existing = worldReadinessRegistry.vehicleByteProgress.get(url)
+    if (!existing || existing.loaded < existing.total) {
+      worldReadinessRegistry.vehicleByteProgress.set(url, {
+        loaded: existing?.total || 1,
+        total: existing?.total || 1,
+      })
+    }
+  }, [url, gltf])
+  return gltf
+}
 
 interface CarModelProps {
   type: VehicleModelType
@@ -21,6 +61,7 @@ interface CarModelProps {
   paintFinish?: string
   spoilerType?: string
   headlightBeam?: 'low' | 'high'
+  onModelReady?: (type: VehicleModelType) => void
 }
 
 // Reusable Forward Dual-Beam Headlight Projector (Gentle Road & Shoulder Illumination)
@@ -243,23 +284,34 @@ function BmwGtrWheel({
     // Calibrated automotive satin/semi-gloss alloy to prevent blown-out specular highlights
     const effMetal = Math.min(0.78, Math.max(0.45, (metallic ?? 0.85) * 0.82))
     const effRough = Math.max(0.28, roughness ?? 0.28)
-    return new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(rimColor || '#d1d5db'),
       metalness: effMetal,
       roughness: effRough,
       envMapIntensity: 1.05,
     })
+    mat.name = 'WheelBase'
+    return mat
   }, [rimColor, metallic, roughness])
 
   const caliperMat = useMemo(() => {
-    return new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(caliperColor || '#d97706'),
       metalness: 0.85,
       roughness: 0.22,
     })
+    mat.name = 'Calliper'
+    return mat
   }, [caliperColor])
 
   useEffect(() => {
+    return () => {
+      rimMat.dispose()
+      caliperMat.dispose()
+    }
+  }, [rimMat, caliperMat])
+
+  useLayoutEffect(() => {
     cloned.traverse((child) => {
       // Hide corrupted giant Object_8 mesh from tuner_wheel.glb
       if (child.name === 'Object_8') {
@@ -339,8 +391,8 @@ export function BmwM3GtrModel({
   paintFinish,
   spoilerType,
 }: CarModelProps) {
-  const { scene: bodyScene } = useGLTF('/models/bmw_m3_gtr_e46.glb')
-  const { scene: wheelScene } = useGLTF('/models/tuner_wheel.glb')
+  const { scene: bodyScene } = useVehicleGLTF('/models/bmw_m3_gtr_e46.glb')
+  const { scene: wheelScene } = useVehicleGLTF('/models/tuner_wheel.glb')
 
   const clonedBody = useMemo(() => {
     return bodyScene.clone(true)
@@ -381,14 +433,15 @@ export function BmwM3GtrModel({
 
   const glassMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color('#0a1128'),
-      metalness: 0.1,
-      roughness: 0.05,
-      transmission: 0.85,
+      color: new THREE.Color('#0a1428'),
+      metalness: 0.22,
+      roughness: 0.06,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
       transparent: true,
-      opacity: 0.90,
-      reflectivity: 0.70,
-      envMapIntensity: 1.1, // Calibrated automotive glass reflection to eliminate blowout
+      opacity: 0.62,
+      reflectivity: 0.90,
+      envMapIntensity: 1.45, // Calibrated automotive glass reflection without costly transmission pass
     })
   }, [])
 
@@ -431,10 +484,33 @@ export function BmwM3GtrModel({
     taillightMaterial.color.set(isBraking ? '#ff0000' : '#7f1d1d')
     taillightMaterial.emissive.set(isBraking ? '#ef4444' : '#330000')
     taillightMaterial.emissiveIntensity = isBraking ? 3.2 : 0.5
-    taillightMaterial.needsUpdate = true
   }, [isBraking, taillightMaterial])
 
   useEffect(() => {
+    return () => {
+      bodyPaintMaterial.dispose()
+      glassMaterial.dispose()
+      carbonFiberMaterial.dispose()
+      wingUprightMaterial.dispose()
+      taillightMaterial.dispose()
+      headlightMaterial.dispose()
+    }
+  }, [
+    bodyPaintMaterial,
+    glassMaterial,
+    carbonFiberMaterial,
+    wingUprightMaterial,
+    taillightMaterial,
+    headlightMaterial,
+  ])
+
+  useLayoutEffect(() => {
+    bodyPaintMaterial.name = 'Carpaint'
+    carbonFiberMaterial.name = 'Carbon'
+    glassMaterial.name = 'Glass'
+    taillightMaterial.name = 'red_glass'
+    headlightMaterial.name = 'Lights'
+
     clonedBody.traverse((child) => {
       // Hide static merged tire mesh
       if (child.name.includes('M_Tire_High')) {
@@ -630,7 +706,7 @@ export function SupercarModel({
   rimColor,
   paintFinish,
 }: CarModelProps) {
-  const { scene } = useGLTF('/models/ferrari.glb')
+  const { scene } = useVehicleGLTF('/models/ferrari.glb')
 
   // Clone scene hierarchy to ensure independent transforms and instance safety
   const clonedScene = useMemo(() => {
@@ -681,14 +757,15 @@ export function SupercarModel({
 
   const glassMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color('#0a1128'),
-      metalness: 0.1,
-      roughness: 0.05,
-      transmission: 0.85,
+      color: new THREE.Color('#0a1428'),
+      metalness: 0.22,
+      roughness: 0.06,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
       transparent: true,
-      opacity: 0.90,
-      reflectivity: 0.70,
-      envMapIntensity: 1.1, // Calibrated automotive glass reflection to eliminate blowout
+      opacity: 0.62,
+      reflectivity: 0.90,
+      envMapIntensity: 1.45, // Calibrated automotive glass reflection without costly transmission pass
     })
   }, [])
 
@@ -714,8 +791,17 @@ export function SupercarModel({
     taillightMaterial.color.set(isBraking ? '#ff0000' : '#7f1d1d')
     taillightMaterial.emissive.set(isBraking ? '#ef4444' : '#330000')
     taillightMaterial.emissiveIntensity = isBraking ? 3.0 : 0.5
-    taillightMaterial.needsUpdate = true
   }, [isBraking, taillightMaterial])
+
+  useEffect(() => {
+    return () => {
+      bodyPaintMaterial.dispose()
+      supercarRimMat.dispose()
+      glassMaterial.dispose()
+      carbonFiberMaterial.dispose()
+      taillightMaterial.dispose()
+    }
+  }, [bodyPaintMaterial, supercarRimMat, glassMaterial, carbonFiberMaterial, taillightMaterial])
 
   // Store references to articulated nodes
   const nodesRef = useRef<{
@@ -732,8 +818,14 @@ export function SupercarModel({
     steeringWheel: null,
   })
 
-  // Traverse and apply high-quality PBR materials and bind node references (never re-run on braking)
-  useEffect(() => {
+  // Traverse and apply high-quality PBR materials and bind node references synchronously before render
+  useLayoutEffect(() => {
+    bodyPaintMaterial.name = 'body_color'
+    glassMaterial.name = 'glass'
+    carbonFiberMaterial.name = 'carbon'
+    supercarRimMat.name = 'rim'
+    taillightMaterial.name = 'taillight'
+
     nodesRef.current = {
       wheelFl: null,
       wheelFr: null,
@@ -948,7 +1040,17 @@ export function CamperVanModel({
   const chromeMat = <meshStandardMaterial color="#f8fafc" metalness={0.96} roughness={0.06} />
   const woodMat = <meshStandardMaterial color="#b45309" roughness={0.7} />
   const glassMat = (
-    <meshPhysicalMaterial color="#38bdf8" roughness={0.06} transmission={0.84} transparent opacity={0.9} />
+    <meshPhysicalMaterial
+      color="#0f2942"
+      metalness={0.22}
+      roughness={0.06}
+      clearcoat={1.0}
+      clearcoatRoughness={0.04}
+      transparent
+      opacity={0.62}
+      reflectivity={0.9}
+      envMapIntensity={1.4}
+    />
   )
   const headlightMat = (
     <meshStandardMaterial
@@ -1160,12 +1262,15 @@ export function HovercraftModel({
   const darkAero = <meshStandardMaterial color="#0f172a" metalness={0.65} roughness={0.35} />
   const canopyGlass = (
     <meshPhysicalMaterial
-      color="#0284c7"
-      roughness={0.04}
-      transmission={0.88}
+      color="#033b5c"
+      metalness={0.25}
+      roughness={0.05}
+      clearcoat={1.0}
+      clearcoatRoughness={0.04}
       transparent
-      opacity={0.92}
+      opacity={0.66}
       reflectivity={0.98}
+      envMapIntensity={1.5}
     />
   )
   const repulsorGlow = (
@@ -1331,7 +1436,17 @@ export function VintageHatchbackModel({
   const trimMat = <meshStandardMaterial color="#1e293b" roughness={0.75} />
   const whiteRimMat = <meshStandardMaterial color={rimColor || '#f8fafc'} roughness={0.15} metalness={0.7} />
   const glassMat = (
-    <meshPhysicalMaterial color="#0284c7" roughness={0.06} transmission={0.8} transparent opacity={0.92} />
+    <meshPhysicalMaterial
+      color="#0f2942"
+      metalness={0.2}
+      roughness={0.06}
+      clearcoat={1.0}
+      clearcoatRoughness={0.04}
+      transparent
+      opacity={0.62}
+      reflectivity={0.9}
+      envMapIntensity={1.4}
+    />
   )
   const headlightMat = (
     <meshStandardMaterial
@@ -1527,7 +1642,21 @@ export function VintageHatchbackModel({
   )
 }
 
-export function ProceduralSportsCarFallback({ paintColor }: { paintColor?: string }) {
+export function ProceduralSportsCarFallback({
+  paintColor,
+  onReady,
+  vehicleType,
+}: {
+  paintColor?: string
+  onReady?: (type: VehicleModelType) => void
+  vehicleType?: VehicleModelType
+}) {
+  useLayoutEffect(() => {
+    if (onReady && vehicleType) {
+      onReady(vehicleType)
+    }
+  }, [onReady, vehicleType])
+
   return (
     <group position={[0, 0, 0]}>
       {/* Sleek GT Sports Monocoque Chassis */}
@@ -1562,25 +1691,84 @@ export function ProceduralSportsCarFallback({ paintColor }: { paintColor?: strin
   )
 }
 
+function VehicleReadyNotifier({
+  type,
+  onModelReady,
+}: {
+  type: VehicleModelType
+  onModelReady?: (type: VehicleModelType) => void
+}) {
+  useLayoutEffect(() => {
+    worldReadinessRegistry.vehicleAssetLoaded = true
+    worldReadinessRegistry.vehicleLoadedType = type
+    worldReadinessRegistry.vehicleError = null
+    onModelReady?.(type)
+  }, [type, onModelReady])
+
+  return null
+}
+
 export function ActiveCarModel(props: CarModelProps) {
+  let content: JSX.Element
   switch (props.type) {
     case 'hovercraft':
-      return <HovercraftModel {...props} />
+      content = <HovercraftModel {...props} />
+      break
     case 'bmw_m3':
-      return <BmwM3GtrModel {...props} />
+      content = <BmwM3GtrModel {...props} />
+      break
     case 'supercar':
     case 'modern_supercar':
-      return <SupercarModel {...props} />
+      content = <SupercarModel {...props} />
+      break
     case 'camper':
-      return <CamperVanModel {...props} />
+      content = <CamperVanModel {...props} />
+      break
     case 'hatchback':
     case 'vintage_hatch':
-      return <VintageHatchbackModel {...props} />
+      content = <VintageHatchbackModel {...props} />
+      break
     default:
-      return <BmwM3GtrModel {...props} />
+      content = <BmwM3GtrModel {...props} />
+      break
+  }
+
+  return (
+    <>
+      {content}
+      <VehicleReadyNotifier type={props.type} onModelReady={props.onModelReady} />
+    </>
+  )
+}
+
+export function getRequiredGlbUrlsForVehicle(type: VehicleModelType): string[] {
+  switch (type) {
+    case 'bmw_m3':
+      return ['/models/bmw_m3_gtr_e46.glb', '/models/tuner_wheel.glb']
+    case 'supercar':
+    case 'modern_supercar':
+      return ['/models/ferrari.glb']
+    default:
+      return []
   }
 }
 
-// Preload external GLTF monocoques without duplicate registrations
-useGLTF.preload('/models/bmw_m3_gtr_e46.glb')
-useGLTF.preload('/models/tuner_wheel.glb')
+export function preloadSelectedVehicleAssets(type: VehicleModelType): void {
+  const urls = getRequiredGlbUrlsForVehicle(type)
+  // Trigger secondary asset preload in parallel (index 0 starts synchronously in render with byte progress)
+  for (let i = 1; i < urls.length; i++) {
+    useLoader.preload(GLTFLoader, urls[i], extendVehicleGltfLoader)
+  }
+}
+
+export function clearVehicleAssetCache(type: VehicleModelType): void {
+  const urls = getRequiredGlbUrlsForVehicle(type)
+  for (const url of urls) {
+    try {
+      useLoader.clear(GLTFLoader, url)
+    } catch {
+      // ignore if not currently cached
+    }
+  }
+  worldReadinessRegistry.vehicleByteProgress.clear()
+}

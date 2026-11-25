@@ -361,3 +361,47 @@ export function getWoodBumpTexture(): THREE.CanvasTexture {
   cachedWoodBumpTexture = texture
   return texture
 }
+
+/**
+ * Generates and caches all procedural surface textures incrementally across animation frames
+ * so the initial loading sequence never stalls the main thread.
+ */
+export async function warmEssentialTextures(
+  onStep?: (label: string, pct: number) => void
+): Promise<void> {
+  const yieldFrame = () =>
+    new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resolve())
+      } else {
+        setTimeout(resolve, 0)
+      }
+    })
+
+  if (!cachedAsphaltTexture) {
+    onStep?.('Synthesizing highway asphalt aggregate', 20)
+    await yieldFrame()
+    getAsphaltTexture()
+  }
+  if (!cachedBumpTexture) {
+    onStep?.('Generating tarmac micro-relief bump map', 40)
+    await yieldFrame()
+    getAsphaltBumpTexture()
+  }
+  if (!cachedRoughnessTexture) {
+    onStep?.('Generating wear-track roughness map', 60)
+    await yieldFrame()
+    getAsphaltRoughnessTexture()
+  }
+  if (!cachedTerrainBumpTexture) {
+    onStep?.('Synthesizing terrain strata bump texture', 80)
+    await yieldFrame()
+    getTerrainBumpTexture()
+  }
+  if (!cachedWoodBumpTexture) {
+    onStep?.('Synthesizing roadside timber grain', 95)
+    await yieldFrame()
+    getWoodBumpTexture()
+  }
+  onStep?.('Surface textures ready', 100)
+}

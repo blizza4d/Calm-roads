@@ -1,9 +1,10 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, SSAO } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore } from '../../../store/useGameStore'
+import { worldReadinessRegistry } from '../../../utils/loadingRegistry'
 import { BIOMES, getRoadCenter } from '../../../utils/roadMath'
 import { calculateEnvironmentalLighting } from '../../../utils/environmentalLighting'
 import { updateAtmosphericUniforms } from '../../../utils/atmosphericShader'
@@ -566,9 +567,10 @@ export default function GameEnvironment() {
   const graphicsQuality = useGameStore((s) => s.graphicsQuality)
   const { scene, camera } = useThree()
 
-  // Hardware Object References
+  // Hardware Object References (stable memoized target avoids per-render Object3D allocation)
   const dirLightRef = useRef<THREE.DirectionalLight>(null)
-  const lightTargetRef = useRef<THREE.Object3D>(null)
+  const lightTargetObj = useMemo(() => new THREE.Object3D(), [])
+  const lightTargetRef = useRef<THREE.Object3D>(lightTargetObj)
   const ambientLightRef = useRef<THREE.AmbientLight>(null)
   const hemiLightRef = useRef<THREE.HemisphereLight>(null)
 
@@ -696,11 +698,23 @@ export default function GameEnvironment() {
     useTelemetryStore.getState().setTelemetry({ reflectionPreset: initialLighting.reflectionPreset })
   }, [initialLighting.reflectionPreset])
 
-  // Initial Scene Fog initialization
-  useEffect(() => {
-    scene.fog = new THREE.FogExp2(initialLighting.fogColor, initialLighting.fogDensity)
+  // Initial Scene Fog & Readiness initialization before first shader compile/paint
+  useLayoutEffect(() => {
+    if (!scene.fog) {
+      scene.fog = new THREE.FogExp2(initialLighting.fogColor, initialLighting.fogDensity)
+    } else {
+      scene.fog.color.copy(initialLighting.fogColor)
+      ;(scene.fog as THREE.FogExp2).density = initialLighting.fogDensity
+    }
     scene.background = initialLighting.skyHorizonColor
+    worldReadinessRegistry.environmentReady = true
+    return () => {
+      worldReadinessRegistry.environmentReady = false
+    }
   }, [scene, initialLighting])
+
+  // Quantize local IBL probe updates cleanly by reflection preset + weather so autoTimeCycle doesn't rebuild PMREM at 2Hz
+  const envProbeKey = `${initialLighting.reflectionPreset}-${weather}-${graphicsQuality === 'low' ? 'l' : 'h'}`
 
   // Textures for Precipitation
   const snowflakeTex = useMemo(() => createSnowflakeTexture(), [])
@@ -757,7 +771,7 @@ export default function GameEnvironment() {
 
   return (
     <>
-      <primitive object={lightTargetRef.current || new THREE.Object3D()} ref={lightTargetRef} />
+      <primitive object={lightTargetObj} ref={lightTargetRef} />
 
       {/* Dynamic Background Atmosphere Color */}
       <color attach="background" args={[initialLighting.skyHorizonColor]} />
@@ -806,6 +820,8 @@ export default function GameEnvironment() {
 
       {/* High-Dynamic-Range Global Illumination for Car Paint & Metallic Surfaces (Instant Local Procedural Probe — 0 Network Lag) */}
       <Environment
+        key={envProbeKey}
+        frames={1}
         background={false}
         environmentIntensity={graphicsQuality === 'low' ? 0.35 : initialLighting.isNight ? 0.30 : 0.65}
       >

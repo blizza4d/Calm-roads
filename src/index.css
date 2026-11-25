@@ -113,3 +113,25 @@ html, body, #root {
 ::-webkit-scrollbar {
   display: none;
 }
+
+/* Lightweight GPU-composited animations for Cinematic Loading Screen */
+@keyframes crHorizonSweep {
+  0% {
+    transform: translateX(-100%) skewX(-18deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.35;
+  }
+  80% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translateX(220%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+.cr-horizon-sweep {
+  animation: crHorizonSweep 4.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}

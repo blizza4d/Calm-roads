@@ -1,10 +1,11 @@
-import { useRef, useEffect, useMemo, useState, Suspense } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { Component, ErrorInfo, ReactNode, useRef, useEffect, useLayoutEffect, useMemo, useState, useCallback, Suspense } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import { useKeyboardControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore, VehicleModelType, CameraPerspectiveType } from '../../../store/useGameStore'
 import { useLoadingStore } from '../../../store/useLoadingStore'
-import { ActiveCarModel, ProceduralSportsCarFallback } from './CarModels'
+import { ActiveCarModel, ProceduralSportsCarFallback, clearVehicleAssetCache } from './CarModels'
+import { worldReadinessRegistry } from '../../../utils/loadingRegistry'
 import {
   getRoadCenter,
   getRoadElevation,
@@ -408,6 +409,54 @@ const _tempSkidR1 = new THREE.Vector3()
 const _prevSkidL = new THREE.Vector3()
 const _prevSkidR = new THREE.Vector3()
 
+interface VehicleErrorBoundaryProps {
+  resetKey: string
+  vehicleModel: VehicleModelType
+  children: ReactNode
+}
+
+interface VehicleErrorBoundaryState {
+  hasError: boolean
+}
+
+class VehicleAssetErrorBoundary extends Component<VehicleErrorBoundaryProps, VehicleErrorBoundaryState> {
+  constructor(props: VehicleErrorBoundaryProps) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(): VehicleErrorBoundaryState {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(prevProps: VehicleErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    console.error('[VehicleAssetErrorBoundary] Failed to load vehicle assets:', error)
+    clearVehicleAssetCache(this.props.vehicleModel)
+    const msg = error?.message || `Failed to load 3D model for ${this.props.vehicleModel}`
+    worldReadinessRegistry.vehicleAssetLoaded = false
+    worldReadinessRegistry.vehicleError = msg
+    if (!useLoadingStore.getState().isReady) {
+      useLoadingStore.getState().setError(`Vehicle asset error: ${msg}`, 'vehicle', true)
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      if (worldReadinessRegistry.vehicleAllowFallback || useLoadingStore.getState().isReady) {
+        return <ProceduralSportsCarFallback paintColor="#cbd5e1" vehicleType={this.props.vehicleModel} />
+      }
+      return null
+    }
+    return this.props.children
+  }
+}
+
 export default function VehicleController() {
   const carGroupRef = useRef<THREE.Group>(null)
   const chassisMeshRef = useRef<THREE.Group>(null)
@@ -415,9 +464,20 @@ export default function VehicleController() {
   const isFirstCamFrameRef = useRef(true)
   const prevCamModeRef = useRef<CameraPerspectiveType>('chase')
   const [, getKeys] = useKeyboardControls()
+  const { camera } = useThree()
+
+  const isLoadingReady = useLoadingStore((s) => s.isReady)
+  const retryCount = useLoadingStore((s) => s.retryCount)
 
   // Discrete Zustand selectors to prevent 60fps React Fiber re-renders of the 3D car tree
   const vehicleModel = useGameStore((s) => s.vehicleModel)
+
+  // Synchronously clear any failed loader cache entry on retry before suspending tree renders
+  useMemo(() => {
+    if (retryCount > 0 && !worldReadinessRegistry.vehicleAssetLoaded) {
+      clearVehicleAssetCache(vehicleModel)
+    }
+  }, [retryCount, vehicleModel])
   const paintColor = useGameStore((s) => s.paintColor)
   const metallic = useGameStore((s) => s.metallic)
   const roughness = useGameStore((s) => s.roughness)
@@ -533,9 +593,44 @@ export default function VehicleController() {
   const forwardHoldTimer = useRef(0)
   const smoothedRpm = useRef(config.idleRpm)
 
-  // Vehicle Audio Engine Lifecycle: Initialize Web Audio API and cleanup on unmount
+  // Register vehicle group reference & align spawn transform immediately on mount/retry
+  const handleModelReady = useCallback((loadedType: VehicleModelType) => {
+    worldReadinessRegistry.vehicleAssetLoaded = true
+    worldReadinessRegistry.vehicleLoadedType = loadedType
+    worldReadinessRegistry.vehicleError = null
+  }, [])
+
+  useLayoutEffect(() => {
+    worldReadinessRegistry.vehicleGroup = carGroupRef.current
+    if (typeof window !== 'undefined') {
+      ;(window as any).__VEHICLE_POS__ = pos.current
+    }
+    if (carGroupRef.current) {
+      const spawnZ = pos.current.z
+      const roadX = getRoadCenter(spawnZ)
+      const roadY = getRoadElevation(spawnZ) + (isHoverMode ? 1.25 : config.rideHeight)
+      pos.current.set(roadX, roadY, spawnZ)
+      carGroupRef.current.position.copy(pos.current)
+      carGroupRef.current.rotation.set(0, yawAngle.current, 0)
+      carGroupRef.current.updateMatrixWorld()
+      worldReadinessRegistry.vehicleTransformReady = true
+    }
+    if (camera) {
+      camera.position.set(pos.current.x, pos.current.y + 1.82, pos.current.z + 4.85)
+      cameraLookAtRef.current.set(pos.current.x, pos.current.y + 0.86, pos.current.z - 2.8)
+      camera.lookAt(cameraLookAtRef.current)
+      camera.updateMatrixWorld()
+      worldReadinessRegistry.cameraReady = true
+    }
+    return () => {
+      if (worldReadinessRegistry.vehicleGroup === carGroupRef.current) {
+        worldReadinessRegistry.vehicleGroup = null
+      }
+    }
+  }, [camera, isHoverMode, config.rideHeight, retryCount])
+
+  // Audio cleanup on unmount (Audio init is coordinated cleanly in Stage 5)
   useEffect(() => {
-    audioSystem.init()
     return () => {
       audioSystem.cleanup()
     }
@@ -564,6 +659,7 @@ export default function VehicleController() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!useLoadingStore.getState().isReady) return
       if (e.repeat) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
@@ -695,7 +791,35 @@ export default function VehicleController() {
   }, [isHoverMode, vehicleModel, config])
 
   useFrame((state, delta) => {
-    if (!carGroupRef.current || photoMode) return
+    if (!carGroupRef.current) return
+
+    // Before readiness validation completes: lock vehicle & camera deterministically at spawn
+    if (!useLoadingStore.getState().isReady) {
+      const spawnZ = pos.current.z
+      const roadX = getRoadCenter(spawnZ)
+      const roadY = getRoadElevation(spawnZ) + (isHoverMode ? 1.25 : config.rideHeight)
+      pos.current.set(roadX, roadY, spawnZ)
+      carGroupRef.current.position.copy(pos.current)
+      carGroupRef.current.rotation.set(0, 0, 0)
+      carGroupRef.current.updateMatrixWorld()
+
+      const persCam = state.camera as THREE.PerspectiveCamera
+      if (persCam.isPerspectiveCamera && Math.abs(persCam.fov - 60) > 0.1) {
+        persCam.fov = 60
+        persCam.updateProjectionMatrix()
+      }
+      state.camera.position.set(pos.current.x, pos.current.y + 1.82, pos.current.z + 4.85)
+      cameraLookAtRef.current.set(pos.current.x, pos.current.y + 0.86, pos.current.z - 2.8)
+      state.camera.lookAt(cameraLookAtRef.current)
+      isFirstCamFrameRef.current = true
+
+      worldReadinessRegistry.vehicleGroup = carGroupRef.current
+      worldReadinessRegistry.vehicleTransformReady = true
+      worldReadinessRegistry.cameraReady = true
+      return
+    }
+
+    if (photoMode) return
 
     const frameDelta = Math.min(delta, 0.08)
     const keys = getKeys()
@@ -2054,26 +2178,51 @@ export default function VehicleController() {
     <>
       <group ref={carGroupRef}>
         <group ref={chassisMeshRef}>
-          <Suspense fallback={<ProceduralSportsCarFallback paintColor={paintColor} />}>
-            <ActiveCarModel
-              type={vehicleModel}
+          {worldReadinessRegistry.vehicleAllowFallback ? (
+            <ProceduralSportsCarFallback
               paintColor={paintColor}
-              paintFinish={paintFinish}
-              metallic={metallic}
-              roughness={roughness}
-              caliperColor={caliperColor}
-              rimColor={rimColor}
-              spoilerType={spoilerType}
-              steeringAngle={steeringVisual.current}
-              wheelRotation={wheelSpin.current}
-              isBraking={isBrakingVisual}
-              isReversing={isReversingVisual}
-              headlightsOn={headlights}
-              headlightBeam={headlightBeam}
-              isHoverMode={isHoverMode}
-              wheelSuspensions={wheelSuspensions.current}
+              onReady={handleModelReady}
+              vehicleType={vehicleModel}
             />
-          </Suspense>
+          ) : (
+            <VehicleAssetErrorBoundary
+              key={`${vehicleModel}-${retryCount}`}
+              resetKey={`${vehicleModel}-${retryCount}`}
+              vehicleModel={vehicleModel}
+            >
+              <Suspense
+                fallback={
+                  isLoadingReady ? (
+                    <ProceduralSportsCarFallback
+                      paintColor={paintColor}
+                      onReady={handleModelReady}
+                      vehicleType={vehicleModel}
+                    />
+                  ) : null
+                }
+              >
+                <ActiveCarModel
+                  type={vehicleModel}
+                  paintColor={paintColor}
+                  paintFinish={paintFinish}
+                  metallic={metallic}
+                  roughness={roughness}
+                  caliperColor={caliperColor}
+                  rimColor={rimColor}
+                  spoilerType={spoilerType}
+                  steeringAngle={steeringVisual.current}
+                  wheelRotation={wheelSpin.current}
+                  isBraking={isBrakingVisual}
+                  isReversing={isReversingVisual}
+                  headlightsOn={headlights}
+                  headlightBeam={headlightBeam}
+                  isHoverMode={isHoverMode}
+                  wheelSuspensions={wheelSuspensions.current}
+                  onModelReady={handleModelReady}
+                />
+              </Suspense>
+            </VehicleAssetErrorBoundary>
+          )}
         </group>
       </group>
       <points

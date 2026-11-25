@@ -2,6 +2,8 @@ import { useMemo, useRef, useEffect, useLayoutEffect, useState, memo } from 'rea
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore, useTelemetryStore, GraphicsQualityType } from '../../../store/useGameStore'
+import { useLoadingStore } from '../../../store/useLoadingStore'
+import { worldReadinessRegistry, ESSENTIAL_SPAWN_CHUNK_ZS } from '../../../utils/loadingRegistry'
 import { HighwaySigns } from './HighwaySigns'
 import { Landmarks3D } from './Landmarks3D'
 import { Bridges3D } from './Bridges3D'
@@ -1882,6 +1884,28 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
     }
   })
 
+  // Register validated chunk geometry readiness cleanly before paint
+  useLayoutEffect(() => {
+    const isTerrainValid = validateChunkGeometry(terrainGeo, `terrainGeo(${chunkZ})`)
+    const isRoadValid = validateChunkGeometry(roadGeo, `roadGeo(${chunkZ})`)
+    const isShoulderValid = validateChunkGeometry(shoulderGeo, `shoulderGeo(${chunkZ})`)
+    const isMarkingsValid = validateChunkGeometry(markingsGeo, `markingsGeo(${chunkZ})`)
+
+    if (isTerrainValid && isRoadValid && isShoulderValid && isMarkingsValid) {
+      worldReadinessRegistry.markChunkValidated(
+        chunkZ,
+        terrainGeo.attributes.position.count,
+        roadGeo.attributes.position.count
+      )
+    } else {
+      worldReadinessRegistry.terrainError = `Invalid geometry detected at chunk Z=${chunkZ}`
+    }
+
+    return () => {
+      worldReadinessRegistry.unmarkChunk(chunkZ)
+    }
+  }, [chunkZ, terrainGeo, roadGeo, shoulderGeo, markingsGeo])
+
   // Strict Three.js Memory Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -2074,42 +2098,66 @@ const TerrainChunkTile = memo(function TerrainChunkTile({ chunkZ, biomeConfig, i
 }, (prev, next) => prev.chunkZ === next.chunkZ && prev.biomeConfig.id === next.biomeConfig.id && prev.isRaining === next.isRaining && prev.graphicsQuality === next.graphicsQuality)
 
 // Predictive High-Speed World Horizon Streaming Engine:
-// Instant Staged Loading: starts with 8 chunks (1,600m) for sub-second game startup,
-// then smoothly expands in the background up to targetChunkCount (12-20 chunks = 2.4km - 4.0km).
+// Staged Loading: mounts 5 essential spawn chunks (+200m to -600m) incrementally during Stage 4
+// so the loading UI stays 100% responsive, then streams distant horizon chunks (up to 12-20)
+// progressively in the background once gameplay begins.
 const CHUNKS_BEHIND = 2
-const INITIAL_PLAYABLE_CHUNKS = 8
 
 export default function Terrain() {
   const biome = useGameStore((state) => state.biome)
   const weather = useGameStore((state) => state.weather)
   const graphicsQuality = useGameStore((state) => state.graphicsQuality)
   const setDiagnostics = useGameStore((state) => state.setDiagnostics)
+  const loadingStage = useLoadingStore((s) => s.stage)
+  const isLoadingReady = useLoadingStore((s) => s.isReady)
+  const retryCount = useLoadingStore((s) => s.retryCount)
   const { camera } = useThree()
   const diagCounter = useRef(0)
   const expandThrottle = useRef(0)
+  const bgReportedDoneRef = useRef(false)
 
   const targetChunkCount = graphicsQuality === 'low' ? 12 : graphicsQuality === 'medium' ? 16 : 20
 
-  // Initial playable chunks (1,600m continuous road around player)
-  const [chunkSlots, setChunkSlots] = useState<number[]>(() => {
-    const initial: number[] = []
-    for (let i = 0; i < INITIAL_PLAYABLE_CHUNKS; i++) {
-      initial.push((CHUNKS_BEHIND - i) * CHUNK_LEN)
-    }
-    return initial
-  })
+  // Start empty so Stage 1-3 (Renderer & Vehicle download) execute with zero blocking terrain work;
+  // Stage 4 mounts essential spawn chunks 1-per-frame cleanly.
+  const [chunkSlots, setChunkSlots] = useState<number[]>([])
 
   // Ref to track chunk slots synchronously across frames without React re-render lag
   const slotsRef = useRef<number[]>(chunkSlots)
   slotsRef.current = chunkSlots
   const lastCamZ = useRef<number>(camera.position.z)
 
+  useEffect(() => {
+    if (retryCount > 0) {
+      bgReportedDoneRef.current = false
+      slotsRef.current = []
+      setChunkSlots([])
+    }
+  }, [retryCount])
+
   useFrame((state) => {
     sharedFoliageUniforms.uTime.value = state.clock.getElapsedTime()
+
+    // Stage 4: Incrementally generate essential spawn chunks (1 per animation frame -> zero main-thread freeze!)
+    if (!isLoadingReady) {
+      if (
+        (loadingStage === 'BUILDING_INITIAL_WORLD' ||
+          loadingStage === 'PREPARING_ENVIRONMENT' ||
+          loadingStage === 'COMPILING_SHADERS') &&
+        slotsRef.current.length < ESSENTIAL_SPAWN_CHUNK_ZS.length
+      ) {
+        const nextChunkZ = ESSENTIAL_SPAWN_CHUNK_ZS[slotsRef.current.length]
+        const nextSlots = [...slotsRef.current, nextChunkZ]
+        slotsRef.current = nextSlots
+        setChunkSlots(nextSlots)
+      }
+      return
+    }
+
     const camZ = camera.position.z
 
     // 1. Detect Vehicle Reset or Teleport (camZ jump > 150m)
-    if (Math.abs(camZ - lastCamZ.current) > 150) {
+    if (Math.abs(camZ - lastCamZ.current) > 150 && slotsRef.current.length > 0) {
       const centerChunkZ = Math.round(camZ / CHUNK_LEN) * CHUNK_LEN
       const recentered: number[] = []
       const currentCount = slotsRef.current.length
@@ -2123,21 +2171,39 @@ export default function Terrain() {
     }
     lastCamZ.current = camZ
 
-    // 1b. Staged Background Expansion: Progressively expand horizon in background without stutter
+    // 1b. Optional Background Horizon Enhancement: Progressively stream distant chunks after READY
     if (slotsRef.current.length < targetChunkCount) {
       expandThrottle.current++
       if (expandThrottle.current >= 4) {
         expandThrottle.current = 0
-        let minZ = slotsRef.current[0]
+        let minZ = slotsRef.current.length > 0 ? slotsRef.current[0] : 0
         for (let i = 1; i < slotsRef.current.length; i++) {
           if (slotsRef.current[i] < minZ) minZ = slotsRef.current[i]
         }
         const nextSlots = [...slotsRef.current, minZ - CHUNK_LEN]
         slotsRef.current = nextSlots
         setChunkSlots(nextSlots)
+
+        const extraDone = nextSlots.length - ESSENTIAL_SPAWN_CHUNK_ZS.length
+        const extraTotal = Math.max(1, targetChunkCount - ESSENTIAL_SPAWN_CHUNK_ZS.length)
+        const pct = Math.min(99, Math.round((extraDone / extraTotal) * 100))
+        useLoadingStore.getState().updateTask('distant_world', {
+          status: nextSlots.length >= targetChunkCount ? 'complete' : 'in_progress',
+          progress: nextSlots.length >= targetChunkCount ? 100 : pct,
+          detail: `${nextSlots.length} / ${targetChunkCount} chunks streamed`,
+        })
         return
       }
+    } else if (!bgReportedDoneRef.current) {
+      bgReportedDoneRef.current = true
+      useLoadingStore.getState().updateTask('distant_world', {
+        status: 'complete',
+        progress: 100,
+        detail: `${targetChunkCount} / ${targetChunkCount} chunks active`,
+      })
     }
+
+    if (slotsRef.current.length === 0) return
 
     // 2. High-Speed Predictive Forward Horizon Streaming (Max 1 chunk recycled per frame for silky 60fps)
     const totalSlots = slotsRef.current.length
@@ -2167,7 +2233,7 @@ export default function Terrain() {
       currentSlots[rearmostIdx] = frontmostZ - CHUNK_LEN
       slotsRef.current = currentSlots
       setChunkSlots(currentSlots)
-    } else if (frontmostZ < retireFrontThreshold) {
+    } else if (totalSlots >= targetChunkCount && frontmostZ < retireFrontThreshold) {
       const currentSlots = [...slotsRef.current]
       currentSlots[frontmostIdx] = rearmostZ + CHUNK_LEN
       slotsRef.current = currentSlots

@@ -299,8 +299,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   setHoverMode: (isHoverMode) => set({ isHoverMode }),
 
   // Biomes
-  biome: 'dynamic',
-  setBiome: (biome) => set({ biome }),
+  biome: loadStoredJson<BiomeSelection>('biome', 'dynamic'),
+  setBiome: (biome) => {
+    saveStoredJson('biome', biome)
+    set({ biome })
+  },
   currentResolvedBiome: 'forest',
   setCurrentResolvedBiome: (currentResolvedBiome) => set({ currentResolvedBiome }),
 
@@ -345,12 +348,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Vehicle Customization
-  vehicleModel: 'bmw_m3',
-  setVehicleModel: (vehicleModel) => set({ vehicleModel }),
+  vehicleModel: loadStoredJson<VehicleModelType>('vehicle_model', 'bmw_m3'),
+  setVehicleModel: (vehicleModel) => {
+    saveStoredJson('vehicle_model', vehicleModel)
+    set({ vehicleModel })
+  },
   cycleVehicleModel: () => {
     const list = VEHICLES
     const nextIdx = (list.indexOf(get().vehicleModel) + 1) % list.length
-    set({ vehicleModel: list[nextIdx] })
+    const nextModel = list[nextIdx]
+    saveStoredJson('vehicle_model', nextModel)
+    set({ vehicleModel: nextModel })
   },
   paintColor: loadStoredJson<string>('paint_color', '#cbd5e1'), // Iconic German Silver
   setPaintColor: (paintColor) => {
