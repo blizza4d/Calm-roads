@@ -1,7 +1,7 @@
 // scripts/test-transmission-overhaul.mjs
 // Phase 1 Transmission & Gear Overhaul Verification Suite
 
-import { VEHICLE_CONFIGS } from '../src/components/3d/Vehicles/VehicleController.tsx'
+import { VEHICLE_CONFIGS } from '../src/components/3d/Vehicles/vehicleConfigs.ts'
 
 console.log('=== CALM ROADS 2.0: TRANSMISSION OVERHAUL VERIFICATION ===\n')
 

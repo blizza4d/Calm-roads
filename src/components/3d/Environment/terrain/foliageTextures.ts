@@ -21,7 +21,7 @@ export function getPineNeedleAlphaTexture(): THREE.CanvasTexture {
   if (ctx) {
     ctx.clearRect(0, 0, 128, 128)
     ctx.fillStyle = '#ffffff'
-    
+
     // Draw central stem
     ctx.beginPath()
     ctx.moveTo(64, 124)
@@ -61,8 +61,7 @@ export function getBroadleafAlphaTexture(): THREE.CanvasTexture {
   if (ctx) {
     ctx.clearRect(0, 0, 128, 128)
     ctx.fillStyle = '#ffffff'
-    
-    // Clustered overlapping leaf lobes with organic scalloped edges
+
     const centers = [
       [64, 64, 38],
       [42, 50, 26],
@@ -78,7 +77,6 @@ export function getBroadleafAlphaTexture(): THREE.CanvasTexture {
       ctx.fill()
     })
 
-    // Sub-lobes to break regular circular geometry
     for (let i = 0; i < 36; i++) {
       const angle = (i / 36) * Math.PI * 2
       const dist = 38 + Math.sin(i * 3.5) * 12
@@ -109,7 +107,6 @@ export function getGrassAlphaTexture(): THREE.CanvasTexture {
     ctx.clearRect(0, 0, 128, 128)
     ctx.fillStyle = '#ffffff'
 
-    // Draw fan of tapered grass blades
     const blades = [
       [64, 128, 64, 10, 8],
       [64, 128, 42, 18, 6],
@@ -135,7 +132,6 @@ export function getGrassAlphaTexture(): THREE.CanvasTexture {
 
 /**
  * Builds standard foliage MeshStandardMaterial with proper transparency & alphaTest: 0.5
- * to prevent black square bases and depth sorting visual bugs.
  */
 export function createFoliageMaterial(options: {
   color: string | THREE.Color

@@ -744,20 +744,20 @@ export function getRoadElevation(z: number): number {
   const macro = getInterpolatedMacroProfile(z)
   const phase = activeSeedPhase
 
-  // 1. Scenic Mountain Pass Climbs & Long Downhill Descents (wavelength ~1600m, vertical elevation change up to 52m)
-  // In mountainous terrain, this creates sustained 800m+ descents where the car loses significant elevation down valleys.
-  const passWave = (Math.sin(z * 0.0039 + 0.5 + phase * 0.25) * 0.5 + 0.5) * 52.0 * macro.roadElevationVariation
+  // 1. Scenic Mountain Pass Climbs & Long Downhill Descents (wavelength ~1600m, vertical elevation change up to 48m)
+  // In mountainous terrain, this creates sustained 750m+ descents where the car loses significant elevation down valleys.
+  const passWave = (Math.sin(z * 0.0039 + 0.5 + phase * 0.25) * 0.5 + 0.5) * 48.0 * macro.roadElevationVariation
   const passClimbGate = Math.max(0.0, Math.min(1.0, (macro.roadElevationVariation - 0.15) / 0.65))
 
-  // 2. Valley slopes, ridges and downhill drops (wavelength ~580m, elevation delta +-9m)
-  const valleyWave = Math.sin(z * 0.0108 + 1.2 + phase * 0.35) * 9.0 * macro.roadElevationVariation
+  // 2. Valley slopes, ridges and downhill drops (wavelength ~700m, elevation delta +-7.0m)
+  const valleyWave = Math.sin(z * 0.0090 + 1.2 + phase * 0.35) * 7.0 * macro.roadElevationVariation
 
-  // 3. Winding switchback descent steps (wavelength ~260m, elevation delta +-3.2m)
+  // 3. Winding switchback descent steps (wavelength ~260m, elevation delta +-1.5m)
   // Each switchback hairpin loop steps the road down realistically down the mountainside
-  const switchbackDrop = Math.sin(z * 0.0241 + 2.1 + phase * 0.45) * 3.2 * macro.roadElevationVariation
+  const switchbackDrop = Math.sin(z * 0.0241 + 2.1 + phase * 0.45) * 1.5 * macro.roadElevationVariation
 
-  // 4. Subtle highway undulations (wavelength ~110m, amplitude +-0.8m)
-  const microWave = Math.sin(z * 0.057 + 0.8 + phase * 0.15) * 0.8 * macro.roadElevationVariation
+  // 4. Subtle highway undulations (wavelength ~110m, amplitude +-0.5m)
+  const microWave = Math.sin(z * 0.057 + 0.8 + phase * 0.15) * 0.5 * macro.roadElevationVariation
 
   // Combined smooth continuous elevation profile
   const rawElevation =
@@ -1172,15 +1172,7 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
       return (bankedCorridorBase - ROAD_CLEARANCE_BASE) - gorgeDrop
     }
 
-    const tunnel = getTunnelZoneAt(closest.u)
-    if (tunnel) {
-      const minZ = Math.min(tunnel.startZ, tunnel.endZ)
-      const tunnelT = (closest.u - minZ) / tunnel.length
-      const tunnelArchFactor = Math.sin(Math.max(0, Math.min(1, tunnelT)) * Math.PI)
-      const mountainVault = 22.0 * tunnelArchFactor
-      return (bankedCorridorBase - ROAD_CLEARANCE_BASE) + mountainVault
-    }
-
+    // Inside roadbed corridor (including tunnels), maintain clean sub-asphalt clearance
     return bankedCorridorBase - ROAD_CLEARANCE_BASE
   }
 
