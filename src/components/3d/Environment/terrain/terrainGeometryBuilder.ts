@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import {
   getRoadCenter,
-  getRoadElevation,
   getTerrainHeight,
   ROAD_WIDTH,
   getActiveBiomeAt,
@@ -40,9 +39,7 @@ export function updateTerrainGeometry(
     for (let ix = 0; ix < countX; ix++) {
       const idx = iz * countX + ix
       const localX = (ix / GRID_X - 0.5) * TERRAIN_W
-      const roadY = getRoadElevation(worldZ)
-      const rawY = getTerrainHeight(localX, worldZ, biomeConfig.id)
-      const y = Math.max(0.0, Math.min(roadY + 105.0, rawY))
+      const y = getTerrainHeight(localX, worldZ, biomeConfig.id)
       pos.setXYZ(idx, localX, y, localZ)
     }
   }
@@ -53,8 +50,7 @@ export function updateTerrainGeometry(
   const dx = TERRAIN_W / GRID_X
   const dz = CHUNK_LEN / GRID_Z
   const sampleClampedY = (lx: number, wz: number) => {
-    const rY = getRoadElevation(wz)
-    return Math.max(0.0, Math.min(rY + 105.0, getTerrainHeight(lx, wz, biomeConfig.id)))
+    return getTerrainHeight(lx, wz, biomeConfig.id)
   }
   for (let iz = 0; iz < countZ; iz++) {
     const localZ = (iz / GRID_Z - 0.5) * CHUNK_LEN

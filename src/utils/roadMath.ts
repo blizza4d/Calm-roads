@@ -385,6 +385,7 @@ export function getDominantMacroType(z: number): MacroTerrainType {
 export const ROAD_PROTECTED_RADIUS = 14.5 // Half-width (5.75m) + Flat Shoulder (3.25m) + Safety Drainage Margin (5.5m)
 export const ROAD_TRANSITION_RADIUS = 75.0 // Smooth C2 quintic transition zone into natural terrain
 export const ROAD_CLEARANCE_BASE = 0.28   // Depressed sub-asphalt corridor floor (m)
+export const MAX_TERRAIN_CEILING = 105.0   // Maximum terrain height above highway datum (m)
 
 export type BiomeType =
   | 'twisted_mountains'
@@ -964,26 +965,23 @@ export function getClosestRoadPoint(x: number, z: number): ClosestRoadPoint {
   }
 
   const optU = (a + b) * 0.5
-  const optX = getRoadCenter(optU)
-  const optY = getRoadElevation(optU)
-  const { tx, tz, nx, nz } = getRoadTangent(optU)
-  const banking = getRoadBanking(optU)
+  const spline = getRoadSplineSample(optU)
 
-  const dx = x - optX
+  const dx = x - spline.x
   const dz = z - optU
   const dist = Math.hypot(dx, dz)
-  const lateralOffset = dx * nx + dz * nz
+  const lateralOffset = dx * spline.rx + dz * spline.rz
 
   return {
     u: optU,
-    roadX: optX,
-    roadY: optY,
+    roadX: spline.x,
+    roadY: spline.y,
     dist,
-    banking,
-    tangentX: tx,
-    tangentZ: tz,
-    normalX: nx,
-    normalZ: nz,
+    banking: spline.banking,
+    tangentX: spline.tx,
+    tangentZ: spline.tz,
+    normalX: spline.rx,
+    normalZ: spline.rz,
     lateralOffset,
   }
 }
@@ -1113,41 +1111,8 @@ function getBiomeAdjustedMacro(z: number, biomeId: BiomeType): MacroTerrainProfi
 // 5. Complete World Terrain Elevation at ANY (x, z)
 // Enforces the Bulldozer Road Mask with a strictly protected roadbed corridor and smooth Hermite transition.
 // The road is always guaranteed to remain a visible, flat, continuous, physically drivable surface.
+// Fully C2 continuous across all distances with zero seam discontinuities.
 export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'forest'): number {
-  const rcZ = getRoadCenter(z)
-  const dxZ = x - rcZ
-
-  // Performance Fast-Path for Distant Terrain (|x - rcZ| > 115m):
-  // When |x - rcZ| > 115m, the Euclidean distance to the road curve is guaranteed > ROAD_TRANSITION_RADIUS (75m).
-  // Thus smoothBlend is analytically 1.0, bypassing the golden section search for >80% of chunk vertices!
-  if (Math.abs(dxZ) > 115.0 && biomeId !== 'coastal') {
-    const tan = getRoadTangent(z)
-    const uProj = z + dxZ * (tan.tx / (tan.tz || -1.0)) * 0.75
-    const uClamped = Math.max(z - 30.0, Math.min(z + 30.0, uProj))
-    const roadX = getRoadCenter(uClamped)
-    const roadY = getRoadElevation(uClamped)
-    const dist = Math.hypot(x - roadX, z - uClamped)
-    const distPastCorridor = dist - ROAD_PROTECTED_RADIUS
-    const macro = getBiomeAdjustedMacro(uClamped, biomeId)
-
-    const mult = BIOMES[biomeId]?.hillHeightMultiplier || 1.0
-    const naturalElevation = getRawMacroTerrainElevation(x, z, biomeId, macro)
-
-    const mountainRamp = macro.mountainAmplitude > 0
-      ? Math.min(1.25, 0.05 + Math.pow(distPastCorridor / 140.0, 1.25) * 1.15)
-      : 1.0
-    const valleyWallLift = macro.mountainAmplitude > 0
-      ? Math.pow(Math.min(1.0, distPastCorridor / 550.0), 1.6) * (macro.mountainAmplitude * 0.35)
-      : 0.0
-
-    const computedElevation =
-      (roadY - ROAD_CLEARANCE_BASE) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * mult)
-
-    const MAX_TERRAIN_CEILING = 110.0
-    const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
-    return Math.max(0.0, clampedElevation)
-  }
-
   const closest = getClosestRoadPoint(x, z)
   const dist = closest.dist
   const roadY = closest.roadY
@@ -1205,7 +1170,6 @@ export function getTerrainHeight(x: number, z: number, biomeId: BiomeType = 'for
   const computedElevation =
     (bankedCorridorBase - ROAD_CLEARANCE_BASE) + Math.max(0.0, (naturalElevation * mountainRamp + valleyWallLift) * smoothBlend * mult)
 
-  const MAX_TERRAIN_CEILING = 110.0
   const clampedElevation = Math.min(roadY + MAX_TERRAIN_CEILING, computedElevation)
 
   return Math.max(0.0, clampedElevation)

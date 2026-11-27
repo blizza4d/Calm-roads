@@ -63,9 +63,7 @@ export function generateSceneryDataForChunk(chunkZ: number, biomeConfig: BiomeCo
 
     // Ground elevation matching terrain vertices precisely (ceiling and sea level floor clamped)
     const getSceneryGroundY = (gx: number, gz: number) => {
-      const rY = getRoadElevation(gz)
-      const rawY = getTerrainHeight(gx, gz, biomeConfig.id)
-      return Math.max(0.0, Math.min(rY + 105.0, rawY))
+      return getTerrainHeight(gx, gz, biomeConfig.id)
     }
 
     // Utility Poles along the right road shoulder every ~33m (strictly anchored into terrain surface)
